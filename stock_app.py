@@ -1881,7 +1881,7 @@ class StockApp(tk.Tk):
             inner = tk.Frame(border, bg='#252526', padx=10, pady=8)
             inner.pack(fill='both', expand=True)
             self._tm_tip_widgets = {}
-            for key in ('title', 'price', 'qty', 'mktval', 'avgcost', 'pnl'):
+            for key in ('title', 'price', 'qty', 'mktval', 'ratio', 'avgcost', 'pnl'):
                 lbl = tk.Label(inner, bg='#252526',
                                font=('Microsoft JhengHei', 10), anchor='w')
                 lbl.pack(fill='x')
@@ -1905,6 +1905,8 @@ class StockApp(tk.Tk):
                           fg='#cccccc')
         w['qty'].config(text=f'持股：{qty:,.0f} 股', fg='#cccccc')
         w['mktval'].config(text=f'市值：{val:,.0f} 元', fg='#cccccc')
+        portfolio_pct = data.get('portfolio_pct', 0.0)
+        w['ratio'].config(text=f'占比：{portfolio_pct:.2f}%', fg='#cccccc')
         w['avgcost'].config(text=f'均價：{avg:,.2f} 元', fg='#cccccc')
         pnl_color_tip = '#f07070' if pct >= 0 else '#4ec94e'
         sign = '+' if pct >= 0 else ''
@@ -2089,7 +2091,8 @@ class StockApp(tk.Tk):
                     '← 點擊任意處返回全覽',
                     ha='left', va='center', color='#6a9fcf',
                     fontsize=9, fontfamily=CHART_FONT, zorder=11)
-            _drill_pct = sum(s['value'] for s in _drill_stocks) / total_val * 100 if total_val else 0
+            _drill_cat_val = sum(s['value'] for s in _drill_stocks)
+            _drill_pct = _drill_cat_val / total_val * 100 if total_val else 0
             ax.text(50, back_y + BACK_H / 2,
                     f'{_drill_name}  {_drill_pct:.1f}%',
                     ha='center', va='center', color='#aecde8',
@@ -2123,6 +2126,7 @@ class StockApp(tk.Tk):
                         'value':    _stk['value'], 'price':    _stk['price'],
                         'pnl_pct':  _stk['pnl_pct'], 'avg_cost': _stk['avg_cost'],
                         'qty':      _stk['qty'],   'category': _drill_name,
+                        'portfolio_pct': _stk['value'] / _drill_cat_val * 100 if _drill_cat_val else 0,
                     })
                     _min_dim = min(_rw, _rh)
                     if _min_dim < 2:
@@ -2274,6 +2278,7 @@ class StockApp(tk.Tk):
                     'avg_cost': stock['avg_cost'],
                     'qty':      stock['qty'],
                     'category': cat_name,
+                    'portfolio_pct': stock['value'] / total_val * 100 if total_val else 0,
                 })
 
                 # 字體依方塊像素大小計算（方塊越大=占比越高=字越大）
