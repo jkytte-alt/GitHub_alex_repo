@@ -38,6 +38,18 @@ try:
 except ImportError:
     _CFFI_OK = False
 
+def _net_log(msg: str):
+    """寫入網路除錯日誌（僅在 PyInstaller 打包環境下）。"""
+    try:
+        import sys as _sys
+        if getattr(_sys, 'frozen', False):
+            import os as _os, datetime as _dt
+            log_path = _os.path.join(_os.path.dirname(_sys.executable), 'net_debug.log')
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(f"[{_dt.datetime.now():%H:%M:%S}] {msg}\n")
+    except Exception:
+        pass
+
 def _cffi_get_json(url, params=None, headers=None, timeout=15):
     """curl_cffi-based JSON GET that handles corporate DNS/firewall issues."""
     _hdrs = {
@@ -47,10 +59,14 @@ def _cffi_get_json(url, params=None, headers=None, timeout=15):
     if headers:
         _hdrs.update(headers)
     if _CFFI_OK:
-        r = _cffi_req.get(url, params=params, headers=_hdrs, timeout=timeout, verify=False)
-        return _json.loads(r.content.decode('utf-8'))
-    else:
-        import urllib.request, urllib.parse, ssl
+        try:
+            r = _cffi_req.get(url, params=params, headers=_hdrs, timeout=timeout, verify=False)
+            return _json.loads(r.content.decode('utf-8'))
+        except Exception as _e:
+            _net_log(f'curl_cffi FAIL [{url[:60]}]: {_e}')
+            # curl_cffi 執行時失敗，降級為 urllib
+    import urllib.request, urllib.parse, ssl
+    try:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -59,6 +75,9 @@ def _cffi_get_json(url, params=None, headers=None, timeout=15):
         req = urllib.request.Request(url, headers=_hdrs)
         with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
             return _json.loads(resp.read().decode('utf-8'))
+    except Exception as _e2:
+        _net_log(f'urllib FAIL [{url[:60]}]: {_e2}')
+        raise
 
 warnings.filterwarnings('ignore')
 
@@ -87,6 +106,14 @@ ETF_LIST = [
     ('0051',   '元大中型100'),
     ('00733',  '富邦臺灣中小'),
     ('00850',  '元大MSCI台灣'),
+    # ── 主動型 ──────────────────────────────────────────────────────────────
+    ('00981A', '統一台股增長'),
+    ('00992A', '中信優先順位'),
+    ('00994A', '台新臺灣動能'),
+    ('00987A', '野村優息'),
+    ('00985A', '第一金優選'),
+    ('00991A', '群益多因子'),
+    ('00995A', '統一台灣動力'),
     # ── 高股息 / 配息 ────────────────────────────────────────────────────────
     ('0056',   '元大高股息'),
     ('00878',  '國泰永續高股息'),
@@ -117,8 +144,6 @@ ETF_LIST = [
     # ── 槓桿 / 反向 ──────────────────────────────────────────────────────────
     ('00631L', '元大台灣50正2'),
     ('00632R', '元大台灣50反1'),
-    ('00671L', '富邦臺灣加權正2'),
-    ('00672R', '富邦臺灣加權反1'),
     # ── 海外 ────────────────────────────────────────────────────────────────
     ('00646',  '元大S&P500'),
     ('00864B', '中信美國公債20年'),
@@ -223,6 +248,194 @@ _MKT_CONCEPT_GROUPS: dict[str, list[str]] = {
     # ── 觀光休閒 ──────────────────────────────────────────────────────────────
     '運動休閒':       ['9914', '5904', '1795', '2707', '5706', '6290'],
     '觀光旅遊':       ['2701', '2712', '2704', '2706', '2710', '2717'],
+}
+
+
+# ─── 台股總覽：電子產業分組 ──────────────────────────────────────────────────
+# TWSE 電子相關大類股名稱（用於 fallback 分組）
+_ELEC_TWSE_INDUSTRIES: set[str] = {
+    '半導體', '電腦週邊', '光電', '通信網路', '電零組', '電子通路', '資訊服務', '其它電子', '電子'
+}
+
+# 完整對應 wantgoo 電子產業 35 個子分類成分股（第一個命中的子類為主分組）
+# 未列入的電子股會以 TWSE 大類別作為 fallback
+_MKT_ELEC_GROUPS: dict[str, list[str]] = {
+    # ── 半導體 ────────────────────────────────────────────────────────────────
+    'IC設計服務':    ['4919', '3317', '2436', '6643', '2388', '3545', '6651', '4968',
+                     '3006', '8227', '6679', '3228', '6693', '3034', '3150', '2458',
+                     '3556', '6962', '7749', '3438', '6129', '3014', '2401', '2379',
+                     '5272', '6103', '6563', '8102', '4961', '6756', '8040', '4966',
+                     '2363', '3588', '6996', '6411', '6695', '6229', '6842', '5274',
+                     '3122', '3288', '5302', '7712', '3227', '7770', '8081', '6202',
+                     '6462', '5468', '3169', '5471', '6526', '3094', '5299', '6719',
+                     '2454', '3035', '5236', '3527', '8024', '6531', '6799', '3141',
+                     '8016', '6104', '3257', '6684', '6720', '4951', '8054', '3268',
+                     '6732', '6138', '3530', '6568', '6233', '3661', '5351', '4923',
+                     '6716', '3041', '7796', '3592', '6237', '8261', '6415', '6243',
+                     '6423', '6435', '5269', '6921', '7707', '4952', '5487', '6485',
+                     '3073', '2337', '2408', '6291', '6533', '3443', '2344', '4925',
+                     '3529', '6708', '6494', '6927', '8299', '7872', '6907', '3259'],
+    'IC生產製造':    ['6451', '6683', '4971', '3467', '3105', '6510', '2351', '3264',
+                     '3260', '8086', '3265', '6187', '5347', '6271', '6548', '3374',
+                     '5285', '3178', '5222', '2338', '3675', '4991', '6854', '3189',
+                     '2434', '2441', '6257', '6532', '6208', '8091', '6525', '4967',
+                     '5443', '3686', '8277', '8383', '2303', '6789', '3567', '3372',
+                     '8162', '8271', '2330', '2369', '6147', '5344', '3711', '6488',
+                     '7899', '2329', '6829', '6239', '7887', '2481', '6182', '7843',
+                     '7730', '6573', '8088', '2302', '8131', '2451', '4749', '8028',
+                     '3450', '7856', '2342', '7866', '3532', '7669', '2449', '5262',
+                     '5483', '3135', '2340', '7880', '8150', '8110', '5425', '6786',
+                     '7772', '4973', '5246', '3016', '3707', '7886', '6770', '6819',
+                     '7815', '6830'],
+    # ── PCB ───────────────────────────────────────────────────────────────────
+    'PCB':          ['3715', '2313', '6213', '8291', '7419', '4958', '6153', '6407',
+                     '2367', '6269', '6191', '8155', '2402', '6274', '6141', '8213',
+                     '2355', '2316', '1815', '5340', '4927', '5469', '8039', '8074',
+                     '5439', '3044', '6672', '6552', '2368', '6108', '3037', '6924',
+                     '8438', '6835', '3645', '6210', '3321', '5464', '5475', '6194',
+                     '4939', '5381', '5291', '3229', '6156', '5355', '3390', '2383',
+                     '8046', '3354', '4989', '3276', '6920', '2429', '8358', '3631',
+                     '3585'],
+    # ── 電子零組件 ────────────────────────────────────────────────────────────
+    '被動元件':      ['4760', '6155', '3090', '3026', '6127', '2472', '3117', '6224',
+                     '6175', '6597', '6284', '2492', '6173', '2375', '8043', '6204',
+                     '6449', '6432', '6862', '8042', '2428', '3236', '3624', '2478',
+                     '2327', '5328', '6834', '8121', '3191', '3357', '5228', '6207'],
+    '電子連接相關':  ['3550', '3710', '6715', '3023', '3689', '2440', '8103', '8147',
+                     '6134', '3597', '5254', '6197', '6205', '3092', '3217', '2460',
+                     '7861', '4943', '3511', '3646', '6220', '5488', '6185', '6913',
+                     '3021', '6279', '6290', '6418', '6115', '2328', '3605', '6133',
+                     '2392', '6158', '5457', '5271', '3432', '6126', '3533', '3526',
+                     '3501', '3003', '3492', '3520', '3322', '2462', '3011', '6272',
+                     '7893', '6833'],
+    '機殼':          ['3013', '2474', '5426', '8210', '6235', '6117', '5465', '3325',
+                     '3540', '2354', '9136'],
+    '其他零組件':    ['2484', '8182', '8289', '1582', '2493', '7744', '6217', '6174',
+                     '3338', '3653', '2476', '6831', '5223', '5243', '8071', '4912',
+                     '3042', '6967', '2483', '3324', '3607', '2415', '6124', '3543',
+                     '6266', '5460', '3548', '2467', '6805', '3679', '5356', '3484',
+                     '4999', '1569', '6275', '6208', '2059', '3296', '3290', '4545',
+                     '3388', '6591', '6156', '2421', '3294', '3376', '5309', '1336',
+                     '3512', '3206', '4924', '7732', '7788', '4980', '3115', '6755',
+                     '3310'],
+    # ── 整機組裝 ──────────────────────────────────────────────────────────────
+    '主機板':        ['2399', '7710', '2376', '2357', '3515', '6161', '2331', '2377',
+                     '7711'],
+    'PC/NB/平板':   ['3693', '3416', '2362', '2382', '2356', '4938', '2353', '3231',
+                     '3706', '2324', '2352', '3005'],
+    '組裝代工':      ['2312', '4938', '8183', '3231', '2317', '2352'],
+    # ── 網通 ──────────────────────────────────────────────────────────────────
+    '網通設備組件':  ['6820', '6818', '7717', '3221', '6821', '3062', '2314', '6588',
+                     '6285', '6426', '2424', '3491', '2419', '4908', '3152', '3163',
+                     '8045', '7812', '3694', '8011', '3138', '5388', '8059', '4905',
+                     '3047', '7455', '3380', '2485', '6792', '4977', '3081', '6442',
+                     '2332', '6980', '3596', '6674', '3209', '4906', '2444', '3466',
+                     '3499', '3447', '3704', '6263', '2321', '3363', '4903', '6241',
+                     '3419', '7805', '5353', '3684', '3306', '6216', '3473', '5348',
+                     '8176', '8089', '2496', '3025', '3632', '2455', '3564', '3234',
+                     '6470', '2345', '6142', '6546', '6530', '3672', '8034', '3558',
+                     '6152', '3027', '6465', '6784', '4979', '8048'],
+    '其他網通':      ['6190', '6486', '3669', '7689', '6245', '6218', '8097', '6136',
+                     '6143', '6417', '4909', '6761', '6906', '4980', '6163'],
+    # ── 電腦週邊 ──────────────────────────────────────────────────────────────
+    '電腦週邊配件':  ['2305', '5289', '2402', '3693', '7455', '3071', '6150', '4915',
+                     '2417', '3272', '3494', '3211', '2385', '2465', '7892', '2495',
+                     '5474', '3287', '6805', '4987', '6228', '6161', '8410', '3483',
+                     '5438', '3611', '6188', '5215', '2387', '5490', '2365', '2425',
+                     '8163', '3323', '6121', '3349', '6230', '3625', '2380', '3017',
+                     '3060', '3057'],
+    '其他電腦週邊':  ['6277', '3701', '3213', '6128', '2405', '5258', '5450', '3046',
+                     '1569', '9912', '2432', '3002', '3712'],
+    # ── 手機相關 ──────────────────────────────────────────────────────────────
+    '手機相關':      ['2498', '6283', '3311', '6170', '2357', '2439', '8101', '6109',
+                     '8171', '3095'],
+    # ── 光電/光學 ─────────────────────────────────────────────────────────────
+    'LED':          ['2426', '3339', '6271', '6548', '3603', '2438', '6597', '2486',
+                     '4972', '3346', '5450', '7753', '2393', '3031', '4956', '3066',
+                     '2455', '5230', '8111', '6729', '6164', '3516', '5244', '6226',
+                     '3714', '6168', '2340', '3437', '3591', '6559'],
+    '光電設備':      ['6419', '6425', '5240', '3455', '3297', '3434', '4537', '8072',
+                     '6234', '3535', '3413', '5484', '6664', '5443', '3356', '3583',
+                     '3128', '6125', '3485', '2466', '3581', '5251', '3490', '6706',
+                     '8064'],
+    '光學元件或組裝':['6498', '4915', '3630', '3441', '3008', '4974', '8249', '6668',
+                     '6517', '5230', '3362', '6789', '3504', '3019', '4976', '6560',
+                     '6742', '6209', '3406', '6859', '6915', '3659', '6787', '7772',
+                     '5248', '6858', '2256'],
+    '其他光電':      ['3595', '3230', '3059', '3543', '3663', '6225', '5392', '3050',
+                     '2374', '2491', '7402', '2349', '2323', '5267'],
+    '面板業':        ['3678', '2489', '8240', '3615', '3545', '4960', '6698', '5245',
+                     '6246', '8215', '4729', '3051', '8069', '8105', '3673', '3685',
+                     '5432', '6176', '4933', '6278', '3168', '4942', '4935', '5371',
+                     '3666', '7770', '3531', '6916', '7753', '6120', '6899', '5220',
+                     '3633', '5234', '5315', '8016', '3622', '4995', '6577', '6222',
+                     '3038', '8104', '8049', '6673', '3481', '6114', '3623', '5283',
+                     '6167', '3149', '6116', '3523', '6434', '6456', '4749', '6775',
+                     '2409', '6405', '6979', '3049'],
+    # ── 綠能 ──────────────────────────────────────────────────────────────────
+    '電池或電源':    ['7890', '6940', '1723', '6292', '8093', '1471', '4739', '8109',
+                     '6276', '6203', '7742', '4721', '3609', '3308', '6259', '6509',
+                     '3032', '3332', '7854', '2420', '4931', '2413', '6412', '2308',
+                     '3078', '6781', '2431', '3207', '8038', '6282', '6558', '3015',
+                     '5227', '2301', '7816', '2457', '8028', '6555', '3226', '3593',
+                     '3058', '7758'],
+    '太陽能':        ['4949', '6538', '6839', '1809', '1802', '4720', '1304', '3628',
+                     '6806', '1711', '1611', '6987', '1343', '4707', '1717', '2434',
+                     '6692', '3050', '5234', '3686', '6729', '6477', '1514', '4934',
+                     '3691', '2481', '4582', '2406', '2349', '6873', '2342', '6443',
+                     '3713', '7590', '5483', '6682', '6244', '3576'],
+    # ── 特殊電子 ──────────────────────────────────────────────────────────────
+    '工業電腦':      ['3577', '3416', '4916', '6166', '6416', '6441', '6928', '3088',
+                     '6206', '8119', '6160', '8050', '7562', '6579', '3521', '2364',
+                     '3652', '3022', '6536', '8114', '6922', '6825', '3594', '6570',
+                     '3479', '6414', '2397', '8076', '8234', '6680', '2395', '6669',
+                     '3005', '6599', '7875', '3097', '5386'],
+    '安全監控':      ['6638', '5493', '5489', '2390', '6556'],
+    '消費電子或電器':['3067', '6151', '3285', '2488', '3024', '3541', '5225', '2477',
+                     '6275', '6201', '6743'],
+    '其他電子或零件':['1785', '8021', '3305', '3465', '8431', '3665', '8047', '3628',
+                     '3552', '3551', '7749', '6283', '3466', '4554', '3289', '2373',
+                     '2433', '2461', '3219', '6863', '3617', '6409', '6192', '6512',
+                     '8499', '3373', '3043', '7885', '2497', '6722', '6215', '6146',
+                     '6642', '8201', '2482', '2423', '3587', '6840', '8085', '3518',
+                     '6988', '8058', '3508', '3580', '7896'],
+    # ── 服務/軟體 ─────────────────────────────────────────────────────────────
+    '電信服務':      ['3045', '4904', '6561', '2412', '7901'],
+    '軟體設計':      ['6865', '5203', '6593', '6738', '6428', '6910', '6882', '7724',
+                     '6516', '8272', '7834', '8416', '7765', '6925', '5202', '6231',
+                     '5211', '3555', '8298', '6565'],
+    '遊戲軟體':      ['3629', '7584', '6428', '4994'],
+    '系統整合':      ['6884', '3158', '6868', '6486', '8099', '5310', '6938', '7547',
+                     '7785', '6874', '6690', '6148', '6112', '6140', '6816', '3664',
+                     '5201', '2480', '6811', '5410', '7801', '6791', '7868', '6516',
+                     '6590', '7767', '6123', '8416', '8284', '2471', '6214', '5403',
+                     '2453', '6614', '3570', '3147', '3029', '2427', '6752', '4953',
+                     '6751', '6221', '7819', '6697', '6689', '5210', '5212', '6240',
+                     '2468', '7714', '6898'],
+    '網站經營/電商': ['5321', '6870', '6473', '6984', '5278', '8472', '3130', '3687',
+                     '5287', '6183', '7551', '6741', '6763', '5904', '8454', '8477',
+                     '2949', '6878', '8044', '3085'],
+    # ── 電子通路 ──────────────────────────────────────────────────────────────
+    '電子設備買賣':  ['3131', '3093', '3680', '6261', '8072', '6223', '3413', '3055',
+                     '3583', '3581'],
+    '電子組件買賣':  ['8096', '8070', '3312', '3597', '3036', '3537', '8032', '3114',
+                     '8455', '3528', '3048', '5452', '5434', '3232', '6189', '6113',
+                     '6474', '3224', '2459', '6270', '8084', '3028', '3010', '5498',
+                     '8068', '8112', '6227', '3033', '6265', '3360', '3444', '3702',
+                     '3555', '6707'],
+    '3C賣場':       ['8067', '3709', '6118', '6154', '2450', '2414', '2430', '6776',
+                     '6281', '2347', '6908'],
+    # ── 設備 ──────────────────────────────────────────────────────────────────
+    '設備或廠務工程':['4949', '6640', '7703', '6727', '3563', '7810', '4744', '6895',
+                     '6909', '6187', '6438', '3030', '6877', '6887', '4542', '7734',
+                     '6613', '6735', '6812', '7728', '6196', '7751', '4537', '8092',
+                     '6691', '7828', '7846', '6654', '5536', '6953', '6788', '5209',
+                     '6664', '6667', '2359', '7813', '3055', '2464', '6750', '8383',
+                     '3583', '6826', '7848', '2459', '3498', '7704', '7822', '1595',
+                     '3485', '7631', '7853', '7556', '6903', '2360', '7769', '3018',
+                     '1594', '3402', '7730', '6139', '6725', '2404', '6739', '6515',
+                     '7825', '7795', '6823', '6658', '7880', '5297', '6937', '7870',
+                     '6849', '5267', '7530', '6983', '7849'],
 }
 
 
@@ -414,6 +627,7 @@ def calc_holdings(df: pd.DataFrame) -> dict:
 # ─── 報價工具 ────────────────────────────────────────────────────────────────
 def get_price(code: str):
     code = str(code).strip()
+    _logged = False
     for s in ['.TW', '.TWO', '']:
         try:
             hist = yf.Ticker(code + s).history(period='5d')
@@ -432,8 +646,17 @@ def get_price(code: str):
                     if split_date <= today and price > ratio * 10:
                         price = round(price / ratio, 2)
                 return price, code + s
-        except Exception:
-            pass
+        except Exception as _e:
+            if not _logged:
+                _net_log(f'get_price({code}{s}) FAIL: {type(_e).__name__}: {_e}')
+                _logged = True
+    # yfinance 失敗 → 改用 TWSE/TPEX 官方 API
+    try:
+        pc = _ensure_twse_price_cache()
+        if code in pc:
+            return pc[code][0], code
+    except Exception:
+        pass
     return None, code
 
 
@@ -479,6 +702,51 @@ def _has_cjk(s: str) -> bool:
 # ── 證交所 / 櫃買中心名稱快取 ─────────────────────────────────────────────────
 _TWSE_NAMES_CACHE: dict[str, str] = {}
 _NAMES_CACHE_PATH = os.path.join(BASE_DIR, '.stock_names_cache.json')
+
+# ── TWSE/TPEX 即時收盤價快取 {代號: (收盤價, 漲跌)} ─────────────────────────
+_TWSE_PRICE_CACHE: dict[str, tuple[float, float]] = {}
+_TWSE_PRICE_CACHE_DATE: str = ''   # 'YYYY-MM-DD'，當天有效
+
+def _ensure_twse_price_cache() -> dict[str, tuple[float, float]]:
+    """確保 TWSE/TPEX 收盤價快取是今天的資料，否則重新抓取。"""
+    global _TWSE_PRICE_CACHE, _TWSE_PRICE_CACHE_DATE
+    today = _date.today().strftime('%Y-%m-%d')
+    if _TWSE_PRICE_CACHE and _TWSE_PRICE_CACHE_DATE == today:
+        return _TWSE_PRICE_CACHE
+    cache: dict[str, tuple[float, float]] = {}
+    # TWSE 上市
+    try:
+        rows = _cffi_get_json('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', timeout=15)
+        for row in rows:
+            code = str(row.get('Code', '')).strip()
+            try:
+                price = float(str(row.get('ClosingPrice', '')).replace(',', '') or '0')
+                chg   = float(str(row.get('Change', '0')).replace(',', '') or '0')
+                if price > 0:
+                    cache[code] = (price, chg)
+            except (ValueError, TypeError):
+                pass
+    except Exception as _e:
+        _net_log(f'_ensure_twse_price_cache TWSE fail: {_e}')
+    # TPEX 上櫃
+    try:
+        rows = _cffi_get_json('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', timeout=15)
+        for row in rows:
+            code = str(row.get('SecuritiesCompanyCode', '')).strip()
+            try:
+                price = float(str(row.get('Close', '')).replace(',', '') or '0')
+                chg_s = str(row.get('Change', '0')).replace(',', '').strip()
+                chg   = float(chg_s) if chg_s else 0.0
+                if price > 0 and code not in cache:
+                    cache[code] = (price, chg)
+            except (ValueError, TypeError):
+                pass
+    except Exception as _e:
+        _net_log(f'_ensure_twse_price_cache TPEX fail: {_e}')
+    if cache:
+        _TWSE_PRICE_CACHE = cache
+        _TWSE_PRICE_CACHE_DATE = today
+    return _TWSE_PRICE_CACHE
 
 # ── 產業別快取 ────────────────────────────────────────────────────────────────
 _TWSE_INDUSTRY_CACHE: dict[str, str] = {}
@@ -726,8 +994,11 @@ def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
         'X-Requested-With': 'XMLHttpRequest',
         'Referer': f'https://www.twse.com.tw/zh/ETF/fund/{code}',
     }
+    _twse_api_dead = False  # 偵測 API 已改版回 HTML，避免重複嘗試
     for q_type in ('DAILY', 'MONTHLY'):
-        for days_back in range(2, 6):   # 只試近4天；DNS或HTML失敗時快速跳過
+        if _twse_api_dead:
+            break
+        for days_back in range(1, 15):  # 往前找14天，涵蓋連假期間
             date = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
             try:
                 data = _cffi_get_json(
@@ -735,7 +1006,10 @@ def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
                     params={'fund': code, 'type': q_type, 'date': date},
                     headers=twse_hdr, timeout=5)
                 if not isinstance(data, dict):
-                    continue
+                    # API 回傳 HTML 或其他非 JSON：整個 TWSE 方法已失效，直接放棄
+                    _twse_api_dead = True
+                    debug.append('TWSE API 已改版（非JSON）')
+                    break
                 stat = data.get('stat', '?')
                 if stat != 'OK':
                     continue
@@ -765,11 +1039,81 @@ def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
                 if holdings:
                     debug.append(f'TWSE OK: {len(holdings)} 檔')
                     return holdings, ' | '.join(debug)
+            except _json.JSONDecodeError:
+                # 第一次 JSONDecodeError 就代表 API 回傳 HTML，不必繼續嘗試
+                _twse_api_dead = True
+                debug.append('TWSE API 已改版（JSONDecodeError）')
+                break
             except Exception as e:
                 debug.append(f'TWSE({q_type},{date}): {type(e).__name__}')
                 continue
 
-    # ── 方法 2: Yahoo Finance topHoldings（正確權重，最多10檔）──────────────
+    # ── 方法 2: MoneyDJ 完整成分股（優先，HTML 解析）────────────────────────
+    import re as _re
+    _mj_holdings = []
+    try:
+        _mj_hdrs = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0',
+            'Accept': 'text/html,application/xhtml+xml',
+            'Accept-Language': 'zh-TW,zh;q=0.9',
+            'Referer': 'https://www.moneydj.com/',
+        }
+        # Try .TW then .TWO
+        for _sfx in ['.TW', '.TWO']:
+            _mj_url = (f'https://www.moneydj.com/ETF/X/Basic/Basic0007B.xdjhtm'
+                       f'?etfid={code}{_sfx}')
+            try:
+                if _CFFI_OK:
+                    _r = _cffi_req.get(_mj_url, headers=_mj_hdrs, timeout=8, verify=False)
+                    _html = _r.content.decode('latin-1')
+                else:
+                    import urllib.request as _ureq, ssl as _ssl
+                    _ctx = _ssl.create_default_context()
+                    _ctx.check_hostname = False; _ctx.verify_mode = _ssl.CERT_NONE
+                    _req2 = _ureq.Request(_mj_url, headers=_mj_hdrs)
+                    with _ureq.urlopen(_req2, context=_ctx, timeout=8) as _resp:
+                        _html = _resp.read().decode('latin-1')
+
+                _pat = _re.compile(
+                    r"etfid=(\d{4,6})\.TWO?[^'\"]*['\"][^>]*>[^<]*</a>"
+                    r"</td>\s*<td[^>]*>([\d.]+)</td>",
+                    _re.I)
+                _seen: set = set()
+                _tmp = []
+                for _m in _pat.finditer(_html):
+                    _sc = _m.group(1).strip()
+                    if _sc in _seen:
+                        continue
+                    try:
+                        _w = float(_m.group(2))
+                    except ValueError:
+                        _w = 0.0
+                    if _w <= 0 or _w > 100:
+                        continue
+                    _tmp.append({'code': _sc,
+                                 'name': _TWSE_NAMES_CACHE.get(_sc, _sc),
+                                 'weight': _w,
+                                 'sym': _sc + '.TW'})
+                    _seen.add(_sc)
+                if len(_tmp) > len(_mj_holdings):
+                    _mj_holdings = _tmp
+                if _mj_holdings:
+                    break   # .TW worked, no need to try .TWO
+            except Exception:
+                continue
+
+        if _mj_holdings:
+            debug.append(f'MoneyDJ: {len(_mj_holdings)} 檔')
+        else:
+            debug.append('MoneyDJ: 0 檔')
+    except Exception as _e:
+        debug.append(f'MoneyDJ err: {type(_e).__name__}')
+
+    # ── 方法 3: Yahoo Finance topHoldings（備用，MoneyDJ 已有結果則跳過）──────
+    if _mj_holdings:
+        return _mj_holdings, ' | '.join(debug)
+
+    _yf_holdings = []
     try:
         from yfinance.data import YfData as _YfData
         _yfdata = _YfData(session=None)
@@ -778,7 +1122,7 @@ def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
                 r = _yfdata.cache_get(
                     url='https://query2.finance.yahoo.com/v10/finance/quoteSummary/' + code + suffix,
                     params={'modules': 'topHoldings'},
-                    timeout=15)
+                    timeout=8)
                 payload = _json.loads(r.content)
                 result  = payload.get('quoteSummary', {}).get('result', [{}])
                 if not result:
@@ -786,7 +1130,7 @@ def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
                 raw_h = result[0].get('topHoldings', {}).get('holdings', [])
                 if not raw_h:
                     continue
-                holdings = []
+                _tmp_yf = []
                 for h in raw_h:
                     sym   = str(h.get('symbol', ''))
                     clean = sym.replace('.TWO', '').replace('.TW', '').strip()
@@ -795,77 +1139,23 @@ def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
                     w     = (pct.get('raw', 0) if isinstance(pct, dict) else float(pct or 0)) * 100
                     full  = sym if (sym.endswith('.TW') or sym.endswith('.TWO')) \
                             else clean + '.TW'
-                    holdings.append({'code': clean, 'sym': full, 'name': name, 'weight': w})
-                if holdings:
-                    debug.append(f'Yahoo topHoldings: {len(holdings)} 檔')
-                    return holdings, ' | '.join(debug)
+                    _tmp_yf.append({'code': clean, 'sym': full, 'name': name, 'weight': w})
+                if len(_tmp_yf) > len(_yf_holdings):
+                    _yf_holdings = _tmp_yf
+                if _yf_holdings:
+                    break
             except Exception:
                 pass
+        if _yf_holdings:
+            debug.append(f'Yahoo topHoldings: {len(_yf_holdings)} 檔')
     except Exception as e:
         debug.append(f'Yahoo err: {type(e).__name__}')
 
-    # ── 方法 3: MoneyDJ 完整成分股（HTML 解析，所有成分股）────────────────────
-    import re as _re
-    try:
-        _mj_url = (f'https://www.moneydj.com/ETF/X/Basic/Basic0007B.xdjhtm'
-                   f'?etfid={code}.TW')
-        _mj_hdrs = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0',
-            'Accept': 'text/html,application/xhtml+xml',
-            'Accept-Language': 'zh-TW,zh;q=0.9',
-            'Referer': 'https://www.moneydj.com/',
-        }
-        if _CFFI_OK:
-            _r = _cffi_req.get(_mj_url, headers=_mj_hdrs, timeout=20, verify=False)
-            _html = _r.content.decode('latin-1')  # lossless; Big5 page
-        else:
-            import urllib.request as _ureq, ssl as _ssl
-            _ctx = _ssl.create_default_context()
-            _ctx.check_hostname = False
-            _ctx.verify_mode = _ssl.CERT_NONE
-            _req2 = _ureq.Request(_mj_url, headers=_mj_hdrs)
-            with _ureq.urlopen(_req2, context=_ctx, timeout=20) as _resp:
-                _html = _resp.read().decode('latin-1')
-
-        # Extract code from href="...etfid=XXXX.TW..." then weight from col06
-        # HTML: etfid=2330.TW...>NAME</a></td><td ...>63.00</td>
-        _pat = _re.compile(
-            r"etfid=(\d{4,6})\.TWO?[^'\"]*['\"][^>]*>[^<]*</a>"
-            r"</td>\s*<td[^>]*>([\d.]+)</td>",
-            _re.I
-        )
-        _matches = list(_pat.finditer(_html))
-
-        holdings = []
-        seen_codes: set = set()
-        for _m in _matches:
-            _s_code = _m.group(1).strip()
-            _w_str  = _m.group(2)
-            if _s_code in seen_codes:
-                continue
-            try:
-                _weight = float(_w_str)
-            except ValueError:
-                _weight = 0.0
-            if _weight <= 0 or _weight > 100:
-                continue
-            # Use TWSE cache for canonical Chinese name
-            _name = _TWSE_NAMES_CACHE.get(_s_code, _s_code)
-            holdings.append({
-                'code': _s_code,
-                'name': _name,
-                'weight': _weight,
-                'sym':  _s_code + '.TW',
-            })
-            seen_codes.add(_s_code)
-
-        if holdings:
-            debug.append(f'MoneyDJ: {len(holdings)} 檔')
-            return holdings, ' | '.join(debug)
-        else:
-            debug.append('MoneyDJ: 0 檔（解析失敗）')
-    except Exception as _e:
-        debug.append(f'MoneyDJ err: {type(_e).__name__}')
+    # 優先採用 MoneyDJ（筆數較多且完整），Yahoo 作為備用
+    if _mj_holdings:
+        return _mj_holdings, ' | '.join(debug)
+    if _yf_holdings:
+        return _yf_holdings, ' | '.join(debug)
 
     return [], ' | '.join(debug)
 
@@ -911,8 +1201,15 @@ def fetch_etf_data(etf_code: str) -> tuple[str, list[dict], str]:
     price_map:  dict[str, float] = {}
     change_map: dict[str, float] = {}
     try:
-        hist = yf.download(all_syms, period='2d', auto_adjust=False,
-                           progress=False, threads=True)
+        import concurrent.futures as _cff
+        def _do_dl():
+            return yf.download(all_syms, period='2d', auto_adjust=False,
+                               progress=False, threads=True, timeout=8)
+        with _cff.ThreadPoolExecutor(max_workers=1) as _dl_ex:
+            try:
+                hist = _dl_ex.submit(_do_dl).result(timeout=15)
+            except Exception:
+                hist = pd.DataFrame()
         if not hist.empty:
             if isinstance(hist.columns, pd.MultiIndex):
                 close_df = hist['Close']
@@ -948,10 +1245,15 @@ def fetch_etf_data(etf_code: str) -> tuple[str, list[dict], str]:
 
 
 def fetch_etf_meta(etf_code: str) -> dict:
-    """Fetch ETF AUM, yield, NAV, sector weights, asset allocation from Yahoo Finance.
-    Returns dict with keys: total_assets, yield_pct, nav, sector_weights, asset_alloc.
+    """Fetch ETF AUM, yield, NAV, sector weights, asset allocation.
+    Source 1: Yahoo Finance quoteSummary
+    Source 2: TWSE ETF openapi (NAV + 規模)
+    Returns dict with keys: total_assets, yield_pct, nav, price, sector_weights, asset_alloc.
     """
     code = str(etf_code).strip()
+    meta: dict = {}
+
+    # ── 方法1：Yahoo Finance quoteSummary ────────────────────────────────────
     try:
         from yfinance.data import YfData as _YfData
         _yfdata = _YfData(session=None)
@@ -960,13 +1262,14 @@ def fetch_etf_meta(etf_code: str) -> dict:
                 r = _yfdata.cache_get(
                     url=f'https://query2.finance.yahoo.com/v10/finance/quoteSummary/{code}{suffix}',
                     params={'modules': 'summaryDetail,etfProfile'},
-                    timeout=15)
+                    timeout=8)
+                if r is None:
+                    continue
                 payload = _json.loads(r.content)
                 result  = payload.get('quoteSummary', {}).get('result', [{}])
                 if not result:
                     continue
                 res  = result[0]
-                meta: dict = {}
                 sd   = res.get('summaryDetail', {})
                 for src_key, dst_key in [('totalAssets',         'total_assets'),
                                           ('yield',               'yield_pct'),
@@ -978,13 +1281,40 @@ def fetch_etf_meta(etf_code: str) -> dict:
                 ep = res.get('etfProfile', {})
                 meta['sector_weights'] = ep.get('sectorWeightings', [])
                 meta['asset_alloc']    = ep.get('assetAllocations', [])
-                if any(v for v in meta.values()):
-                    return meta
+                if any(v is not None for v in meta.values()):
+                    break
             except Exception:
                 pass
     except Exception:
         pass
-    return {}
+
+    # ── 方法2：TWSE ETF openapi 補充（NAV、規模）────────────────────────────
+    if not meta.get('nav') or not meta.get('total_assets'):
+        try:
+            rows = _cffi_get_json(
+                'https://openapi.twse.com.tw/v1/ETF/getETFInfo',
+                timeout=10)
+            for row in rows:
+                c = str(row.get('ETFid', '')).strip()
+                if c != code:
+                    continue
+                if not meta.get('nav'):
+                    nav_str = str(row.get('NetAssetValuePerShare', '') or '').replace(',', '')
+                    try:
+                        meta['nav'] = float(nav_str)
+                    except ValueError:
+                        pass
+                if not meta.get('total_assets'):
+                    aum_str = str(row.get('NetAssetValue', '') or '').replace(',', '')
+                    try:
+                        meta['total_assets'] = float(aum_str) * 1e4  # 萬元 → 元
+                    except ValueError:
+                        pass
+                break
+        except Exception:
+            pass
+
+    return meta
 
 
 def get_stock_name(code: str) -> str | None:
@@ -2147,7 +2477,12 @@ class StockApp(tk.Tk):
         self._hide_tooltip()
 
     def _show_tooltip(self, sx, sy, data):
-        if self._tm_tooltip is None or not self._tm_tooltip.winfo_exists():
+        expected_keys = {'title', 'price', 'qty', 'mktval', 'ratio', 'avgcost', 'pnl'}
+        needs_rebuild = (self._tm_tooltip is None or not self._tm_tooltip.winfo_exists()
+                         or not expected_keys.issubset(self._tm_tip_widgets))
+        if needs_rebuild:
+            if self._tm_tooltip and self._tm_tooltip.winfo_exists():
+                self._tm_tooltip.destroy()
             tip = tk.Toplevel(self)
             tip.overrideredirect(True)
             tip.attributes('-topmost', True)
@@ -2285,7 +2620,12 @@ class StockApp(tk.Tk):
                                  facecolor=self._an_fig.get_facecolor())
 
     def _show_cat_tooltip(self, sx, sy, cat):
-        if self._tm_tooltip is None or not self._tm_tooltip.winfo_exists():
+        expected_keys = {'title', 'price', 'qty', 'mktval', 'ratio', 'avgcost', 'pnl'}
+        needs_rebuild = (self._tm_tooltip is None or not self._tm_tooltip.winfo_exists()
+                         or not expected_keys.issubset(self._tm_tip_widgets))
+        if needs_rebuild:
+            if self._tm_tooltip and self._tm_tooltip.winfo_exists():
+                self._tm_tooltip.destroy()
             tip = tk.Toplevel(self)
             tip.overrideredirect(True)
             tip.attributes('-topmost', True)
@@ -2295,7 +2635,7 @@ class StockApp(tk.Tk):
             inner = tk.Frame(border, bg='#252526', padx=10, pady=8)
             inner.pack(fill='both', expand=True)
             self._tm_tip_widgets = {}
-            for key in ('title', 'price', 'qty', 'mktval', 'avgcost', 'pnl'):
+            for key in ('title', 'price', 'qty', 'mktval', 'ratio', 'avgcost', 'pnl'):
                 lbl = tk.Label(inner, bg='#252526',
                                font=('Microsoft JhengHei', 10), anchor='w')
                 lbl.pack(fill='x')
@@ -2310,6 +2650,7 @@ class StockApp(tk.Tk):
         w['price'].config(text=f"持股標的：{cat['count']} 檔", fg='#cccccc')
         w['qty'].config(  text=f"市值：{cat['value']:,.0f} 元",  fg='#cccccc')
         w['mktval'].config(text=f"成本：{cat['cost']:,.0f} 元",  fg='#cccccc')
+        w['ratio'].config(text='', fg='#cccccc')
         w['avgcost'].config(text='', fg='#cccccc')
         w['pnl'].config(
             text=f"損益：{sign}{cat['pnl_amt']:,.0f} 元  ({sign}{cat['pnl_pct']:.2f}%)",
@@ -2319,19 +2660,52 @@ class StockApp(tk.Tk):
 
     def _place_tooltip(self, tip: tk.Toplevel, cursor_x: int, cursor_y: int,
                        offset: int = 16) -> None:
-        """將 tooltip 定位在游標右下方；若超出螢幕右/下邊界則改到左/上方。"""
+        """將 tooltip 定位在游標右下方；若超出螢幕右/下邊界則改到左/上方。
+        多螢幕延伸時，以游標所在螢幕的邊界為準。"""
         tip.update_idletasks()
         tw = tip.winfo_width()
         th = tip.winfo_height()
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
+
+        # 預設：主螢幕邊界
+        mon_left, mon_top = 0, 0
+        mon_right  = self.winfo_screenwidth()
+        mon_bottom = self.winfo_screenheight()
+
+        # 用 ctypes 定義正確的 MONITORINFO 結構，取得游標所在螢幕工作區
+        try:
+            import ctypes, ctypes.wintypes
+
+            class _RECT(ctypes.Structure):
+                _fields_ = [('left',   ctypes.c_long), ('top',    ctypes.c_long),
+                            ('right',  ctypes.c_long), ('bottom', ctypes.c_long)]
+
+            class _MONITORINFO(ctypes.Structure):
+                _fields_ = [('cbSize',    ctypes.c_ulong),
+                            ('rcMonitor', _RECT),
+                            ('rcWork',    _RECT),
+                            ('dwFlags',   ctypes.c_ulong)]
+
+            pt    = ctypes.wintypes.POINT(cursor_x, cursor_y)
+            hmon  = ctypes.windll.user32.MonitorFromPoint(pt, 2)   # DEFAULTTONEAREST
+            minfo = _MONITORINFO()
+            minfo.cbSize = ctypes.sizeof(_MONITORINFO)
+            ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(minfo))
+            mon_left   = minfo.rcWork.left
+            mon_top    = minfo.rcWork.top
+            mon_right  = minfo.rcWork.right
+            mon_bottom = minfo.rcWork.bottom
+        except Exception:
+            pass
+
         x = cursor_x + offset
         y = cursor_y + offset
-        if x + tw > sw:
+        if x + tw > mon_right:
             x = cursor_x - tw - offset
-        if y + th > sh:
+        if y + th > mon_bottom:
             y = cursor_y - th - offset
-        tip.geometry(f'+{max(0, x)}+{max(0, y)}')
+        x = max(mon_left, x)
+        y = max(mon_top,  y)
+        tip.geometry(f'+{x}+{y}')
 
     def _hide_tooltip(self):
         if self._tm_tooltip and self._tm_tooltip.winfo_exists():
@@ -3043,11 +3417,44 @@ class StockApp(tk.Tk):
 
 
     # ═══════════════════════════════════════════════════════════════════════════
-    # Tab 4：ETF 成分股分析
+    # Tab 4：ETF 分析（成分股分析 / ETF 比較）
     # ═══════════════════════════════════════════════════════════════════════════
     def _build_tab4(self):
         f = self.tab4
 
+        # ── 子頁籤切換列 ──────────────────────────────────────────────────────
+        sub_bar = tk.Frame(f, bg='#0d0d1a')
+        sub_bar.pack(fill='x', padx=0, pady=0)
+
+        self._etf_sub_btns: dict[str, tk.Label] = {}
+        for sid, slbl in [('analysis', 'ETF 成分股分析'), ('compare', 'ETF 比較')]:
+            btn = tk.Label(sub_bar, text=slbl,
+                           bg='#1a1a2e', fg='#9090a0',
+                           font=('Microsoft JhengHei', 10, 'bold'),
+                           padx=18, pady=7, cursor='hand2')
+            btn.pack(side='left')
+            btn.bind('<Button-1>', lambda e, s=sid: self._show_etf_sub(s))
+            self._etf_sub_btns[sid] = btn
+
+        # ── 子頁面容器 ────────────────────────────────────────────────────────
+        self._etf_sub_analysis = tk.Frame(f, bg=C_BG)
+        self._etf_sub_analysis.place(relx=0, rely=0.045, relwidth=1, relheight=0.955)
+        self._etf_sub_compare  = tk.Frame(f, bg=C_BG)
+        self._etf_sub_compare.place(relx=0, rely=0.045, relwidth=1, relheight=0.955)
+
+        self._build_etf_analysis_sub(self._etf_sub_analysis)
+        self._build_etf_compare_sub(self._etf_sub_compare)
+        self._show_etf_sub('analysis')
+
+    def _show_etf_sub(self, sid: str):
+        self._etf_sub_analysis.tkraise() if sid == 'analysis' else self._etf_sub_compare.tkraise()
+        for k, btn in self._etf_sub_btns.items():
+            if k == sid:
+                btn.config(bg='#2a3f6f', fg='white')
+            else:
+                btn.config(bg='#1a1a2e', fg='#9090a0')
+
+    def _build_etf_analysis_sub(self, f):
         # ── 控制列 ────────────────────────────────────────────────────────────
         ctrl = ttk.Frame(f)
         ctrl.pack(fill='x', padx=14, pady=8)
@@ -3275,6 +3682,805 @@ class StockApp(tk.Tk):
         self._etf_canvas.mpl_connect('motion_notify_event', self._on_etf_motion)
         self._etf_canvas.mpl_connect('figure_leave_event',  lambda e: self._hide_etf_tooltip())
         self._etf_kline_canvas.mpl_connect('motion_notify_event', self._on_kline_hover)
+
+    # ── ETF 比較子頁面 ────────────────────────────────────────────────────────
+    def _build_etf_compare_sub(self, f):
+        C_PNL = '#1a1a2e'
+        # ── 頂部控制列 ────────────────────────────────────────────────────────
+        ctrl = ttk.Frame(f)
+        ctrl.pack(fill='x', padx=14, pady=8)
+        ttk.Label(ctrl, text='ETF 比較', style='Hdr.TLabel').pack(side='left')
+
+        ttk.Label(ctrl, text='搜尋 ETF：').pack(side='left', padx=(20, 4))
+        self._cmp_search_var = tk.StringVar()
+        cmp_entry = ttk.Entry(ctrl, textvariable=self._cmp_search_var, width=16)
+        cmp_entry.pack(side='left', padx=4)
+        cmp_entry.bind('<Return>', lambda _: self._cmp_add_etf())
+
+        # 搜尋下拉
+        etf_opts = [f'{c}  {n}' for c, n in ETF_LIST]
+        self._cmp_combo = ttk.Combobox(ctrl, values=etf_opts, width=24, state='normal')
+        self._cmp_combo.pack(side='left', padx=4)
+        self._cmp_combo.bind('<<ComboboxSelected>>', lambda _: self._cmp_select_combo())
+
+        ttk.Button(ctrl, text='＋ 加入比較', style='Nav.TButton',
+                   command=self._cmp_add_etf).pack(side='left', padx=(4, 0))
+        ttk.Button(ctrl, text='🗑 清除全部', style='Nav.TButton',
+                   command=self._cmp_clear_all).pack(side='left', padx=(6, 0))
+        ttk.Button(ctrl, text='📊 更新比較', style='Nav.TButton',
+                   command=self._cmp_run).pack(side='left', padx=(6, 0))
+
+        # ── 預設分類快選列 ────────────────────────────────────────────────────
+        # 每個分類都自動包含 0050 作為大盤基準
+        _BENCHMARK = [('0050', '元大台灣50')]
+        _CMP_PRESETS = [
+            ('指數型',   [('006208','富邦台灣50'), ('0051','元大中型100'),
+                          ('00733','富邦臺灣中小'), ('009816','街口臺灣高成長'),
+                          ('009804','統一台灣動能')]),
+            ('高股息型', [('0056','元大高股息'), ('00878','國泰永續高股息'),
+                          ('00919','群益台灣精選高息'), ('00713','元大台灣高息低波'),
+                          ('00929','復華台灣科技優息'), ('00940','元大台灣價值高息'),
+                          ('00939','統一台灣高息動能')]),
+            ('科技/半導體',[('0052','富邦科技'), ('00891','中信關鍵半導體'),
+                           ('00892','富邦台灣半導體'), ('00881','國泰台灣5G+')]),
+            ('ESG/永續', [('00692','富邦公司治理'), ('00757','統一MSCI台灣ESG'),
+                          ('00850','元大MSCI台灣'), ('00896','中信綠能及電動車')]),
+            ('主動型',   [('00981A','統一台股增長'), ('00992A','中信優先順位'),
+                          ('00994A','台新臺灣動能'), ('00987A','野村優息'),
+                          ('00985A','第一金優選'), ('00991A','群益多因子'),
+                          ('00995A','統一台灣動力')]),
+            ('正2/反1',  [('00631L','元大台灣50正2'), ('00632R','元大台灣50反1')]),
+            ('海外',     [('00646','元大S&P500'), ('00864B','中信美國公債20年'),
+                          ('00679B','元大美債20年')]),
+        ]
+
+        preset_bar = tk.Frame(f, bg='#0d0d1a')
+        preset_bar.pack(fill='x', padx=8, pady=(0, 2))
+        tk.Label(preset_bar, text='快選分類：', bg='#0d0d1a', fg='#6a8faf',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(4, 4), pady=4)
+        for p_name, p_etfs in _CMP_PRESETS:
+            btn = tk.Label(preset_bar, text=p_name,
+                           bg='#1e2d4e', fg='#aecde8',
+                           font=('Microsoft JhengHei', 8),
+                           padx=10, pady=3, cursor='hand2', relief='flat')
+            btn.pack(side='left', padx=2, pady=3)
+            # capture by value
+            def _preset_click(e, etfs=p_etfs):
+                self._cmp_clear_all()
+                for code, name in _BENCHMARK + etfs:
+                    if not any(c == code for c, _ in self._cmp_etf_list):
+                        self._cmp_etf_list.append((code, name))
+                self._cmp_rebuild_tags()
+                self._cmp_run()
+            btn.bind('<Button-1>', _preset_click)
+            btn.bind('<Enter>', lambda e, b=btn: b.config(bg='#2a4a7f'))
+            btn.bind('<Leave>', lambda e, b=btn: b.config(bg='#1e2d4e'))
+
+        # ── 已選 ETF 標籤列 ───────────────────────────────────────────────────
+        tag_frame_outer = tk.Frame(f, bg=C_PNL)
+        tag_frame_outer.pack(fill='x', padx=8, pady=(0, 4))
+        tk.Label(tag_frame_outer, text='比較清單：', bg=C_PNL, fg='#6a8faf',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(8, 4), pady=4)
+        self._cmp_tag_frame = tk.Frame(tag_frame_outer, bg=C_PNL)
+        self._cmp_tag_frame.pack(side='left', fill='x', expand=True, pady=4)
+        self._cmp_status_var = tk.StringVar(value='請加入 ETF 後點擊「更新比較」')
+        tk.Label(tag_frame_outer, textvariable=self._cmp_status_var,
+                 bg=C_PNL, fg='#6a8faf', font=('Microsoft JhengHei', 8)).pack(
+            side='right', padx=8)
+
+        # ── 比較表格（可捲動）────────────────────────────────────────────────
+        sc_outer = tk.Frame(f, bg=C_BG)
+        sc_outer.pack(fill='both', expand=True, padx=8, pady=(0, 8))
+
+        vsb = ttk.Scrollbar(sc_outer, orient='vertical')
+        vsb.pack(side='right', fill='y')
+        hsb = ttk.Scrollbar(sc_outer, orient='horizontal')
+        hsb.pack(side='bottom', fill='x')
+
+        self._cmp_canvas = tk.Canvas(sc_outer, bg=C_BG,
+                                     yscrollcommand=vsb.set,
+                                     xscrollcommand=hsb.set,
+                                     highlightthickness=0)
+        self._cmp_canvas.pack(side='left', fill='both', expand=True)
+        vsb.config(command=self._cmp_canvas.yview)
+        hsb.config(command=self._cmp_canvas.xview)
+
+        self._cmp_inner = tk.Frame(self._cmp_canvas, bg=C_BG)
+        _win = self._cmp_canvas.create_window(0, 0, anchor='nw', window=self._cmp_inner)
+
+        def _cfg_inner(e):
+            self._cmp_canvas.configure(scrollregion=self._cmp_canvas.bbox('all'))
+        self._cmp_inner.bind('<Configure>', _cfg_inner)
+        def _cfg_canvas(e):
+            self._cmp_canvas.itemconfig(_win, width=max(e.width, self._cmp_inner.winfo_reqwidth()))
+        self._cmp_canvas.bind('<Configure>', _cfg_canvas)
+        self._cmp_canvas.bind('<MouseWheel>',
+                              lambda e: self._cmp_canvas.yview_scroll(-1 if e.delta > 0 else 1, 'units'))
+
+        self._cmp_etf_list: list[tuple[str, str]] = []  # [(code, name), ...]
+        self._cmp_tags:     list[tk.Frame] = []
+
+        # 預先顯示欄位說明
+        self._cmp_show_placeholder()
+
+    def _cmp_show_placeholder(self):
+        for w in self._cmp_inner.winfo_children():
+            w.destroy()
+        tk.Label(self._cmp_inner, text='請加入至少 2 個 ETF 後點擊「更新比較」',
+                 bg=C_BG, fg='#555577', font=('Microsoft JhengHei', 11)).pack(
+            pady=60, padx=40)
+
+    def _cmp_select_combo(self):
+        sel = self._cmp_combo.get().strip()
+        if sel:
+            self._cmp_search_var.set(sel.split()[0])
+
+    def _cmp_add_etf(self):
+        raw  = self._cmp_search_var.get().strip() or self._cmp_combo.get().strip()
+        code = raw.split()[0] if raw else ''
+        if not code:
+            return
+        # 找名稱
+        name = next((n for c, n in ETF_LIST if c == code), code)
+        # 已在清單中則跳過
+        if any(c == code for c, _ in self._cmp_etf_list):
+            return
+        self._cmp_etf_list.append((code, name))
+        self._cmp_rebuild_tags()
+        self._cmp_search_var.set('')
+        self._cmp_combo.set('')
+
+    def _cmp_remove_etf(self, code: str):
+        self._cmp_etf_list = [(c, n) for c, n in self._cmp_etf_list if c != code]
+        self._cmp_rebuild_tags()
+        if not self._cmp_etf_list:
+            self._cmp_show_placeholder()
+
+    def _cmp_clear_all(self):
+        self._cmp_etf_list.clear()
+        self._cmp_rebuild_tags()
+        self._cmp_show_placeholder()
+
+    def _cmp_rebuild_tags(self):
+        for w in self._cmp_tag_frame.winfo_children():
+            w.destroy()
+        self._cmp_tags.clear()
+        for code, name in self._cmp_etf_list:
+            tag = tk.Frame(self._cmp_tag_frame, bg='#2a3f6f',
+                           padx=6, pady=2, relief='flat')
+            tag.pack(side='left', padx=3, pady=2)
+            tk.Label(tag, text=f'{code} {name}', bg='#2a3f6f', fg='white',
+                     font=('Microsoft JhengHei', 8)).pack(side='left')
+            _x = tk.Label(tag, text=' ×', bg='#2a3f6f', fg='#f07070',
+                          font=('Microsoft JhengHei', 9, 'bold'), cursor='hand2')
+            _x.pack(side='left', padx=(2, 0))
+            _x.bind('<Button-1>', lambda e, c=code: self._cmp_remove_etf(c))
+            self._cmp_tags.append(tag)
+
+    def _cmp_run(self):
+        if len(self._cmp_etf_list) < 1:
+            self._cmp_status_var.set('請先加入 ETF')
+            return
+        self._cmp_status_var.set('載入中…')
+        codes = list(self._cmp_etf_list)
+        threading.Thread(target=self._cmp_fetch_and_render,
+                         args=(codes,), daemon=True).start()
+
+    def _cmp_fetch_and_render(self, etf_pairs: list):
+        import concurrent.futures as _cf
+        results = {}
+
+        def _yf_history_safe(code: str, period: str = '3y'):
+            """yfinance 1.2.0 有 TypeError bug，逐個 suffix 嘗試並捕捉所有例外。
+            auto_adjust=True 確保遇到股票分割時使用還原股價（adjusted close）。
+            每個 suffix 最多等 12 秒，避免 yfinance 掛住整個 fetch。"""
+            def _fetch_sfx(sfx):
+                h = yf.Ticker(code + sfx).history(period=period, auto_adjust=True)
+                if h is not None and not h.empty:
+                    return h['Close'].dropna()
+                return None
+
+            for sfx in ['.TW', '.TWO']:
+                try:
+                    with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+                        fut = _ex.submit(_fetch_sfx, sfx)
+                        result = fut.result(timeout=12)
+                    if result is not None:
+                        return result
+                except Exception:
+                    pass
+            return None
+
+        def _fetch_one(code, name):
+            etf_name, components, _ = fetch_etf_data(code)
+            meta = fetch_etf_meta(code)
+            perf = {}
+            hist_3y = _yf_history_safe(code, '3y')
+            if hist_3y is not None and len(hist_3y) >= 2:
+                for label, trade_days in [('1M', 21), ('3M', 63), ('6M', 126),
+                                          ('1Y', 252), ('3Y', 756)]:
+                    # 資料不足該期間就跳過，不用第一筆湊數
+                    if len(hist_3y) < trade_days:
+                        continue
+                    idx = -(trade_days + 1)
+                    try:
+                        p0 = float(hist_3y.iloc[idx])
+                        p1 = float(hist_3y.iloc[-1])
+                        if p0 > 0:
+                            r = (p1 - p0) / p0 * 100
+                            if trade_days >= 252:
+                                r = ((1 + r / 100) ** (252 / abs(idx)) - 1) * 100
+                            perf[label] = r
+                    except Exception:
+                        pass
+            results[code] = {
+                'code': code, 'name': etf_name or name,
+                'components': components,
+                'meta': meta, 'perf': perf,
+                'hist': hist_3y,
+            }
+
+        def _safe_fetch(pair):
+            code, name = pair
+            try:
+                _fetch_one(code, name)
+            except Exception as _e:
+                _net_log(f'ETF compare fetch {code}: {_e}')
+                results[code] = {'code': code, 'name': name, 'components': [],
+                                 'meta': {}, 'perf': {}, 'hist': None}
+
+        pool = _cf.ThreadPoolExecutor(max_workers=8)
+        futs = [pool.submit(_safe_fetch, p) for p in etf_pairs]
+        _cf.wait(futs, timeout=45)          # 最多等 45 秒
+        pool.shutdown(wait=False)           # 不等卡住的 future，直接繼續
+
+        self._ui_call(lambda: self._cmp_render(etf_pairs, results))
+
+    def _cmp_render(self, etf_pairs: list, results: dict):
+        import matplotlib.pyplot as _plt
+        import matplotlib.ticker as _mticker
+        import numpy as _np
+
+        for w in self._cmp_inner.winfo_children():
+            w.destroy()
+
+        C_HDR  = '#1a1a2e'
+        C_ROW1 = '#111122'
+        C_ROW2 = '#0e0e1a'
+        C_SEP  = '#2a2a3e'
+        FNT    = ('Microsoft JhengHei', 9)
+        FNT_B  = ('Microsoft JhengHei', 9, 'bold')
+        FNT_H  = ('Microsoft JhengHei', 8)
+
+        codes   = [c for c, _ in etf_pairs]
+        ordered = [results[c] for c in codes if c in results]
+        if not ordered:
+            self._cmp_show_placeholder()
+            self._cmp_status_var.set('無法取得資料')
+            return
+
+        # ── 圖形化比較區 ──────────────────────────────────────────────────────
+        COLORS = ['#5b9cf6', '#f07070', '#4ec94e', '#f0c060',
+                  '#c07af0', '#60d0e0', '#f0a060', '#80e0a0']
+
+        chart_frame = tk.Frame(self._cmp_inner, bg='#0d0d1a')
+        chart_frame.pack(fill='x', padx=0, pady=(0, 4))
+
+        import matplotlib.dates as _mdates
+        FS_TITLE = 11   # chart title font size
+        FS_TICK  = 9    # tick label font size
+        FS_LEG   = 9    # legend font size
+
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as _FCA
+
+        # ── 上方圖：淨值走勢（獨立 figure，工具列接在下方）─────────────────
+        fig_line = plt.Figure(figsize=(12, 4.5), dpi=100, facecolor='#0d0d1a')
+        fig_line.subplots_adjust(left=0.07, right=0.97, top=0.90, bottom=0.12)
+        ax_line = fig_line.add_subplot(1, 1, 1)
+        ax_line.set_facecolor('#111122')
+        ax_line.tick_params(colors='#888899', labelsize=FS_TICK)
+        ax_line.yaxis.set_major_formatter(_mticker.FormatStrFormatter('%.0f'))
+        for spine in ax_line.spines.values():
+            spine.set_edgecolor('#333355')
+        ax_line.xaxis.set_major_formatter(_mdates.DateFormatter('%m/%y'))
+
+        # 儲存各 ETF 完整原始價格，供期間切換時重算基準
+        _hist_data = []
+        for i, d in enumerate(ordered):
+            hist = d.get('hist')
+            if hist is None or len(hist) < 5:
+                continue
+            if hasattr(hist.index, 'tz') and hist.index.tz is not None:
+                hist = hist.copy()
+                hist.index = hist.index.tz_localize(None)
+            _hist_data.append({
+                'code': d['code'], 'name': d['name'],
+                'hist': hist, 'color': COLORS[i % len(COLORS)],
+            })
+
+        line_canvas = _FCA(fig_line, master=chart_frame)
+        line_cw = line_canvas.get_tk_widget()
+        line_cw.configure(bg='#0d0d1a')
+        line_cw.pack(fill='x', padx=0, pady=0)
+
+        # ── 期間選擇按鈕 ──────────────────────────────────────────────────────
+        import datetime as _datetime
+        import pandas as _pd_line
+        _period_frame = tk.Frame(chart_frame, bg='#1a1a2e')
+        _period_frame.pack(fill='x', pady=(2, 4))
+        _cur_pid = ['1Y']   # mutable container so closure can read current period
+
+        def _draw_period(pid, btn_ref):
+            _cur_pid[0] = pid
+            for _b in _period_btns:
+                _b.config(bg='#2a2a4e', fg='#8899cc')
+            btn_ref.config(bg='#4a6fa5', fg='white')
+
+            now = _datetime.datetime.now()
+            days_map = {'1M': 30, '3M': 90, '6M': 180, '1Y': 365}
+            if pid == 'ALL':
+                x_start = None
+            else:
+                x_start = _pd_line.Timestamp(now - _datetime.timedelta(days=days_map[pid]))
+
+            ax_line.cla()
+            ax_line.set_facecolor('#111122')
+            ax_line.tick_params(colors='#888899', labelsize=FS_TICK)
+            ax_line.yaxis.set_major_formatter(_mticker.FormatStrFormatter('%.0f'))
+            for spine in ax_line.spines.values():
+                spine.set_edgecolor('#333355')
+            ax_line.xaxis.set_major_formatter(_mdates.DateFormatter('%m/%y'))
+            lbl_suffix = '' if pid == 'ALL' else {'1M':'近1個月','3M':'近3個月',
+                          '6M':'近6個月','1Y':'近1年'}[pid]
+            ax_line.set_title(f'淨值走勢比較（基準＝100，{lbl_suffix}）' if lbl_suffix
+                              else '淨值走勢比較（基準＝100，全部）',
+                              color='#aecde8', fontsize=FS_TITLE,
+                              fontfamily=CHART_FONT, pad=8)
+
+            any_line = False
+            for hd in _hist_data:
+                h = hd['hist']
+                # 截取期間內資料
+                if x_start is not None:
+                    h_slice = h[h.index >= x_start]
+                    if len(h_slice) < 2:
+                        h_slice = h.iloc[-2:]
+                else:
+                    h_slice = h
+                # 以期間起點為基準100
+                normed = h_slice / float(h_slice.iloc[0]) * 100
+                ax_line.plot(normed.index, normed.values,
+                             color=hd['color'], linewidth=2.0,
+                             label=f'{hd["code"]} {hd["name"][:8]}')
+                any_line = True
+
+            if any_line:
+                ax_line.axhline(100, color='#444466', linewidth=0.8, linestyle='--')
+                ax_line.legend(loc='upper left', fontsize=FS_LEG,
+                               facecolor='#1a1a2e', edgecolor='#333355',
+                               labelcolor='white')
+                interval = {'1M': 1, '3M': 1, '6M': 2, '1Y': 2, 'ALL': 6}.get(pid, 2)
+                ax_line.xaxis.set_major_locator(_mdates.MonthLocator(interval=interval))
+                fig_line.autofmt_xdate(rotation=30, ha='right')
+            else:
+                ax_line.text(0.5, 0.5, '無歷史資料', ha='center', va='center',
+                             color='#555577', fontsize=12, transform=ax_line.transAxes)
+            line_canvas.draw_idle()
+
+        _period_btns = []
+        for _pid, _plbl in [('1M','1個月'), ('3M','3個月'), ('6M','6個月'),
+                              ('1Y','1年'), ('ALL','全部')]:
+            _b = tk.Button(_period_frame, text=_plbl,
+                           bg='#4a6fa5' if _pid == '1Y' else '#2a2a4e',
+                           fg='white' if _pid == '1Y' else '#8899cc',
+                           font=('Microsoft JhengHei', 9),
+                           relief='flat', padx=10, pady=3, cursor='hand2')
+            _b.pack(side='left', padx=3)
+            _period_btns.append(_b)
+            _b.config(command=lambda p=_pid, b=_b: _draw_period(p, b))
+
+        # 預設顯示近1年
+        _draw_period('1Y', _period_btns[3])
+        line_canvas.draw()
+
+        # ── 下方圖：績效長條 + 熱力圖（獨立 figure）─────────────────────────
+        fig = plt.Figure(figsize=(12, 5.0), dpi=100, facecolor='#0d0d1a')
+        fig.subplots_adjust(left=0.07, right=0.97, top=0.90, bottom=0.12,
+                            wspace=0.32)
+
+        # ── 左：績效長條圖 ───────────────────────────────────────────────────
+        ax_bar = fig.add_subplot(1, 2, 1)
+        ax_bar.set_facecolor('#111122')
+        ax_bar.set_title('各期間報酬率 (%)',
+                          color='#aecde8', fontsize=FS_TITLE,
+                          fontfamily=CHART_FONT, pad=8)
+        perf_keys = ['1M', '3M', '6M', '1Y', '3Y']
+        perf_lbls = ['1月', '3月', '6月', '1年\n(年化)', '3年\n(年化)']
+        x         = _np.arange(len(perf_keys))
+        n         = len(ordered)
+        bar_w     = 0.7 / max(n, 1)
+
+        _bar_rects: list[tuple] = []
+        for i, d in enumerate(ordered):
+            xpos = x + (i - n / 2 + 0.5) * bar_w
+            for xi, pk in zip(xpos, perf_keys):
+                v = d['perf'].get(pk)
+                if v is None:
+                    continue
+                bars = ax_bar.bar(xi, v, width=bar_w * 0.85,
+                                  color=COLORS[i % len(COLORS)], alpha=0.85)
+                _bar_rects.append((bars[0], i, pk))
+
+        ax_bar.axhline(0, color='#555577', linewidth=0.8)
+        ax_bar.set_xticks(x)
+        ax_bar.set_xticklabels(perf_lbls, fontsize=FS_TICK, color='#888899')
+        ax_bar.tick_params(colors='#888899', labelsize=FS_TICK)
+        ax_bar.yaxis.set_major_formatter(_mticker.FormatStrFormatter('%.0f%%'))
+        for spine in ax_bar.spines.values():
+            spine.set_edgecolor('#333355')
+
+        # ── 右：成分股相似度熱力圖 ──────────────────────────────────────────
+        ax_heat = fig.add_subplot(1, 2, 2)
+        ax_heat.set_facecolor('#111122')
+        ax_heat.set_title('成分股相似度 % (加權Jaccard)',
+                           color='#aecde8', fontsize=FS_TITLE,
+                           fontfamily=CHART_FONT, pad=8)
+        n_etf = len(ordered)
+        matrix = _np.zeros((n_etf, n_etf))
+
+        # 加權 Jaccard：Σ min(w_a, w_b) / Σ max(w_a, w_b)
+        # 比單純集合 Jaccard 更能反映持倉比例的實質相似程度
+        def _wjac(comps_a, comps_b):
+            wa = {h['code']: h.get('weight', 0) for h in comps_a}
+            wb = {h['code']: h.get('weight', 0) for h in comps_b}
+            all_c = set(wa) | set(wb)
+            if not all_c:
+                return 0.0
+            inter = sum(min(wa.get(c, 0), wb.get(c, 0)) for c in all_c)
+            union_w = sum(max(wa.get(c, 0), wb.get(c, 0)) for c in all_c)
+            return inter / union_w * 100 if union_w > 0 else 0.0
+
+        for i, da in enumerate(ordered):
+            for j, db in enumerate(ordered):
+                if i == j:
+                    matrix[i][j] = 100.0
+                else:
+                    matrix[i][j] = _wjac(da['components'], db['components'])
+        short_names = [d['code'] for d in ordered]
+        im = ax_heat.imshow(matrix, cmap='Blues', vmin=0, vmax=100, aspect='auto')
+        ax_heat.set_xticks(range(n_etf))
+        ax_heat.set_xticklabels(short_names, fontsize=FS_TICK, color='#888899', rotation=30)
+        ax_heat.set_yticks(range(n_etf))
+        ax_heat.set_yticklabels(short_names, fontsize=FS_TICK, color='#888899')
+        _heat_fs = max(7, 10 - n_etf)
+        for i in range(n_etf):
+            for j in range(n_etf):
+                ax_heat.text(j, i, f'{matrix[i][j]:.0f}%',
+                             ha='center', va='center', fontsize=_heat_fs,
+                             color='white' if matrix[i][j] > 50 else '#333344')
+        fig.colorbar(im, ax=ax_heat, fraction=0.046, pad=0.04).ax.tick_params(
+            labelsize=8, colors='#888899')
+
+        cmp_fig_canvas = _FCA(fig, master=chart_frame)
+        cw = cmp_fig_canvas.get_tk_widget()
+        cw.configure(bg='#0d0d1a')
+        cw.pack(fill='x', padx=0, pady=0)
+        cmp_fig_canvas.draw()
+
+        # store refs
+        self._cmp_fig        = fig
+        self._cmp_fig_line   = fig_line
+        self._cmp_fig_canvas = cmp_fig_canvas
+        self._cmp_line_canvas = line_canvas
+
+        # ── Hover tooltip（每次 render 重建，確保欄數正確）─────────────────────
+        if hasattr(self, '_cmp_bar_tip') and self._cmp_bar_tip and \
+                self._cmp_bar_tip.winfo_exists():
+            self._cmp_bar_tip.destroy()
+        self._cmp_bar_tip = tk.Toplevel(self)
+        self._cmp_bar_tip.overrideredirect(True)
+        self._cmp_bar_tip.attributes('-topmost', True)
+        self._cmp_bar_tip.configure(bg='#1e1e2e')
+        _tip_inner = tk.Frame(self._cmp_bar_tip, bg='#252538', padx=8, pady=6)
+        _tip_inner.pack(fill='both', expand=True, padx=1, pady=1)
+        # 用 grid 支援雙欄：每欄放一個 Label
+        _TIP_COLS = 2 if len(ordered) > 4 else 1
+        self._cmp_tip_labels = []
+        for _ci in range(_TIP_COLS):
+            _lbl = tk.Label(_tip_inner, text='', bg='#252538', fg=C_FG,
+                            font=('Microsoft JhengHei', 9),
+                            justify='left', anchor='nw', padx=6)
+            _lbl.grid(row=0, column=_ci, sticky='nw')
+            if _ci < _TIP_COLS - 1:
+                tk.Frame(_tip_inner, bg='#3a3a5e', width=1).grid(
+                    row=0, column=_ci * 2 + 1, sticky='ns', padx=2)
+            self._cmp_tip_labels.append(_lbl)
+        self._cmp_bar_tip_lbl = self._cmp_tip_labels[0]   # backward compat
+        self._cmp_tip_ncols   = _TIP_COLS
+        self._cmp_bar_tip.withdraw()
+
+        # ── Build line data lookup for hover ─────────────────────────────────
+        # _line_data 保存完整歷史；hover 時顯示的漲幅與當前選取期間一致
+        _line_data: list[dict] = []
+        for hd in _hist_data:
+            hist_full = hd['hist']
+            if hasattr(hist_full.index, 'tz') and hist_full.index.tz is not None:
+                hist_full = hist_full.copy()
+                hist_full.index = hist_full.index.tz_localize(None)
+            _line_data.append({
+                'code': hd['code'], 'name': hd['name'],
+                'hist_full': hist_full,
+                'perf': next((d['perf'] for d in ordered if d['code'] == hd['code']), {}),
+            })
+
+        # ── 熱圖 hover 用的持股資料（etf_code → {stock_code: (name, weight)}）─
+        _heat_holdings = {
+            d['code']: {h['code']: (h.get('name', h['code']), h.get('weight', 0))
+                        for h in d['components']}
+            for d in ordered
+        }
+
+        _vline = ax_line.axvline(x=ax_line.get_xlim()[0],
+                                 color='#ffffff', linewidth=0.8,
+                                 linestyle='--', alpha=0.5, visible=False)
+        _hline = ax_line.axhline(y=ax_line.get_ylim()[0],
+                                 color='#ffffff', linewidth=0.8,
+                                 linestyle='--', alpha=0.5, visible=False)
+
+        def _on_cmp_motion(event):
+            import matplotlib.dates as _md
+            import pandas as _pd
+
+            # ── Line chart hover ─────────────────────────────────────────────
+            if event.inaxes is ax_line and event.xdata is not None and _line_data:
+                try:
+                    cursor_dt = _md.num2date(event.xdata).replace(tzinfo=None)
+                except Exception:
+                    self._cmp_bar_tip.withdraw()
+                    return
+                # 計算當前期間的起點，用來重算基準100
+                import datetime as _dtm
+                _pid_now = _cur_pid[0]
+                _days_map = {'1M': 30, '3M': 90, '6M': 180, '1Y': 365}
+                if _pid_now == 'ALL':
+                    _period_start = None
+                else:
+                    _period_start = _pd.Timestamp(
+                        _dtm.datetime.now() - _dtm.timedelta(days=_days_map[_pid_now]))
+
+                lines_txt = []
+                for ld in _line_data:
+                    try:
+                        h = ld['hist_full']
+                        ts = _pd.Timestamp(cursor_dt)
+                        # 截取期間資料並重算基準
+                        if _period_start is not None:
+                            h_slice = h[h.index >= _period_start]
+                            if len(h_slice) < 2:
+                                h_slice = h.iloc[-2:]
+                        else:
+                            h_slice = h
+                        base   = float(h_slice.iloc[0])
+                        pos    = min(h_slice.index.searchsorted(ts), len(h_slice) - 1)
+                        price  = float(h_slice.iloc[pos])
+                        chg    = (price - base) / base * 100
+                        parts = [f'{ld["code"]} {ld["name"][:10]}',
+                                 f'  現價 {price:.2f}  ({chg:+.1f}%)']
+                        v3m = ld['perf'].get('3M')
+                        if v3m is not None:
+                            parts.append(f'  近3月 {v3m:+.2f}%')
+                        lines_txt.append('\n'.join(parts))
+                    except Exception:
+                        pass
+                if lines_txt:
+                    # 分欄：超過4支時左右各半
+                    _nc = getattr(self, '_cmp_tip_ncols', 1)
+                    _lbls = getattr(self, '_cmp_tip_labels', [self._cmp_bar_tip_lbl])
+                    _half = (len(lines_txt) + _nc - 1) // _nc
+                    for _ci, _lbl in enumerate(_lbls):
+                        _chunk = lines_txt[_ci * _half: (_ci + 1) * _half]
+                        _lbl.config(text='\n─────\n'.join(_chunk))
+                    wx = line_cw.winfo_rootx() + int(event.x) + 16
+                    wy = line_cw.winfo_rooty() + int(line_cw.winfo_height() - event.y) + 16
+                    self._cmp_bar_tip.deiconify()
+                    self._place_tooltip(self._cmp_bar_tip, wx, wy, offset=0)
+                _vline.set_xdata([event.xdata, event.xdata])
+                _vline.set_visible(True)
+                _hline.set_ydata([event.ydata, event.ydata])
+                _hline.set_visible(True)
+                line_canvas.draw_idle()
+                return
+
+            # ── Bar chart hover ──────────────────────────────────────────────
+            if event.inaxes is ax_bar and event.xdata is not None:
+                for rect, etf_idx, pk in _bar_rects:
+                    if rect.get_x() <= event.xdata <= rect.get_x() + rect.get_width():
+                        d = ordered[etf_idx]
+                        hist = d.get('hist')
+                        price_str = f'{float(hist.iloc[-1]):.2f}' if hist is not None and len(hist) > 0 else '—'
+                        lines = [f'{d["code"]} {d["name"]}', f'現價：{price_str}']
+                        for lbl, key in [('近1月','1M'),('近3月','3M'),('近6月','6M'),('近1年','1Y'),('近3年','3Y')]:
+                            v = d['perf'].get(key)
+                            if v is not None:
+                                lines.append(f'{lbl}：{v:+.2f}%')
+                        self._cmp_bar_tip_lbl.config(text='\n'.join(lines))
+                        wx = cw.winfo_rootx() + int(event.x) + 12
+                        wy = cw.winfo_rooty() + int(cw.winfo_height() - event.y) + 12
+                        self._cmp_bar_tip.deiconify()
+                        self._place_tooltip(self._cmp_bar_tip, wx, wy, offset=0)
+                        _vline.set_visible(False)
+                        cmp_fig_canvas.draw_idle()
+                        return
+
+            # ── Heatmap hover ────────────────────────────────────────────────
+            if event.inaxes is ax_heat and event.xdata is not None and event.ydata is not None:
+                col = int(round(event.xdata))
+                row = int(round(event.ydata))
+                if 0 <= row < n_etf and 0 <= col < n_etf:
+                    ca = ordered[row]['code']
+                    cb = ordered[col]['code']
+                    ha = _heat_holdings.get(ca, {})
+                    hb = _heat_holdings.get(cb, {})
+                    common = sorted(ha.keys() & hb.keys(),
+                                    key=lambda c: -(ha[c][1] + hb[c][1]))
+                    if ca == cb:
+                        tip_txt = f'{ca}（自身）\n持股：{len(ha)} 檔'
+                    else:
+                        j_val = matrix[row][col]
+                        # 計算加權重疊比例
+                        w_inter = sum(min(ha.get(c,(None,0))[1], hb.get(c,(None,0))[1])
+                                      for c in common)
+                        tip_txt = (f'{ca} vs {cb}\n'
+                                   f'加權相似度：{j_val:.0f}%\n'
+                                   f'共同持股 {len(common)} 檔，加權重疊 {w_inter:.1f}%\n'
+                                   f'（共同持股，依比例排序）：')
+                        if common:
+                            lines = []
+                            for c in common[:12]:
+                                wa_v = ha.get(c, (c, 0))[1]
+                                wb_v = hb.get(c, (c, 0))[1]
+                                nm   = ha.get(c, hb.get(c, (c, 0)))[0][:5]
+                                lines.append(f'{c} {nm}  {ca}:{wa_v:.1f}% / {cb}:{wb_v:.1f}%')
+                            tip_txt += '\n' + '\n'.join(lines)
+                            if len(common) > 12:
+                                tip_txt += f'\n  …共 {len(common)} 檔'
+                        else:
+                            tip_txt += '\n  無重疊'
+                    self._cmp_bar_tip_lbl.config(text=tip_txt)
+                    wx = cw.winfo_rootx() + int(event.x) + 14
+                    wy = cw.winfo_rooty() + int(cw.winfo_height() - event.y) + 14
+                    self._cmp_bar_tip.deiconify()
+                    self._place_tooltip(self._cmp_bar_tip, wx, wy, offset=0)
+                    _vline.set_visible(False)
+                    _hline.set_visible(False)
+                    return
+
+            # ── Neither axis ─────────────────────────────────────────────────
+            _vline.set_visible(False)
+            _hline.set_visible(False)
+            self._cmp_bar_tip.withdraw()
+            line_canvas.draw_idle()
+            cmp_fig_canvas.draw_idle()
+
+        def _on_line_leave(_event):
+            _vline.set_visible(False)
+            _hline.set_visible(False)
+            self._cmp_bar_tip.withdraw()
+            line_canvas.draw_idle()
+
+        def _on_cmp_leave(_event):
+            self._cmp_bar_tip.withdraw()
+            cmp_fig_canvas.draw_idle()
+
+        # 折線圖 canvas 負責 line hover + leave
+        line_canvas.mpl_connect('motion_notify_event', _on_cmp_motion)
+        line_canvas.mpl_connect('figure_leave_event',  _on_line_leave)
+        # 下方 canvas 負責 bar + heatmap hover
+        cmp_fig_canvas.mpl_connect('motion_notify_event', _on_cmp_motion)
+        cmp_fig_canvas.mpl_connect('figure_leave_event',  _on_cmp_leave)
+
+        tk.Frame(self._cmp_inner, bg='#2a2a3e', height=2).pack(fill='x', pady=(4, 0))
+
+        # ── Header row ──────────────────────────────────────────────────────
+        COL_W   = 120   # px per ETF column
+        LABEL_W = 160   # px for row label
+
+        def _cell(parent, text, bg, fg, font, width, anchor='center', bold=False):
+            lbl = tk.Label(parent, text=text, bg=bg, fg=fg, font=font,
+                           width=width // 8, anchor=anchor,
+                           relief='flat', pady=4, padx=4)
+            lbl.pack(side='left', fill='y')
+            tk.Frame(parent, bg=C_SEP, width=1).pack(side='left', fill='y')
+            return lbl
+
+
+        perf_labels = [('1M', '近1月'), ('3M', '近3月'), ('6M', '近6月'),
+                       ('1Y', '近1年(年化)'), ('3Y', '近3年(年化)')]
+
+        def _row(label, values_fn, row_idx, is_pct=False, compare=True):
+            bg = C_ROW1 if row_idx % 2 == 0 else C_ROW2
+            row = tk.Frame(self._cmp_inner, bg=bg)
+            row.pack(fill='x')
+            _cell(row, label, bg, '#8899cc', FNT_H, LABEL_W, 'w')
+            vals = [values_fn(d) for d in ordered]
+            # 找最佳值（數字比較）
+            nums = []
+            for v in vals:
+                try:    nums.append(float(str(v).replace('%','').replace('億','').replace('—','')))
+                except: nums.append(None)
+            best = None
+            if compare and any(n is not None for n in nums):
+                valid = [n for n in nums if n is not None]
+                best = max(valid) if valid else None
+
+            for d, val, num in zip(ordered, vals, nums):
+                if is_pct and num is not None:
+                    fg = '#f07070' if num >= 0 else '#4ec94e'
+                    txt = f'{num:+.2f}%'
+                elif val == '—' or val is None:
+                    fg = '#555577'; txt = '—'
+                else:
+                    fg = C_FG; txt = str(val)
+                if compare and num is not None and num == best:
+                    fg = '#ffd700'  # 最佳值金色
+                _cell(row, txt, bg, fg, FNT, COL_W)
+            tk.Frame(self._cmp_inner, bg=C_SEP, height=1).pack(fill='x')
+
+        # ── 分組標題 ────────────────────────────────────────────────────────
+        def _section(title):
+            s = tk.Frame(self._cmp_inner, bg='#1a1a2e')
+            s.pack(fill='x')
+            tk.Label(s, text=f'  {title}', bg='#1a1a2e', fg='#6a8faf',
+                     font=('Microsoft JhengHei', 8, 'bold'),
+                     anchor='w', pady=3).pack(fill='x')
+            tk.Frame(self._cmp_inner, bg='#2a2a4e', height=1).pack(fill='x')
+
+        row_idx = [0]
+        def _r(label, fn, is_pct=False, compare=True):
+            _row(label, fn, row_idx[0], is_pct, compare)
+            row_idx[0] += 1
+
+        # ── 基本資訊 ────────────────────────────────────────────────────────
+        _section('基本資訊')
+        _r('ETF 代號',   lambda d: d['code'], compare=False)
+        _r('ETF 名稱',   lambda d: d['name'], compare=False)
+        _r('成分股數量', lambda d: f"{len(d['components'])} 檔" if d['components'] else '—')
+        def _fmt_aum(d):
+            v = d['meta'].get('total_assets')
+            if v is None: return '—'
+            return f'{v/1e8:.1f} 億' if v >= 1e6 else str(v)
+        _r('基金規模',   _fmt_aum, compare=False)
+        def _fmt_yield(d):
+            v = d['meta'].get('yield_pct')
+            return f'{v*100:.2f}%' if v is not None else '—'
+        _r('年化殖利率', _fmt_yield, compare=False)
+        def _fmt_nav(d):
+            v = d['meta'].get('nav') or d['meta'].get('price')
+            return f'{v:.2f}' if v is not None else '—'
+        _r('ETF 淨值',   _fmt_nav, compare=False)
+
+        # ── 績效表現 ────────────────────────────────────────────────────────
+        _section('績效表現（績效最佳標示金色）')
+        for key, label in perf_labels:
+            _r(label,
+               lambda d, k=key: d['perf'].get(k),
+               is_pct=True)
+
+        # ── 前10大持股 ──────────────────────────────────────────────────────
+        _section('前10大持股')
+        max_h = max((len(d['components']) for d in ordered), default=0)
+        for i in range(min(10, max_h)):
+            def _top_holding(d, idx=i):
+                if idx < len(d['components']):
+                    h = d['components'][idx]
+                    w = h.get('weight', 0)
+                    return f"{h.get('code','')} {h.get('name','')[:4]} {w:.1f}%"
+                return '—'
+            _r(f'#{i+1}', _top_holding, compare=False)
+
+        self._cmp_status_var.set(f'已比較 {len(ordered)} 支 ETF')
+        self._cmp_canvas.update_idletasks()
+        self._cmp_canvas.configure(scrollregion=self._cmp_canvas.bbox('all'))
 
     def _get_etf_code(self) -> str:
         code = self._etf_code_var.get().strip()
@@ -4084,7 +5290,7 @@ class StockApp(tk.Tk):
         self._mkt_group_mode = tk.StringVar(value='上市類股')
         _mode_cb = ttk.Combobox(
             ctrl, textvariable=self._mkt_group_mode,
-            values=['上市類股', '上市+上櫃類股', '概念股'],
+            values=['上市類股', '上市+上櫃類股', '概念股', '電子產業'],
             state='readonly', width=12,
             font=('Microsoft JhengHei', 9))
         _mode_cb.pack(side='left', padx=(0, 6))
@@ -4101,7 +5307,7 @@ class StockApp(tk.Tk):
                  font=('Microsoft JhengHei', 9)).pack(side='left')
         self._mkt_period     = '1D'
         self._mkt_period_btns: dict[str, tk.Label] = {}
-        for pid, plbl in [('1D', '1日'), ('5D', '5日'), ('10D', '10日'), ('1M', '1月')]:
+        for pid, plbl in [('RT', '即時'), ('1D', '1日'), ('5D', '5日'), ('10D', '10日'), ('1M', '1月')]:
             btn = tk.Label(period_bar, text=plbl, bg='#1a1a2e', fg=C_FG2,
                            font=('Microsoft JhengHei', 9), padx=10, pady=3,
                            relief='flat', cursor='hand2')
@@ -4130,6 +5336,18 @@ class StockApp(tk.Tk):
         self._mkt_sv_down,  self._mkt_sl_down  = _sc(stats_bar, '下跌')
         self._mkt_sv_flat,  self._mkt_sl_flat  = _sc(stats_bar, '平盤')
         self._mkt_sv_total, self._mkt_sl_total = _sc(stats_bar, '總計')
+
+        # ── 強勢類股排行（右側）──────────────────────────────────────────────
+        self._mkt_hot_frame = tk.Frame(stats_bar, bg='#1a1a2e')
+        self._mkt_hot_frame.pack(side='left', fill='both', expand=True, padx=(8, 4), pady=3)
+        tk.Label(self._mkt_hot_frame, text='強勢類股', bg='#1a1a2e', fg='#6a8faf',
+                 font=('Microsoft JhengHei', 8)).pack(anchor='nw', padx=8, pady=(4, 0))
+        self._mkt_hot_lbl = tk.Label(
+            self._mkt_hot_frame, text='', bg='#1a1a2e', fg='#f07070',
+            font=('Microsoft JhengHei', 11, 'bold'),
+            anchor='w', justify='left', padx=8, pady=0)
+        self._mkt_hot_lbl.pack(fill='x', expand=True)
+        self._mkt_hot_chip_labels: list[tk.Label] = []  # 保留，避免舊參照錯誤
 
         # ── Treemap canvas ────────────────────────────────────────────────────
         self._mkt_fig = plt.Figure(figsize=(9.5, 5.5), dpi=100, facecolor='#111111')
@@ -4190,22 +5408,126 @@ class StockApp(tk.Tk):
 
     # ── 資料抓取 + 繪製（背景執行緒）─────────────────────────────────────────
 
+    # ── 即時報價輔助 ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _is_tw_market_open() -> bool:
+        """判斷台股是否正在交易中（週一～五 09:00–13:30，台北時間）。"""
+        from datetime import datetime as _dt, timezone, timedelta, time as _time
+        tw = timezone(timedelta(hours=8))
+        now = _dt.now(tw)
+        if now.weekday() >= 5:
+            return False
+        t = now.time()
+        return _time(9, 0) <= t <= _time(13, 30)
+
+    @staticmethod
+    def _fetch_mis_prices(code_ex_pairs: list) -> dict:
+        """
+        從 TWSE MIS 即時 API 抓取報價。
+        code_ex_pairs: [(code, 'tse'|'otc'), ...]
+        回傳: {code: (現價, 昨收)}
+        """
+        import concurrent.futures as _cf
+        results: dict = {}
+        lock = threading.Lock()
+        BATCH = 80
+
+        def _fetch_one(pairs):
+            ex_ch = '|'.join(f'{ex}_{c}.tw' for c, ex in pairs)
+            url   = f'https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch={ex_ch}'
+            hdrs  = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0',
+                'Referer':    'https://mis.twse.com.tw/stock/fibest.jsp',
+                'Accept':     'application/json',
+            }
+            try:
+                data = _cffi_get_json(url, headers=hdrs, timeout=10)
+                batch: dict = {}
+                for s in data.get('msgArray', []):
+                    c = str(s.get('c', '')).strip()
+                    z = str(s.get('z', '-')).strip()   # 成交價（'-'=尚未成交）
+                    o = str(s.get('o', '-')).strip()   # 開盤價（'-'=尚未開盤）
+                    y = str(s.get('y', '')).strip()    # 昨收
+                    try:
+                        prev = float(y)
+                        if z and z != '-':
+                            curr = float(z)            # 優先用成交價
+                        elif o and o != '-':
+                            curr = float(o)            # 其次用開盤價
+                        else:
+                            curr = prev                # 尚未開盤，視為平盤
+                        if prev > 0:
+                            batch[c] = (curr, prev)
+                    except (ValueError, TypeError):
+                        pass
+                with lock:
+                    results.update(batch)
+            except Exception as _e:
+                _net_log(f'MIS batch fail: {_e}')
+
+        batches = [code_ex_pairs[i:i+BATCH]
+                   for i in range(0, len(code_ex_pairs), BATCH)]
+        with _cf.ThreadPoolExecutor(max_workers=6) as _pool:
+            list(_pool.map(_fetch_one, batches))
+        return results
+
     def _draw_market_map(self):
         self._mkt_status.set('🔄 載入資料中…')
         self._mkt_rects     = []
         self._mkt_cat_rects = []
         self._mkt_drill     = None
         self._mkt_sub_drill = None
+        self._mkt_hist_cache.clear()   # 強制重新抓取所有快取資料
         threading.Thread(target=self._draw_market_map_impl, daemon=True).start()
 
     def _draw_market_map_impl(self):
+        import time as _time
         try:
-            group_mode = self._mkt_group_mode.get()   # '上市類股' / '上市+上櫃類股' / '概念股'
+            group_mode = self._mkt_group_mode.get()   # '上市類股' / '上市+上櫃類股' / '概念股' / '電子產業'
+            _ts = int(_time.time())   # 時間戳記，用於破除 CDN 快取
             hdr = {'If-Modified-Since': 'Mon, 26 Jul 1997 05:00:00 GMT',
-                   'Cache-Control': 'no-cache'}
-            day_data   = _cffi_get_json(
-                'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL',
-                headers=hdr, timeout=15)
+                   'Cache-Control': 'no-cache, no-store, must-revalidate',
+                   'Pragma': 'no-cache'}
+            from datetime import date as _today_date
+            _today_str = _today_date.today().strftime('%Y%m%d')
+
+            # ── TWSE 上市日行情 ──────────────────────────────────────────────────
+            # 優先使用 RWD 版本（收盤後更新較快），其次 OpenAPI（盤中亦可用）
+            day_data = []
+            _data_is_today = False
+            try:
+                _rwd = _cffi_get_json(
+                    'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json',
+                    headers=hdr, timeout=15)
+                if isinstance(_rwd, dict) and _rwd.get('stat') == 'OK' and _rwd.get('data'):
+                    _fields = _rwd.get('fields', [])
+                    _rwd_rows = []
+                    for _row in _rwd['data']:
+                        if len(_row) >= 9:
+                            _rwd_rows.append({
+                                'Code':         _row[0],
+                                'Name':         _row[1],
+                                'TradeValue':   _row[3].replace(',', ''),
+                                'ClosingPrice': _row[7].replace(',', ''),
+                                'Change':       _row[8].replace(',', '').replace('+', ''),
+                            })
+                    if _rwd_rows:
+                        day_data = _rwd_rows
+                        _data_is_today = (_rwd.get('date', '') == _today_str)
+            except Exception:
+                pass
+            if not day_data:
+                try:
+                    day_data = _cffi_get_json(
+                        f'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL?_={_ts}',
+                        headers=hdr, timeout=15)
+                    if day_data:
+                        _data_is_today = str(day_data[0].get('Date', '')).endswith(
+                            _today_date.today().strftime('%m%d'))
+                except Exception:
+                    pass
+
             ind_map    = _fetch_twse_industry_map()
             name_table = _load_twse_stock_names()
 
@@ -4215,8 +5537,8 @@ class StockApp(tk.Tk):
             if group_mode == '上市+上櫃類股':
                 try:
                     tpex_day_data = _cffi_get_json(
-                        'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes',
-                        timeout=12)
+                        f'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes?_={_ts}',
+                        headers=hdr, timeout=12)
                 except Exception:
                     pass
                 try:
@@ -4239,7 +5561,7 @@ class StockApp(tk.Tk):
             base_stocks: dict[str, dict] = {}
             up = down = flat = 0
 
-            def _add_stock(code, name, close, change, trade_val, industry):
+            def _add_stock(code, name, close, change, trade_val, industry, exchange='tse'):
                 nonlocal up, down, flat
                 if close <= 0 or trade_val <= 0:
                     return
@@ -4252,6 +5574,7 @@ class StockApp(tk.Tk):
                     'code': code, 'name': name, 'industry': industry,
                     'close': close, 'change': change,
                     'chg_1d': chg_1d, 'trade_val': trade_val,
+                    'exchange': exchange,
                 }
 
             # 上市 TWSE
@@ -4269,7 +5592,7 @@ class StockApp(tk.Tk):
                 if not industry or industry.isdigit():
                     industry = '其他'
                 name = name_table.get(code, row.get('Name', code))
-                _add_stock(code, name, close, change, trade_val, industry)
+                _add_stock(code, name, close, change, trade_val, industry, 'tse')
 
             # 上櫃 TPEX（僅在「上市+上櫃類股」模式下加入）
             if group_mode == '上市+上櫃類股' and tpex_day_data:
@@ -4280,10 +5603,10 @@ class StockApp(tk.Tk):
                     if code in base_stocks:   # 已有上市資料則跳過
                         continue
                     try:
-                        close     = float(str(row.get('ClosingPrice', '0') or '0').replace(',', ''))
-                        chg_str   = str(row.get('ChangePrice', '0') or '0').replace(',', '').replace('+', '')
+                        close     = float(str(row.get('Close', '0') or '0').replace(',', ''))
+                        chg_str   = str(row.get('Change', '0') or '0').replace(',', '').replace('+', '').strip()
                         change    = float(chg_str) if chg_str else 0.0
-                        trade_val = float(str(row.get('TradeValue', '0') or '0').replace(',', ''))
+                        trade_val = float(str(row.get('TransactionAmount', '0') or '0').replace(',', ''))
                     except (ValueError, TypeError):
                         continue
                     industry = (tpex_ind_map.get(code)
@@ -4292,12 +5615,36 @@ class StockApp(tk.Tk):
                     if not industry or industry.isdigit():
                         industry = '其他'
                     name = name_table.get(code, str(row.get('CompanyName', code)))
-                    _add_stock(code, name, close, change, trade_val, industry)
+                    _add_stock(code, name, close, change, trade_val, industry, 'otc')
 
-            # ── 歷史漲跌（非 1D 期間）──────────────────────────────────────────
+            # ── 即時模式：用 MIS 即時報價覆蓋今日漲跌（1日固定用 STOCK_DAY_ALL）──
+            _use_rt = (self._mkt_period == 'RT')
+            _price_label = '即時' if _use_rt else ('今收' if _data_is_today else '昨收')
+            if _use_rt and base_stocks:
+                try:
+                    code_ex = [(c, s['exchange']) for c, s in base_stocks.items()]
+                    mis = self._fetch_mis_prices(code_ex)
+                    _mis_ok = 0
+                    for code, (curr, prev) in mis.items():
+                        if code in base_stocks and prev > 0 and curr > 0:
+                            change = curr - prev
+                            base_stocks[code]['close']  = curr
+                            base_stocks[code]['change'] = change
+                            base_stocks[code]['chg_1d'] = change / prev * 100
+                            _mis_ok += 1
+                    if _mis_ok > 0:
+                        up = down = flat = 0
+                        for s in base_stocks.values():
+                            if s['change'] > 0:   up   += 1
+                            elif s['change'] < 0: down += 1
+                            else:                 flat += 1
+                except Exception as _mis_e:
+                    _net_log(f'MIS realtime update fail: {_mis_e}')
+
+            # ── 歷史漲跌（非 1D / 非即時 期間）─────────────────────────────────
             period = self._mkt_period
             hist_chg: dict[str, float] = {}   # code → N日漲跌%
-            if period != '1D':
+            if period not in ('1D', 'RT'):
                 today_str = datetime.now().strftime('%Y%m%d')
                 cache_key = (period, today_str)
                 if cache_key in self._mkt_hist_cache:
@@ -4343,13 +5690,37 @@ class StockApp(tk.Tk):
                         if c not in concept_assign:
                             concept_assign[c] = cgrp
                 for stk in base_stocks.values():
-                    chg_pct = hist_chg.get(stk['code'], stk['chg_1d']) if period != '1D' else stk['chg_1d']
+                    chg_pct = hist_chg.get(stk['code'], stk['chg_1d']) if period not in ('1D', 'RT') else stk['chg_1d']
                     grp = concept_assign.get(stk['code'], '其他概念')
+                    # 其他概念保留原始 TWSE 產業別，供 drill-down 時顯示子分類
+                    industry = stk['industry'] if grp == '其他概念' else grp
+                    raw_groups.setdefault(grp, []).append(
+                        {**stk, 'chg_pct': chg_pct, 'industry': industry})
+
+            elif group_mode == '電子產業':
+                # 建立「股票代號 → 電子子分類」對照
+                elec_assign: dict[str, str] = {}
+                for subcat, codes in _MKT_ELEC_GROUPS.items():
+                    for c in codes:
+                        if c not in elec_assign:
+                            elec_assign[c] = subcat
+                for stk in base_stocks.values():
+                    chg_pct = hist_chg.get(stk['code'], stk['chg_1d']) if period not in ('1D', 'RT') else stk['chg_1d']
+                    if stk['code'] in elec_assign:
+                        grp = elec_assign[stk['code']]
+                    elif stk['industry'] in _ELEC_TWSE_INDUSTRIES:
+                        grp = stk['industry']   # TWSE 大類 fallback
+                    else:
+                        continue   # 非電子股略過
                     raw_groups.setdefault(grp, []).append(
                         {**stk, 'chg_pct': chg_pct, 'industry': grp})
+                # 以電子股總成交額為基準計算門檻（避免被整體市場稀釋）
+                total_tv = sum(s['trade_val'] for g in raw_groups.values()
+                               for s in g) or 1.0
+
             else:
                 for stk in base_stocks.values():
-                    chg_pct = hist_chg.get(stk['code'], stk['chg_1d']) if period != '1D' else stk['chg_1d']
+                    chg_pct = hist_chg.get(stk['code'], stk['chg_1d']) if period not in ('1D', 'RT') else stk['chg_1d']
                     raw_groups.setdefault(stk['industry'], []).append({**stk, 'chg_pct': chg_pct})
 
             groups: dict[str, list] = {}
@@ -4465,14 +5836,15 @@ class StockApp(tk.Tk):
                 pass
             self._mkt_inst_today = inst_today
 
+            _pl = _price_label
             self._ui_call(lambda: self._render_market_map(
-                groups, up, down, flat, taiex_price, taiex_chg))
+                groups, raw_groups, up, down, flat, taiex_price, taiex_chg, _pl))
         except Exception as e:
             _e = e
             self._ui_call(lambda: self._mkt_status.set(f'⚠ 載入失敗：{_e}'))
 
-    def _render_market_map(self, groups, up, down, flat,
-                           taiex_price, taiex_chg):
+    def _render_market_map(self, groups, raw_groups, up, down, flat,
+                           taiex_price, taiex_chg, price_label='今收'):
         # 儲存狀態供 drill-down 使用
         self._mkt_groups      = groups
         self._mkt_up          = up
@@ -4493,10 +5865,43 @@ class StockApp(tk.Tk):
         self._mkt_sv_flat .set(f'{flat} 檔'); self._mkt_sl_flat.config(fg=C_FG)
         self._mkt_sv_total.set(f'{up+down+flat} 檔')
 
+        self._update_mkt_hot_sectors(raw_groups)
+
+        self._mkt_price_label = price_label   # 儲存供 back-navigation 使用
         if self._mkt_drill:
             self._render_mkt_drill(self._mkt_drill)
         else:
             self._render_mkt_overview()
+
+    # ── 強勢類股排行 ──────────────────────────────────────────────────────────
+
+    def _update_mkt_hot_sectors(self, raw_groups: dict):
+        """計算漲幅最大且連漲的類股，顯示在摘要列右側。"""
+        # 計算各類股加權平均漲跌幅（以成交額為權重）
+        sector_chg: list[tuple[float, int, str]] = []  # (chg_pct, streak_days, name)
+        for ind_name, stks in raw_groups.items():
+            if not stks:
+                continue
+            total_tv = sum(s['trade_val'] for s in stks)
+            if total_tv <= 0:
+                continue
+            w_chg = sum(s['chg_pct'] * s['trade_val'] for s in stks) / total_tv
+            direction, cnt = self._mkt_streaks.get(ind_name, (0, 0))
+            streak_days = cnt if direction == 1 else 0
+            sector_chg.append((w_chg, streak_days, ind_name))
+
+        # 只取上漲的，先依連漲天數排序、再依漲幅排序，取前 3 名
+        rising = [(chg, days, name) for chg, days, name in sector_chg if chg > 0]
+        rising.sort(key=lambda x: (-x[1], -x[0]))
+        top3 = rising[:3]
+
+        parts = []
+        for chg, days, name in top3:
+            sign = '+' if chg >= 0 else ''
+            streak_txt = f' ▲{days}日' if days >= 1 else ''
+            parts.append(f'{name}  {sign}{chg:.1f}%{streak_txt}')
+
+        self._mkt_hot_lbl.config(text='    '.join(parts) if parts else '—')
 
     # ── 總覽繪製 ──────────────────────────────────────────────────────────────
 
@@ -4645,16 +6050,17 @@ class StockApp(tk.Tk):
                 self._draw_stock_label(ax, stk, rx, ry, rw, rh,
                                        _px_per_ux, _px_per_uy, _pt_per_px)
 
-        period_lbl = {'1D': '今日', '5D': '5日', '10D': '10日', '1M': '1月'}.get(
+        period_lbl = {'RT': '即時', '1D': '今日', '5D': '5日', '10D': '10日', '1M': '1月'}.get(
             self._mkt_period, self._mkt_period)
         now = datetime.now().strftime('%Y-%m-%d %H:%M')
+        _pl = getattr(self, '_mkt_price_label', '今收')
         sax.text(0.5, 0.5,
-                 f'台股上市  ·  {period_lbl}漲跌  ·  上漲 {up}  下跌 {down}  平盤 {flat}'
+                 f'台股上市  ·  {period_lbl}漲跌（{_pl}）  ·  上漲 {up}  下跌 {down}  平盤 {flat}'
                  f'  ·  點擊類股進入 · {now} 更新',
                  ha='center', va='center', color='#888', fontsize=8,
                  fontfamily=CHART_FONT, transform=sax.transAxes)
         self._mkt_canvas.draw()
-        self._mkt_status.set(f'更新時間：{now}  （點擊類股區域可放大檢視）')
+        self._mkt_status.set(f'更新時間：{now}  【{_pl}】  （點擊類股區域可放大檢視）')
 
     # ── 類股 drill-down 繪製 ──────────────────────────────────────────────────
 
@@ -4669,8 +6075,8 @@ class StockApp(tk.Tk):
             self._render_mkt_overview()
             return
 
-        # 「其他業」且非子類股展開：按原始 industry 分組，顯示各小類股方塊
-        if ind_name == '其他業' and back_label == '返回總覽':
+        # 「其他業」/「其他概念」且非子類股展開：按原始 industry 分組，顯示各小類股方塊
+        if ind_name in ('其他業', '其他概念') and back_label == '返回總覽':
             self._render_mkt_drill_other(stocks)
             return
 
@@ -4736,7 +6142,7 @@ class StockApp(tk.Tk):
             self._draw_stock_label(ax, stk, rx, ry, rw, rh,
                                    _px_per_ux, _px_per_uy, _pt_per_px)
 
-        period_lbl = {'1D': '今日', '5D': '5日', '10D': '10日', '1M': '1月'}.get(
+        period_lbl = {'RT': '即時', '1D': '今日', '5D': '5日', '10D': '10日', '1M': '1月'}.get(
             self._mkt_period, self._mkt_period)
         now = datetime.now().strftime('%Y-%m-%d %H:%M')
         sax.text(0.5, 0.5,
@@ -4747,7 +6153,9 @@ class StockApp(tk.Tk):
         self._mkt_status.set(f'{ind_name}  ·  {len(stocks)} 檔  ·  點擊任意處{back_label}')
 
     def _render_mkt_drill_other(self, stocks: list):
-        """其他業 drill-down：按原始 industry 分組，顯示各小類股方塊"""
+        """其他業/其他概念 drill-down：按原始 industry 分組，顯示各小類股方塊"""
+        parent_name = self._mkt_drill or '其他業'
+
         # 按 industry 分組
         sub: dict[str, list] = {}
         for s in stocks:
@@ -4770,6 +6178,10 @@ class StockApp(tk.Tk):
             })
         sub_summary.sort(key=lambda x: -x['trade_val'])
 
+        # 更新強勢類股：改用子分類資料
+        sub_raw_groups = {g['name']: g['stocks'] for g in sub_summary}
+        self._update_mkt_hot_sectors(sub_raw_groups)
+
         fig = self._mkt_fig
         fig.clf()
         # 頂部返回列
@@ -4781,7 +6193,7 @@ class StockApp(tk.Tk):
         other_avg  = sum(s['chg_pct'] * s['trade_val'] for s in stocks) / other_tv if other_tv else 0
         sign_avg   = '+' if other_avg >= 0 else ''
         bax.text(0.5, 0.5,
-                 f'其他業  ·  {len(sub_summary)} 類  {len(stocks)} 檔  ·  '
+                 f'{parent_name}  ·  {len(sub_summary)} 類  {len(stocks)} 檔  ·  '
                  f'占比 {other_tv/total_val*100:.1f}%  ·  '
                  f'加權均漲跌 {sign_avg}{other_avg:.2f}%',
                  va='center', ha='center', color='#dddddd',
@@ -4898,7 +6310,7 @@ class StockApp(tk.Tk):
                 self._draw_stock_label(ax, stk, rx, ry, rw, rh,
                                        _px_per_ux, _px_per_uy, _pt_per_px)
 
-        period_lbl = {'1D': '今日', '5D': '5日', '10D': '10日', '1M': '1月'}.get(
+        period_lbl = {'RT': '即時', '1D': '今日', '5D': '5日', '10D': '10日', '1M': '1月'}.get(
             self._mkt_period, self._mkt_period)
         now = datetime.now().strftime('%Y-%m-%d %H:%M')
         sax.text(0.5, 0.5,
@@ -4974,47 +6386,42 @@ class StockApp(tk.Tk):
             return
         x, y = event.xdata, event.ydata
 
-        # Ctrl + 右鍵 → 跳到籌碼分析
+        # 右鍵點個股區塊 → 開啟個股分析
         if event.button == 3:
-            try:
-                ctrl = bool(event.guiEvent.state & 0x4)
-            except Exception:
-                ctrl = False
-            if ctrl:
-                for r in self._mkt_rects:
-                    if (r['rx'] <= x <= r['rx'] + r['rw'] and
-                            r['ry'] <= y <= r['ry'] + r['rh']):
-                        code = r.get('code', '')
-                        if code and not r.get('_is_other'):
-                            self._mkt_tooltip.withdraw()
-                            self._chip_code.set(code)
-                            self._show_page(5)
-                            return
-            return   # 右鍵不觸發 drill-down
+            for r in self._mkt_rects:
+                if (r['rx'] <= x <= r['rx'] + r['rw'] and
+                        r['ry'] <= y <= r['ry'] + r['rh']):
+                    code = r.get('code', '')
+                    name = r.get('name', '')
+                    if code:
+                        self._mkt_tooltip.withdraw()
+                        self._open_stk_analysis(code, name)
+                        return
+            return   # 右鍵未點到個股，不觸發 drill-down
 
         self._mkt_tooltip.withdraw()
 
-        # ── 第三層：子類股個股檢視 → 返回其他業展開 ────────────────────────
+        # ── 第三層：子類股個股檢視 → 返回其他業/其他概念展開 ───────────────
         if self._mkt_sub_drill:
-            sub = self._mkt_sub_drill
             self._mkt_sub_drill = None
-            self._render_mkt_drill('其他業')
+            self._render_mkt_drill(self._mkt_drill)   # 返回所屬的上層分組
             return
 
-        # ── 第二層：其他業展開 → 點擊子類股進第三層，點空白返回總覽 ─────────
-        if self._mkt_drill == '其他業':
+        # ── 第二層：其他業/其他概念展開 → 點擊子類股進第三層，點空白返回總覽 ───
+        if self._mkt_drill in ('其他業', '其他概念'):
             for c in self._mkt_cat_rects:
                 if (c.get('_is_other_sub') and
                         c['cx'] <= x <= c['cx'] + c['cw'] and
                         c['cy'] <= y <= c['cy'] + c['ch']):
                     sub_name = c['name']
                     self._mkt_sub_drill = sub_name
-                    # 從其他業的股票中過濾出該子類股
-                    other_stocks = self._mkt_groups.get('其他業', [])
-                    sub_stocks = [s for s in other_stocks if s['industry'] == sub_name]
+                    parent_key = self._mkt_drill
+                    parent_stocks = self._mkt_groups.get(parent_key, [])
+                    sub_stocks = [s for s in parent_stocks if s['industry'] == sub_name]
+                    back_lbl = '返回其他業' if parent_key == '其他業' else '返回其他概念'
                     self._render_mkt_drill(sub_name,
                                            stocks=sub_stocks,
-                                           back_label='返回其他業')
+                                           back_label=back_lbl)
                     return
             # 沒點到子類股 → 返回總覽
             self._mkt_drill     = None
@@ -5060,7 +6467,7 @@ class StockApp(tk.Tk):
                           f"合計成交金額：{tv:.1f} 億\n"
                           f"點擊類股區域可查看明細")
                 else:
-                    if self._mkt_period == '1D':
+                    if self._mkt_period in ('1D', 'RT'):
                         chg_line = f"漲跌：{r['change']:+.2f}  ({sign}{r['chg_pct']:.2f}%)"
                     else:
                         s1 = '+' if r['chg_1d'] >= 0 else ''
