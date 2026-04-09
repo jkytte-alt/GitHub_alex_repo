@@ -28,6 +28,18 @@ from matplotlib.lines import Line2D
 import squarify
 import yfinance as yf
 import math
+
+# ── PyInstaller exe SSL 憑證修正 ────────────────────────────────────────────
+# certifi CA bundle 需要明確指定路徑，否則 requests/yfinance 在 exe 環境無法驗證 SSL
+import sys as _sys
+try:
+    import certifi as _certifi
+    import os as _os
+    _ca = _certifi.where()
+    _os.environ.setdefault('SSL_CERT_FILE',      _ca)
+    _os.environ.setdefault('REQUESTS_CA_BUNDLE', _ca)
+except Exception:
+    pass
 import json as _json
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -82,7 +94,10 @@ def _cffi_get_json(url, params=None, headers=None, timeout=15):
 warnings.filterwarnings('ignore')
 
 # ─── 路徑與欄位 ──────────────────────────────────────────────────────────────
-BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+if getattr(_sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(_sys.executable)  # 執行檔所在目錄
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 EXCEL_PATH = os.path.join(BASE_DIR, '股票紀錄.xlsx')
 SHEET_NAME = '交易記錄'
 
@@ -1203,8 +1218,17 @@ def fetch_etf_data(etf_code: str) -> tuple[str, list[dict], str]:
     try:
         import concurrent.futures as _cff
         def _do_dl():
-            return yf.download(all_syms, period='2d', auto_adjust=False,
-                               progress=False, threads=True, timeout=8)
+            import logging as _log, io, sys as _sys
+            _yf_log = _log.getLogger('yfinance')
+            _prev_lvl = _yf_log.level
+            _yf_log.setLevel(_log.CRITICAL)
+            _old_stderr, _sys.stderr = _sys.stderr, io.StringIO()
+            try:
+                return yf.download(all_syms, period='2d', auto_adjust=False,
+                                   progress=False, threads=True, timeout=8)
+            finally:
+                _sys.stderr = _old_stderr
+                _yf_log.setLevel(_prev_lvl)
         with _cff.ThreadPoolExecutor(max_workers=1) as _dl_ex:
             try:
                 hist = _dl_ex.submit(_do_dl).result(timeout=15)
@@ -3794,8 +3818,17 @@ class StockApp(tk.Tk):
         def _cfg_canvas(e):
             self._cmp_canvas.itemconfig(_win, width=max(e.width, self._cmp_inner.winfo_reqwidth()))
         self._cmp_canvas.bind('<Configure>', _cfg_canvas)
-        self._cmp_canvas.bind('<MouseWheel>',
-                              lambda e: self._cmp_canvas.yview_scroll(-1 if e.delta > 0 else 1, 'units'))
+        def _mw_cmp(e):
+            self._cmp_canvas.yview_scroll(-1 if e.delta > 0 else 1, 'units')
+        self._cmp_canvas.bind('<MouseWheel>', _mw_cmp)
+        self._cmp_inner.bind('<MouseWheel>', _mw_cmp)
+
+        def _bind_cmp_scroll(widget):
+            """遞迴將 MouseWheel 綁定到 _cmp_inner 下所有子元件。"""
+            widget.bind('<MouseWheel>', _mw_cmp)
+            for child in widget.winfo_children():
+                _bind_cmp_scroll(child)
+        self._bind_cmp_scroll = _bind_cmp_scroll
 
         self._cmp_etf_list: list[tuple[str, str]] = []  # [(code, name), ...]
         self._cmp_tags:     list[tk.Frame] = []
@@ -3881,14 +3914,15 @@ class StockApp(tk.Tk):
                 return None
 
             for sfx in ['.TW', '.TWO']:
+                _ex = _cf.ThreadPoolExecutor(max_workers=1)
                 try:
-                    with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
-                        fut = _ex.submit(_fetch_sfx, sfx)
-                        result = fut.result(timeout=12)
+                    fut = _ex.submit(_fetch_sfx, sfx)
+                    result = fut.result(timeout=12)
+                    _ex.shutdown(wait=False)
                     if result is not None:
                         return result
                 except Exception:
-                    pass
+                    _ex.shutdown(wait=False)
             return None
 
         def _fetch_one(code, name):
@@ -4010,6 +4044,14 @@ class StockApp(tk.Tk):
         _period_frame.pack(fill='x', pady=(2, 4))
         _cur_pid = ['1Y']   # mutable container so closure can read current period
 
+        # 查價線容器：用 list 讓 _draw_period 在 ax_line.cla() 後可更新引用
+        _vline = [ax_line.axvline(x=ax_line.get_xlim()[0],
+                                  color='#ffffff', linewidth=0.8,
+                                  linestyle='--', alpha=0.5, visible=False)]
+        _hline = [ax_line.axhline(y=ax_line.get_ylim()[0],
+                                  color='#ffffff', linewidth=0.8,
+                                  linestyle='--', alpha=0.5, visible=False)]
+
         def _draw_period(pid, btn_ref):
             _cur_pid[0] = pid
             for _b in _period_btns:
@@ -4065,6 +4107,13 @@ class StockApp(tk.Tk):
             else:
                 ax_line.text(0.5, 0.5, '無歷史資料', ha='center', va='center',
                              color='#555577', fontsize=12, transform=ax_line.transAxes)
+            # 重建查價線（ax_line.cla() 清掉了舊的）
+            _vline[0] = ax_line.axvline(x=ax_line.get_xlim()[0],
+                                        color='#ffffff', linewidth=0.8,
+                                        linestyle='--', alpha=0.5, visible=False)
+            _hline[0] = ax_line.axhline(y=ax_line.get_ylim()[0],
+                                        color='#ffffff', linewidth=0.8,
+                                        linestyle='--', alpha=0.5, visible=False)
             line_canvas.draw_idle()
 
         _period_btns = []
@@ -4220,13 +4269,6 @@ class StockApp(tk.Tk):
             for d in ordered
         }
 
-        _vline = ax_line.axvline(x=ax_line.get_xlim()[0],
-                                 color='#ffffff', linewidth=0.8,
-                                 linestyle='--', alpha=0.5, visible=False)
-        _hline = ax_line.axhline(y=ax_line.get_ylim()[0],
-                                 color='#ffffff', linewidth=0.8,
-                                 linestyle='--', alpha=0.5, visible=False)
-
         def _on_cmp_motion(event):
             import matplotlib.dates as _md
             import pandas as _pd
@@ -4284,10 +4326,10 @@ class StockApp(tk.Tk):
                     wy = line_cw.winfo_rooty() + int(line_cw.winfo_height() - event.y) + 16
                     self._cmp_bar_tip.deiconify()
                     self._place_tooltip(self._cmp_bar_tip, wx, wy, offset=0)
-                _vline.set_xdata([event.xdata, event.xdata])
-                _vline.set_visible(True)
-                _hline.set_ydata([event.ydata, event.ydata])
-                _hline.set_visible(True)
+                _vline[0].set_xdata([event.xdata, event.xdata])
+                _vline[0].set_visible(True)
+                _hline[0].set_ydata([event.ydata, event.ydata])
+                _hline[0].set_visible(True)
                 line_canvas.draw_idle()
                 return
 
@@ -4308,7 +4350,7 @@ class StockApp(tk.Tk):
                         wy = cw.winfo_rooty() + int(cw.winfo_height() - event.y) + 12
                         self._cmp_bar_tip.deiconify()
                         self._place_tooltip(self._cmp_bar_tip, wx, wy, offset=0)
-                        _vline.set_visible(False)
+                        _vline[0].set_visible(False)
                         cmp_fig_canvas.draw_idle()
                         return
 
@@ -4351,20 +4393,20 @@ class StockApp(tk.Tk):
                     wy = cw.winfo_rooty() + int(cw.winfo_height() - event.y) + 14
                     self._cmp_bar_tip.deiconify()
                     self._place_tooltip(self._cmp_bar_tip, wx, wy, offset=0)
-                    _vline.set_visible(False)
-                    _hline.set_visible(False)
+                    _vline[0].set_visible(False)
+                    _hline[0].set_visible(False)
                     return
 
             # ── Neither axis ─────────────────────────────────────────────────
-            _vline.set_visible(False)
-            _hline.set_visible(False)
+            _vline[0].set_visible(False)
+            _hline[0].set_visible(False)
             self._cmp_bar_tip.withdraw()
             line_canvas.draw_idle()
             cmp_fig_canvas.draw_idle()
 
         def _on_line_leave(_event):
-            _vline.set_visible(False)
-            _hline.set_visible(False)
+            _vline[0].set_visible(False)
+            _hline[0].set_visible(False)
             self._cmp_bar_tip.withdraw()
             line_canvas.draw_idle()
 
@@ -4385,6 +4427,29 @@ class StockApp(tk.Tk):
         COL_W   = 120   # px per ETF column
         LABEL_W = 160   # px for row label
 
+        # 每個 ETF 欄位的所有 cell widgets，用於切換 highlight
+        _col_cells: list[list[tk.Label]] = [[] for _ in ordered]
+        _col_base_bgs: list[list[str]]   = [[] for _ in ordered]  # 各 cell 原始底色
+        _selected_col = [-1]             # 目前被選取的欄位 index，-1 = 無
+        C_HL = '#2a3a5e'                 # highlight 底色
+
+        def _toggle_col(col_idx):
+            if _selected_col[0] == col_idx:
+                # 取消選取
+                for lbl, orig_bg in zip(_col_cells[col_idx], _col_base_bgs[col_idx]):
+                    lbl.configure(bg=orig_bg)
+                _selected_col[0] = -1
+            else:
+                # 取消上一個選取
+                if _selected_col[0] >= 0:
+                    prev = _selected_col[0]
+                    for lbl, orig_bg in zip(_col_cells[prev], _col_base_bgs[prev]):
+                        lbl.configure(bg=orig_bg)
+                # 套用新選取
+                for lbl in _col_cells[col_idx]:
+                    lbl.configure(bg=C_HL)
+                _selected_col[0] = col_idx
+
         def _cell(parent, text, bg, fg, font, width, anchor='center', bold=False):
             lbl = tk.Label(parent, text=text, bg=bg, fg=fg, font=font,
                            width=width // 8, anchor=anchor,
@@ -4392,7 +4457,6 @@ class StockApp(tk.Tk):
             lbl.pack(side='left', fill='y')
             tk.Frame(parent, bg=C_SEP, width=1).pack(side='left', fill='y')
             return lbl
-
 
         perf_labels = [('1M', '近1月'), ('3M', '近3月'), ('6M', '近6月'),
                        ('1Y', '近1年(年化)'), ('3Y', '近3年(年化)')]
@@ -4413,7 +4477,7 @@ class StockApp(tk.Tk):
                 valid = [n for n in nums if n is not None]
                 best = max(valid) if valid else None
 
-            for d, val, num in zip(ordered, vals, nums):
+            for ci, (d, val, num) in enumerate(zip(ordered, vals, nums)):
                 if is_pct and num is not None:
                     fg = '#f07070' if num >= 0 else '#4ec94e'
                     txt = f'{num:+.2f}%'
@@ -4423,7 +4487,12 @@ class StockApp(tk.Tk):
                     fg = C_FG; txt = str(val)
                 if compare and num is not None and num == best:
                     fg = '#ffd700'  # 最佳值金色
-                _cell(row, txt, bg, fg, FNT, COL_W)
+                cell_bg = C_HL if _selected_col[0] == ci else bg
+                lbl = _cell(row, txt, cell_bg, fg, FNT, COL_W)
+                _col_cells[ci].append(lbl)
+                _col_base_bgs[ci].append(bg)
+                lbl.bind('<Button-1>', lambda e, i=ci: _toggle_col(i))
+                lbl.configure(cursor='hand2')
             tk.Frame(self._cmp_inner, bg=C_SEP, height=1).pack(fill='x')
 
         # ── 分組標題 ────────────────────────────────────────────────────────
@@ -4481,6 +4550,7 @@ class StockApp(tk.Tk):
         self._cmp_status_var.set(f'已比較 {len(ordered)} 支 ETF')
         self._cmp_canvas.update_idletasks()
         self._cmp_canvas.configure(scrollregion=self._cmp_canvas.bbox('all'))
+        self._bind_cmp_scroll(self._cmp_inner)
 
     def _get_etf_code(self) -> str:
         code = self._etf_code_var.get().strip()
@@ -4894,13 +4964,12 @@ class StockApp(tk.Tk):
             self._draw_etf_kline(self._current_kline_code, self._current_kline_name)
 
     def _draw_etf_kline(self, code: str, etf_name: str):
-        """Draw K-line (candlestick) + selectable indicators for ETF."""
-        import numpy as np
-
+        """Draw K-line (candlestick) + selectable indicators for ETF.
+        Fetches OHLCV in a background thread to avoid blocking the UI."""
         CHART_BG = '#111111'
         PANEL_BG = '#1a1a2e'
 
-        # 儲存供 toggle redraw 使用
+        # 儲存供指標 toggle redraw 使用
         self._current_kline_code = code
         self._current_kline_name = etf_name
 
@@ -4910,19 +4979,49 @@ class StockApp(tk.Tk):
         self._kline_ax = None
         self._kline_ohlcv = None
 
-        # ── 取得 OHLCV 資料 ───────────────────────────────────────────────
+        # 顯示「載入中」佔位，立即 render
+        _ax_tmp = fig.add_subplot(111, facecolor=PANEL_BG)
+        _ax_tmp.text(0.5, 0.5, f'{code} K 線載入中…',
+                     ha='center', va='center', color='#888',
+                     fontsize=11, fontfamily=CHART_FONT, transform=_ax_tmp.transAxes)
+        _ax_tmp.axis('off')
+        self._etf_kline_canvas.draw()
+
         _period_map = {'1M': '1mo', '3M': '3mo', '6M': '6mo', '1Y': '1y', '全部': '5y'}
         _yf_period = _period_map.get(getattr(self, '_kline_period', '3M'), '3mo')
-        ohlcv = None
-        for s in ['.TW', '.TWO', '']:
-            try:
-                t = yf.Ticker(code + s)
-                h = t.history(period=_yf_period, auto_adjust=False)
-                if not h.empty:
-                    ohlcv = h
-                    break
-            except Exception:
-                pass
+
+        def _fetch():
+            import concurrent.futures as _cf_k
+            ohlcv = None
+            for s in ['.TW', '.TWO', '']:
+                def _do(sfx=s):
+                    h = yf.Ticker(code + sfx).history(period=_yf_period, auto_adjust=False)
+                    return h if (h is not None and not h.empty) else None
+                _ex = _cf_k.ThreadPoolExecutor(max_workers=1)
+                try:
+                    result = _ex.submit(_do).result(timeout=15)
+                    _ex.shutdown(wait=False)
+                    if result is not None:
+                        ohlcv = result
+                        break
+                except Exception:
+                    _ex.shutdown(wait=False)
+            self._ui_call(lambda: self._render_etf_kline(code, ohlcv))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _render_etf_kline(self, code: str, ohlcv):
+        """Render K-line chart on the UI thread after data is fetched."""
+        import numpy as np
+
+        CHART_BG = '#111111'
+        PANEL_BG = '#1a1a2e'
+
+        fig = self._etf_kline_fig
+        fig.clear()
+        fig.patch.set_facecolor(CHART_BG)
+        self._kline_ax = None
+        self._kline_ohlcv = None
 
         if ohlcv is None or ohlcv.empty:
             ax = fig.add_subplot(111, facecolor=PANEL_BG)
@@ -5655,10 +5754,19 @@ class StockApp(tk.Tk):
                     codes = list(base_stocks.keys())
                     tickers = [c + '.TW' for c in codes]
                     try:
-                        raw = yf.download(
-                            tickers, period=f'{n + 10}d',
-                            progress=False, auto_adjust=True,
-                            group_by='ticker', threads=True)
+                        import logging as _log, io, sys as _sys
+                        _yf_log = _log.getLogger('yfinance')
+                        _prev_lvl = _yf_log.level
+                        _yf_log.setLevel(_log.CRITICAL)
+                        _old_stderr, _sys.stderr = _sys.stderr, io.StringIO()
+                        try:
+                            raw = yf.download(
+                                tickers, period=f'{n + 10}d',
+                                progress=False, auto_adjust=True,
+                                group_by='ticker', threads=True)
+                        finally:
+                            _sys.stderr = _old_stderr
+                            _yf_log.setLevel(_prev_lvl)
                         for code, tkr in zip(codes, tickers):
                             try:
                                 if len(tickers) == 1:
@@ -5751,10 +5859,19 @@ class StockApp(tk.Tk):
                                          for s in tops})
                 streak_tickers = [c + '.TW' for c in all_streak_codes]
                 try:
-                    raw_s = yf.download(
-                        streak_tickers, period='25d',
-                        progress=False, auto_adjust=True,
-                        group_by='ticker', threads=True)
+                    import logging as _log, io, sys as _sys
+                    _yf_log = _log.getLogger('yfinance')
+                    _prev_lvl = _yf_log.level
+                    _yf_log.setLevel(_log.CRITICAL)
+                    _old_stderr, _sys.stderr = _sys.stderr, io.StringIO()
+                    try:
+                        raw_s = yf.download(
+                            streak_tickers, period='25d',
+                            progress=False, auto_adjust=True,
+                            group_by='ticker', threads=True)
+                    finally:
+                        _sys.stderr = _old_stderr
+                        _yf_log.setLevel(_prev_lvl)
                     # 個股每日漲跌幅
                     daily_ret: dict[str, list] = {}
                     for code, tkr in zip(all_streak_codes, streak_tickers):
