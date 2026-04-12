@@ -695,13 +695,14 @@ def get_price_on_date(code: str, date_str: str):
     return None, False, code
 
 
-def get_history(code: str, start_date: str) -> 'pd.Series | None':
-    """取得從 start_date 到今天的每日收盤價（pd.Series，index 為 DatetimeIndex）"""
+def get_history(code: str, start_date: str, auto_adjust: bool = False) -> 'pd.Series | None':
+    """取得從 start_date 到今天的每日收盤價（pd.Series，index 為 DatetimeIndex）
+    auto_adjust=True 時回傳還原後股價（含股票分割調整）。"""
     end_str = (datetime.today() + timedelta(days=1)).strftime('%Y-%m-%d')
     for s in ['.TW', '.TWO', '']:
         try:
             hist = yf.Ticker(code + s).history(
-                start=start_date, end=end_str, auto_adjust=False)
+                start=start_date, end=end_str, auto_adjust=auto_adjust)
             if not hist.empty:
                 close_col = 'Close' if 'Close' in hist.columns else hist.columns[3]
                 return hist[close_col]
@@ -3148,6 +3149,10 @@ class StockApp(tk.Tk):
                   foreground=C_FG2, font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 6))
         ttk.Button(ctrl, text='📊  繪製圖表', style='Nav.TButton', command=self._draw_analysis).pack(side='left')
         ttk.Button(ctrl, text='💾  另存圖檔', style='Nav.TButton', command=self._save_analysis).pack(side='left', padx=(6, 0))
+        self._adj_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(ctrl, text='還原股價（含股票分割）',
+                        variable=self._adj_var,
+                        command=self._draw_analysis).pack(side='left', padx=(14, 0))
 
         self._an_fig    = plt.Figure(figsize=(9.5, 5.5), dpi=100, facecolor=C_BG)
         self._an_canvas = FigureCanvasTkAgg(self._an_fig, master=f)
@@ -3301,8 +3306,70 @@ class StockApp(tk.Tk):
         qtys   = sdf['數量(股)'].values.astype(float)
 
         # ── 抓歷史收盤價 ──────────────────────────────────────────────────────
-        start_str  = pd.to_datetime(dates[0]).strftime('%Y-%m-%d')
-        hist_close = get_history(code, start_str)   # pd.Series or None
+        adj_mode  = self._adj_var.get()
+        start_str = pd.to_datetime(dates[0]).strftime('%Y-%m-%d')
+        hist_close = get_history(code, start_str, auto_adjust=adj_mode)
+
+        # ── 還原模式：用 adj/raw 收盤比值推算分割比例，同步調整價格與股數 ──────
+        if adj_mode:
+            _hi_raw = get_history(code, start_str, auto_adjust=False)
+            _hi_adj = hist_close  # already auto_adjust=True
+
+            sdf = sdf.copy()
+            adj_prices, adj_qtys = [], []
+
+            if (_hi_raw is not None and not _hi_raw.empty and
+                    _hi_adj is not None and not _hi_adj.empty):
+                # 去除 timezone
+                _raw_idx = _hi_raw.copy()
+                _adj_idx = _hi_adj.copy()
+                if getattr(_raw_idx.index, 'tz', None):
+                    _raw_idx.index = _raw_idx.index.tz_convert(None)
+                if getattr(_adj_idx.index, 'tz', None):
+                    _adj_idx.index = _adj_idx.index.tz_convert(None)
+
+                for orig_p, orig_q, d in zip(prices, qtys, dates):
+                    ts = pd.Timestamp(d).normalize()
+                    try:
+                        # 在「交易日當天或之後最近交易日」取得 raw 與 adj 收盤
+                        pos = min(_raw_idx.index.searchsorted(ts), len(_raw_idx) - 1)
+                        raw_v = float(_raw_idx.iloc[pos])
+                        adj_v = float(_adj_idx.iloc[pos])
+                        # ratio < 1 表示有拆股（adj 比 raw 小）
+                        ratio = adj_v / raw_v if raw_v > 0 else 1.0
+                    except Exception:
+                        ratio = 1.0
+                    # 還原後：成交價 × ratio（縮小）、股數 ÷ ratio（放大）
+                    adj_prices.append(orig_p * ratio)
+                    adj_qtys.append(orig_q / ratio)
+            else:
+                adj_prices = list(prices)
+                adj_qtys   = list(qtys)
+
+            prices = np.array(adj_prices)
+            qtys   = np.array(adj_qtys)
+            sdf['價格(元)']  = prices
+            sdf['數量(股)'] = qtys
+
+            # 重算均價（用調整後的價格與股數）
+            qty_cum2, cost_cum2 = 0.0, 0.0
+            new_avg = []
+            for _, r in sdf.iterrows():
+                q   = float(r['數量(股)'])
+                p   = float(r['價格(元)'])
+                fee = float(r['手續費(元)'])
+                if r['買賣'] == '買':
+                    cost_cum2 += q * p + fee
+                    qty_cum2  += q
+                else:
+                    if qty_cum2 > 0:
+                        cost_cum2 -= (cost_cum2 / qty_cum2) * q
+                        qty_cum2  -= q
+                new_avg.append(cost_cum2 / qty_cum2 if qty_cum2 > 0.5 else np.nan)
+            sdf['avg_cost'] = new_avg
+            avg_costs = new_avg
+            cost_cum  = cost_cum2
+            qty_cum   = qty_cum2
 
         # ── 繪圖 ──────────────────────────────────────────────────────────────
         self._an_fig.clear()
@@ -3413,7 +3480,8 @@ class StockApp(tk.Tk):
                         + (f'  |  損益 {pnl_str}' if pnl_str else ''))
 
         cat_label = f'  [{cat_filter}]' if cat_filter else ''
-        ax1.set_title(f'{code}  {name}{cat_label}\n{subtitle}',
+        adj_label = '  ［還原股價］' if adj_mode else ''
+        ax1.set_title(f'{code}  {name}{cat_label}{adj_label}\n{subtitle}',
                       fontsize=12, fontweight='bold', pad=8, color=C_FG)
 
         # 儲存長條資料供 hover 偵測
@@ -3988,6 +4056,14 @@ class StockApp(tk.Tk):
 
         codes   = [c for c, _ in etf_pairs]
         ordered = [results[c] for c in codes if c in results]
+
+        # 補齊中文名稱：若 fetch 時 TWSE 快取尚未就緒，名稱可能等於代號，在此補查
+        for _d in ordered:
+            for _h in _d.get('components', []):
+                if not _has_cjk(_h.get('name', '')):
+                    _cached = _TWSE_NAMES_CACHE.get(_h.get('code', ''))
+                    if _cached:
+                        _h['name'] = _cached
         if not ordered:
             self._cmp_show_placeholder()
             self._cmp_status_var.set('無法取得資料')
@@ -4491,7 +4567,14 @@ class StockApp(tk.Tk):
                 lbl = _cell(row, txt, cell_bg, fg, FNT, COL_W)
                 _col_cells[ci].append(lbl)
                 _col_base_bgs[ci].append(bg)
-                lbl.bind('<Button-1>', lambda e, i=ci: _toggle_col(i))
+                def _on_cell_click(e, i=ci, code=d['code']):
+                    if e.state & 0x4:  # Ctrl 鍵
+                        self._etf_code_var.set(code)
+                        self._show_etf_sub('analysis')
+                        self._draw_etf_map()
+                    else:
+                        _toggle_col(i)
+                lbl.bind('<Button-1>', _on_cell_click)
                 lbl.configure(cursor='hand2')
             tk.Frame(self._cmp_inner, bg=C_SEP, height=1).pack(fill='x')
 
@@ -4543,7 +4626,7 @@ class StockApp(tk.Tk):
                 if idx < len(d['components']):
                     h = d['components'][idx]
                     w = h.get('weight', 0)
-                    return f"{h.get('code','')} {h.get('name','')[:4]} {w:.1f}%"
+                    return f"{h.get('code','')} {h.get('name','')[:6]} {w:.1f}%"
                 return '—'
             _r(f'#{i+1}', _top_holding, compare=False)
 
