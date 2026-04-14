@@ -6775,29 +6775,56 @@ class StockApp(tk.Tk):
                 self._mkt_tooltip.deiconify()
                 return
 
-        # 找類股區塊（只在總覽時）
-        if not self._mkt_drill:
-            for c in self._mkt_cat_rects:
-                if c['cx'] <= x <= c['cx'] + c['cw'] and c['cy'] <= y <= c['cy'] + c['ch']:
-                    sign = '+' if c['avg_chg'] >= 0 else ''
-                    tv   = c['trade_val'] / 1e8
-                    s_dir, s_cnt = c.get('streak', (0, 0))
-                    if s_cnt >= 2:
-                        sym = '▲' if s_dir > 0 else '▼'
-                        streak_line = f"連續{'上漲' if s_dir > 0 else '下跌'}：{sym}{s_cnt} 天\n"
+        # 找類股區塊（總覽 + 其他業/其他概念展開層皆檢查）
+        for c in self._mkt_cat_rects:
+            if c['cx'] <= x <= c['cx'] + c['cw'] and c['cy'] <= y <= c['cy'] + c['ch']:
+                sign = '+' if c['avg_chg'] >= 0 else ''
+                tv   = c['trade_val'] / 1e8
+                s_dir, s_cnt = c.get('streak', (0, 0))
+                if s_cnt >= 2:
+                    sym = '▲' if s_dir > 0 else '▼'
+                    streak_line = f"連續{'上漲' if s_dir > 0 else '下跌'}：{sym}{s_cnt} 天\n"
+                else:
+                    streak_line = ''
+
+                # 判斷游標是否在標題列（header bar）上
+                HDR_H = c.get('hdr_h', 3.2)
+                hdr_y = c['cy'] + c['ch'] - HDR_H
+                in_header = y >= hdr_y
+
+                if in_header:
+                    # 取得此類股的股票清單
+                    if c.get('_is_other_sub'):
+                        # 其他業/其他概念 子類股：從父類中篩選
+                        parent_stks = self._mkt_groups.get(self._mkt_drill, [])
+                        stks = [s for s in parent_stks if s.get('industry') == c['name']]
                     else:
-                        streak_line = ''
-                    self._mkt_tt_lbl.config(text=(
+                        stks = self._mkt_groups.get(c['name'], [])
+                    stks_sorted = sorted(stks, key=lambda s: -s['trade_val'])
+                    lines = [f"{c['name']}  {c['count']} 檔  |  加權均漲跌：{sign}{c['avg_chg']:.2f}%  |  成交 {tv:.1f} 億",
+                             '─' * 38]
+                    for s in stks_sorted[:20]:
+                        s_tv = s['trade_val'] / 1e8
+                        lines.append(
+                            f"  {s['code']:<6}  {s['name']:<8}  "
+                            f"{s['chg_pct']:+.2f}%   {s_tv:.1f}億")
+                    if len(stks_sorted) > 20:
+                        lines.append(f"  … 另有 {len(stks_sorted) - 20} 檔")
+                    tt_text = '\n'.join(lines)
+                else:
+                    drill_hint = '點擊進入子類股詳細' if c.get('_is_other_sub') else '點擊進入類股詳細'
+                    tt_text = (
                         f"{c['name']}  共 {c['count']} 檔\n"
                         f"加權平均漲跌：{sign}{c['avg_chg']:.2f}%\n"
                         f"{streak_line}"
                         f"類股成交金額：{tv:.1f} 億\n"
-                        f"點擊進入類股詳細"))
-                    sx = event.guiEvent.x_root + 14
-                    sy = event.guiEvent.y_root + 14
-                    self._mkt_tooltip.geometry(f'+{sx}+{sy}')
-                    self._mkt_tooltip.deiconify()
-                    return
+                        f"{drill_hint}")
+
+                self._mkt_tt_lbl.config(text=tt_text)
+                self._place_tooltip(self._mkt_tooltip,
+                                    event.guiEvent.x_root, event.guiEvent.y_root)
+                self._mkt_tooltip.deiconify()
+                return
 
         self._mkt_tooltip.withdraw()
 
