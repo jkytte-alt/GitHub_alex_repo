@@ -1379,6 +1379,79 @@ def pnl_color(pct: float, max_abs: float = 10.0) -> str:
         b = int(0x3a + t * (0x1e - 0x3a))
     return f'#{r:02x}{g:02x}{b:02x}'
 
+# ─── 美股顏色（US 慣例：漲綠跌紅，與台股相反）────────────────────────────────
+def pnl_color_us(pct: float, max_abs: float = 10.0) -> str:
+    """美國慣例：正報酬綠色，負報酬紅色。"""
+    try:
+        pct = float(pct)
+    except (TypeError, ValueError):
+        pct = 0.0
+    import math
+    t = min(abs(pct) / max(max_abs, 0.01), 1.0)
+    t = math.sqrt(t)
+    if pct >= 0:
+        r = int(0x3a + t * (0x0e - 0x3a))
+        g = int(0x3a + t * (0x7a - 0x3a))
+        b = int(0x3a + t * (0x1e - 0x3a))
+    else:
+        r = int(0x3a + t * (0xc0 - 0x3a))
+        g = int(0x3a + t * (0x20 - 0x3a))
+        b = int(0x3a + t * (0x20 - 0x3a))
+    return f'#{r:02x}{g:02x}{b:02x}'
+
+# ─── 美股 S&P 500 類股代號對照表 ──────────────────────────────────────────────
+_US_SECTOR_STOCKS: dict[str, list[str]] = {
+    '科技': [
+        'AAPL', 'MSFT', 'NVDA', 'AVGO', 'ORCL', 'AMD', 'QCOM', 'TXN', 'MU',
+        'AMAT', 'LRCX', 'NOW', 'CRM', 'ADBE', 'INTU', 'PANW', 'NET', 'FTNT',
+        'CRWD', 'ADI', 'KLAC', 'MCHP', 'ON', 'INTC', 'HPQ', 'IBM', 'ACN',
+    ],
+    '醫療保健': [
+        'UNH', 'JNJ', 'LLY', 'ABBV', 'MRK', 'TMO', 'ABT', 'DHR', 'AMGN',
+        'GILD', 'CI', 'ISRG', 'MDT', 'BSX', 'SYK', 'ELV', 'VRTX', 'REGN',
+        'HUM', 'CVS', 'MCK', 'ZBH', 'BAX', 'BDX',
+    ],
+    '金融': [
+        'BRK-B', 'JPM', 'BAC', 'WFC', 'GS', 'MS', 'BLK', 'SCHW', 'AXP',
+        'USB', 'PNC', 'COF', 'TFC', 'MET', 'CME', 'ICE', 'SPGI', 'MCO',
+        'PRU', 'AFL', 'ALL', 'CB', 'AIG', 'HIG',
+    ],
+    '非必需消費': [
+        'AMZN', 'TSLA', 'HD', 'MCD', 'NKE', 'LOW', 'SBUX', 'BKNG', 'TJX',
+        'ORLY', 'AZO', 'ROST', 'CMG', 'DG', 'DLTR', 'DHI', 'LEN', 'PHM',
+        'F', 'GM', 'APTV', 'HMC',
+    ],
+    '通訊服務': [
+        'META', 'GOOG', 'GOOGL', 'NFLX', 'DIS', 'CMCSA', 'T', 'VZ',
+        'TMUS', 'CHTR', 'EA', 'TTWO', 'WBD', 'MTCH',
+    ],
+    '工業': [
+        'GE', 'CAT', 'HON', 'UPS', 'RTX', 'BA', 'LMT', 'NOC', 'GD', 'MMM',
+        'EMR', 'ITW', 'PH', 'ETN', 'DE', 'FDX', 'NSC', 'UNP', 'CSX', 'WM',
+        'RSG', 'CTAS', 'FAST', 'GWW',
+    ],
+    '必需消費': [
+        'PG', 'KO', 'PEP', 'COST', 'WMT', 'PM', 'MO', 'MDLZ', 'CL',
+        'KMB', 'GIS', 'K', 'HSY', 'MKC', 'CAG', 'HRL', 'SJM',
+    ],
+    '能源': [
+        'XOM', 'CVX', 'COP', 'EOG', 'SLB', 'MPC', 'PSX', 'VLO', 'OXY',
+        'HAL', 'BKR', 'DVN', 'APA', 'HES', 'FANG',
+    ],
+    '原物料': [
+        'LIN', 'SHW', 'APD', 'FCX', 'NEM', 'NUE', 'VMC', 'MLM', 'DOW',
+        'DD', 'PPG', 'IFF', 'CF', 'MOS', 'ALB',
+    ],
+    '房地產': [
+        'PLD', 'AMT', 'EQIX', 'CCI', 'PSA', 'EXR', 'WELL', 'DLR', 'O',
+        'SPG', 'VTR', 'EQR', 'AVB', 'INVH', 'VICI',
+    ],
+    '公用事業': [
+        'NEE', 'DUK', 'SO', 'D', 'AEP', 'XEL', 'SRE', 'ED', 'WEC', 'AWK',
+        'ES', 'FE', 'ETR', 'AEE', 'PCG',
+    ],
+}
+
 # ─── 自製日期選擇器（避免 DateEntry 導覽時自動關閉的 bug）────────────────────
 class DatePickerEntry(ttk.Frame):
     """Entry + 📅 按鈕，點擊後開啟獨立 Calendar Toplevel，切換月份/年份不會關閉"""
@@ -1505,6 +1578,7 @@ class StockApp(tk.Tk):
         ('📝', '買賣紀錄'),
         ('🇹🇼', '台股總覽'),
         ('📉', '個股分析'),
+        ('🇺🇸', '美股總覽'),
     ]
     _SIDEBAR_EXP = 200   # expanded width px
     _SIDEBAR_COL = 54    # collapsed width px
@@ -1548,7 +1622,8 @@ class StockApp(tk.Tk):
         self.tab4 = tk.Frame(self._content, bg=C_BG)
         self.tab5 = tk.Frame(self._content, bg=C_BG)
         self.tab6 = tk.Frame(self._content, bg=C_BG)
-        for f in (self.tab1, self.tab2, self.tab3, self.tab4, self.tab5, self.tab6):
+        self.tab7 = tk.Frame(self._content, bg=C_BG)
+        for f in (self.tab1, self.tab2, self.tab3, self.tab4, self.tab5, self.tab6, self.tab7):
             f.place(relx=0, rely=0, relwidth=1, relheight=1)
 
         self._build_sidebar()
@@ -1560,6 +1635,7 @@ class StockApp(tk.Tk):
         self._build_tab4()
         self._build_tab5()
         self._build_tab6()
+        self._build_tab7()
 
         self._current_page = -1
         self._show_page(0)
@@ -1672,7 +1748,7 @@ class StockApp(tk.Tk):
             w.config(bg=bg)
 
     def _show_page(self, idx):
-        pages = [self.tab2, self.tab3, self.tab4, self.tab1, self.tab5, self.tab6]
+        pages = [self.tab2, self.tab3, self.tab4, self.tab1, self.tab5, self.tab6, self.tab7]
         pages[idx].tkraise()
 
         # Update nav highlight
@@ -1693,6 +1769,10 @@ class StockApp(tk.Tk):
         # 離開 Tab 5 時關閉懸浮提示
         if prev == 4 and idx != 4:
             self._mkt_tooltip.withdraw()
+        # 離開 Tab 7（美股）時關閉懸浮提示
+        if prev == 6 and idx != 6:
+            if hasattr(self, '_us_mkt_tooltip'):
+                self._us_mkt_tooltip.withdraw()
 
         # Side-effects
         if idx == 0 and prev != 0:
@@ -1701,6 +1781,8 @@ class StockApp(tk.Tk):
             self._update_stock_list()
         elif idx == 4 and prev != 4:
             self._draw_market_map()
+        elif idx == 6 and prev != 6:
+            self._draw_us_market_map()
         elif idx == 5 and prev != 5:
             code = self._stk_code.get().strip()
             if code and self._stk_current_code != code:
@@ -6732,6 +6814,597 @@ class StockApp(tk.Tk):
             self._mkt_fig.savefig(path, dpi=150, bbox_inches='tight',
                                    facecolor=self._mkt_fig.get_facecolor())
             self._mkt_status.set(f'已儲存：{path}')
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Tab 7：美股市場總覽
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    def _build_tab7(self):
+        f = self.tab7
+
+        # ── 控制列 ────────────────────────────────────────────────────────────
+        ctrl = ttk.Frame(f)
+        ctrl.pack(fill='x', padx=14, pady=8)
+        ttk.Label(ctrl, text='美股市場總覽', style='Hdr.TLabel').pack(side='left')
+        ttk.Button(ctrl, text='💾  另存圖檔', style='Nav.TButton',
+                   command=self._save_us_market_map).pack(side='right', padx=(4, 0))
+        ttk.Button(ctrl, text='🔄  更新', style='Nav.TButton',
+                   command=self._draw_us_market_map).pack(side='right')
+
+        self._us_mkt_status = tk.StringVar(value='切換至此頁面自動更新')
+        ttk.Label(ctrl, textvariable=self._us_mkt_status,
+                  foreground=C_FG2, font=('Microsoft JhengHei', 9)).pack(side='left', padx=14)
+
+        # ── 期間選擇 ──────────────────────────────────────────────────────────
+        period_bar = tk.Frame(f, bg=C_BG)
+        period_bar.pack(fill='x', padx=14, pady=(0, 4))
+        tk.Label(period_bar, text='期間：', bg=C_BG, fg=C_FG2,
+                 font=('Microsoft JhengHei', 9)).pack(side='left')
+        self._us_mkt_period = '1D'
+        self._us_mkt_period_btns: dict[str, tk.Label] = {}
+        for pid, plbl in [('1D', '1日'), ('5D', '5日'), ('1M', '1月'), ('3M', '3月')]:
+            btn = tk.Label(period_bar, text=plbl, bg='#1a1a2e', fg=C_FG2,
+                           font=('Microsoft JhengHei', 9), padx=10, pady=3,
+                           relief='flat', cursor='hand2')
+            btn.pack(side='left', padx=2)
+            btn.bind('<Button-1>', lambda e, p=pid: self._set_us_mkt_period(p))
+            self._us_mkt_period_btns[pid] = btn
+        self._update_us_period_btn_style()
+
+        # ── 摘要列 ────────────────────────────────────────────────────────────
+        stats_bar = tk.Frame(f, bg=C_PANEL)
+        stats_bar.pack(fill='x', padx=8, pady=(0, 4))
+
+        def _sc(parent, title):
+            fr = tk.Frame(parent, bg='#1a1a2e', padx=14, pady=6)
+            fr.pack(side='left', padx=3)
+            tk.Label(fr, text=title, bg='#1a1a2e', fg='#6a8faf',
+                     font=('Microsoft JhengHei', 8)).pack(anchor='w')
+            var = tk.StringVar(value='—')
+            lbl = tk.Label(fr, textvariable=var, bg='#1a1a2e',
+                           fg=C_FG, font=('Microsoft JhengHei', 11, 'bold'))
+            lbl.pack(anchor='w')
+            return var, lbl
+
+        self._us_sv_sp500,  self._us_sl_sp500  = _sc(stats_bar, 'S&P 500')
+        self._us_sv_nasdaq, self._us_sl_nasdaq  = _sc(stats_bar, 'Nasdaq')
+        self._us_sv_dow,    self._us_sl_dow     = _sc(stats_bar, 'Dow Jones')
+        self._us_sv_up,     self._us_sl_up      = _sc(stats_bar, '上漲')
+        self._us_sv_down,   self._us_sl_down    = _sc(stats_bar, '下跌')
+        self._us_sv_total,  self._us_sl_total   = _sc(stats_bar, '總計')
+
+        # ── 強勢類股排行（右側）──────────────────────────────────────────────
+        self._us_hot_frame = tk.Frame(stats_bar, bg='#1a1a2e')
+        self._us_hot_frame.pack(side='left', fill='both', expand=True, padx=(8, 4), pady=3)
+        tk.Label(self._us_hot_frame, text='強勢類股', bg='#1a1a2e', fg='#6a8faf',
+                 font=('Microsoft JhengHei', 8)).pack(anchor='nw', padx=8, pady=(4, 0))
+        self._us_hot_lbl = tk.Label(
+            self._us_hot_frame, text='', bg='#1a1a2e', fg='#4ec94e',
+            font=('Microsoft JhengHei', 11, 'bold'),
+            anchor='w', justify='left', padx=8, pady=0)
+        self._us_hot_lbl.pack(fill='x', expand=True)
+
+        # ── Treemap canvas ────────────────────────────────────────────────────
+        self._us_mkt_fig = plt.Figure(figsize=(9.5, 5.5), dpi=100, facecolor='#111111')
+        self._us_mkt_canvas = FigureCanvasTkAgg(self._us_mkt_fig, master=f)
+        w = self._us_mkt_canvas.get_tk_widget()
+        w.configure(bg='#111111')
+        w.pack(fill='both', expand=True, padx=8, pady=(0, 8))
+        w.bind('<Leave>', lambda e: self._us_mkt_tooltip.withdraw()
+               if hasattr(self, '_us_mkt_tooltip') else None)
+
+        # ── Tooltip ───────────────────────────────────────────────────────────
+        self._us_mkt_tooltip = tk.Toplevel(self)
+        self._us_mkt_tooltip.withdraw()
+        self._us_mkt_tooltip.overrideredirect(True)
+        self._us_mkt_tooltip.configure(bg='#1a1a2e')
+        self._us_mkt_tt_lbl = tk.Label(
+            self._us_mkt_tooltip, bg='#1a1a2e', fg=C_FG,
+            font=('Microsoft JhengHei', 9), justify='left', padx=8, pady=6)
+        self._us_mkt_tt_lbl.pack()
+
+        # ── 內部狀態 ──────────────────────────────────────────────────────────
+        self._us_mkt_rects:     list = []
+        self._us_mkt_cat_rects: list = []
+        self._us_mkt_groups:    dict = {}
+        self._us_mkt_drill:     str | None = None
+        self._us_mkt_hist_cache: dict = {}
+        self._us_mkt_up = self._us_mkt_down = 0
+
+        self._us_mkt_canvas.mpl_connect('motion_notify_event', self._on_us_mkt_motion)
+        self._us_mkt_canvas.mpl_connect('button_press_event', self._on_us_mkt_click)
+
+    # ── 期間切換 ──────────────────────────────────────────────────────────────
+
+    def _set_us_mkt_period(self, period: str):
+        if period == self._us_mkt_period:
+            return
+        self._us_mkt_period = period
+        self._update_us_period_btn_style()
+        self._draw_us_market_map()
+
+    def _update_us_period_btn_style(self):
+        for pid, btn in self._us_mkt_period_btns.items():
+            if pid == self._us_mkt_period:
+                btn.config(bg='#2a4a6e', fg='white')
+            else:
+                btn.config(bg='#1a1a2e', fg=C_FG2)
+
+    # ── 資料抓取 + 繪製（背景執行緒）─────────────────────────────────────────
+
+    def _draw_us_market_map(self):
+        self._us_mkt_status.set('🔄 載入美股資料中…')
+        self._us_mkt_rects     = []
+        self._us_mkt_cat_rects = []
+        self._us_mkt_drill     = None
+        self._us_mkt_hist_cache.clear()
+        threading.Thread(target=self._draw_us_market_map_impl, daemon=True).start()
+
+    def _draw_us_market_map_impl(self):
+        try:
+            import logging as _log, io, sys as _sys
+            _yf_log   = _log.getLogger('yfinance')
+            _prev_lvl = _yf_log.level
+            _yf_log.setLevel(_log.CRITICAL)
+
+            period    = self._us_mkt_period
+            n_map     = {'1D': '2d', '5D': '7d', '1M': '35d', '3M': '100d'}
+            yf_period = n_map.get(period, '2d')
+
+            # 收集所有代號
+            all_tickers: list[str] = []
+            ticker_sector: dict[str, str] = {}
+            for sector, tickers in _US_SECTOR_STOCKS.items():
+                for t in tickers:
+                    if t not in ticker_sector:
+                        all_tickers.append(t)
+                        ticker_sector[t] = sector
+
+            # 批次下載歷史資料
+            _old_stderr, _sys.stderr = _sys.stderr, io.StringIO()
+            try:
+                raw = yf.download(
+                    all_tickers, period=yf_period,
+                    progress=False, auto_adjust=True,
+                    group_by='ticker', threads=True)
+            finally:
+                _sys.stderr = _old_stderr
+                _yf_log.setLevel(_prev_lvl)
+
+            # 解析每支股票的漲跌幅與成交金額
+            base_stocks: dict[str, dict] = {}
+            up = down = 0
+
+            def _get_series(ticker):
+                try:
+                    if len(all_tickers) == 1:
+                        return raw
+                    return raw[ticker]
+                except Exception:
+                    return None
+
+            for tkr in all_tickers:
+                try:
+                    df = _get_series(tkr)
+                    if df is None or df.empty:
+                        continue
+                    closes = df['Close'].dropna()
+                    vols   = df['Volume'].dropna()
+                    if len(closes) < 2:
+                        continue
+
+                    close_now  = float(closes.iloc[-1])
+                    close_prev = float(closes.iloc[-2 if period == '1D' else max(-len(closes), -(
+                        {'5D': 6, '1M': 22, '3M': 66}.get(period, 2)))])
+                    vol_now    = float(vols.iloc[-1]) if not vols.empty else 0.0
+
+                    if close_prev <= 0:
+                        continue
+                    chg_pct = (close_now - close_prev) / close_prev * 100
+                    trade_val = close_now * vol_now   # 近似成交金額（USD）
+
+                    if chg_pct > 0:  up   += 1
+                    elif chg_pct < 0: down += 1
+
+                    sector = ticker_sector.get(tkr, '其他')
+                    base_stocks[tkr] = {
+                        'code':      tkr,
+                        'name':      tkr,
+                        'sector':    sector,
+                        'close':     close_now,
+                        'chg_pct':   chg_pct,
+                        'trade_val': max(trade_val, 1.0),
+                    }
+                except Exception:
+                    pass
+
+            # 依類股組裝 groups
+            MERGE_THRESHOLD = 0.5
+            raw_groups: dict[str, list] = {}
+            total_tv = sum(s['trade_val'] for s in base_stocks.values()) or 1.0
+            for stk in base_stocks.values():
+                raw_groups.setdefault(stk['sector'], []).append(stk)
+
+            groups: dict[str, list] = {}
+            other_stocks: list = []
+            for sec, stks in raw_groups.items():
+                sec_tv = sum(s['trade_val'] for s in stks)
+                pct = sec_tv / total_tv * 100
+                if pct < MERGE_THRESHOLD:
+                    other_stocks.extend(stks)
+                else:
+                    groups[sec] = stks
+            if other_stocks:
+                groups.setdefault('其他', []).extend(other_stocks)
+
+            # 抓取三大指數
+            sp500_price = sp500_chg = None
+            nasdaq_price = nasdaq_chg = None
+            dow_price = dow_chg = None
+            try:
+                idx_raw = yf.download(
+                    ['^GSPC', '^IXIC', '^DJI'], period='2d',
+                    progress=False, auto_adjust=True,
+                    group_by='ticker', threads=True)
+                def _idx_chg(tkr):
+                    try:
+                        closes = idx_raw[tkr]['Close'].dropna()
+                        if len(closes) >= 2:
+                            p = float(closes.iloc[-1])
+                            c = (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100
+                            return float(p), float(c)
+                    except Exception:
+                        pass
+                    return None, None
+                sp500_price,  sp500_chg  = _idx_chg('^GSPC')
+                nasdaq_price, nasdaq_chg = _idx_chg('^IXIC')
+                dow_price,    dow_chg    = _idx_chg('^DJI')
+            except Exception:
+                pass
+
+            _period_lbl = {'1D': '今日', '5D': '5日', '1M': '1月', '3M': '3月'}.get(period, period)
+            self._ui_call(lambda: self._render_us_market_map(
+                groups, raw_groups, up, down,
+                sp500_price, sp500_chg,
+                nasdaq_price, nasdaq_chg,
+                dow_price, dow_chg,
+                _period_lbl))
+        except Exception as e:
+            _e = e
+            self._ui_call(lambda: self._us_mkt_status.set(f'⚠ 載入失敗：{_e}'))
+
+    def _render_us_market_map(self, groups, raw_groups, up, down,
+                               sp500_price, sp500_chg,
+                               nasdaq_price, nasdaq_chg,
+                               dow_price, dow_chg,
+                               period_label='今日'):
+        self._us_mkt_groups = groups
+        self._us_mkt_up     = up
+        self._us_mkt_down   = down
+
+        # ── 更新摘要列 ────────────────────────────────────────────────────────
+        def _fmt_idx(var, lbl, price, chg):
+            if price:
+                sign = '+' if (chg or 0) >= 0 else ''
+                chg_str = f'  {sign}{chg:.2f}%' if chg is not None else ''
+                var.set(f'{price:,.2f}{chg_str}')
+                lbl.config(fg='#4ec94e' if (chg or 0) >= 0 else '#f07070')
+            else:
+                var.set('—')
+
+        _fmt_idx(self._us_sv_sp500,  self._us_sl_sp500,  sp500_price,  sp500_chg)
+        _fmt_idx(self._us_sv_nasdaq, self._us_sl_nasdaq, nasdaq_price, nasdaq_chg)
+        _fmt_idx(self._us_sv_dow,    self._us_sl_dow,    dow_price,    dow_chg)
+
+        self._us_sv_up   .set(f'{up} 檔');        self._us_sl_up  .config(fg='#4ec94e')
+        self._us_sv_down .set(f'{down} 檔');      self._us_sl_down.config(fg='#f07070')
+        self._us_sv_total.set(f'{up + down} 檔')
+
+        # 強勢類股
+        sector_chg: list[tuple[float, str]] = []
+        for sec, stks in raw_groups.items():
+            if not stks:
+                continue
+            total_tv = sum(s['trade_val'] for s in stks)
+            if total_tv <= 0:
+                continue
+            w_chg = sum(s['chg_pct'] * s['trade_val'] for s in stks) / total_tv
+            sector_chg.append((w_chg, sec))
+        rising = sorted([(c, n) for c, n in sector_chg if c > 0], reverse=True)[:3]
+        parts = [f'{n}  +{c:.1f}%' for c, n in rising]
+        self._us_hot_lbl.config(text='    '.join(parts) if parts else '—')
+
+        self._us_mkt_period_label = period_label
+        if self._us_mkt_drill:
+            self._render_us_drill(self._us_mkt_drill)
+        else:
+            self._render_us_overview()
+
+    # ── 總覽繪製 ──────────────────────────────────────────────────────────────
+
+    def _render_us_overview(self):
+        groups = self._us_mkt_groups
+        fig    = self._us_mkt_fig
+        fig.clf()
+        ax  = fig.add_axes([0, 0.03, 1, 0.97])
+        ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.axis('off')
+        sax = fig.add_axes([0, 0, 1, 0.03]); sax.axis('off')
+
+        dpi        = fig.dpi
+        _px_per_ux = fig.get_size_inches()[0] * dpi / 100
+        _px_per_uy = fig.get_size_inches()[1] * dpi * 0.97 / 100
+        _pt_per_px = 72 / dpi
+        SEP_COL    = '#111111'
+        GAP        = 0.3
+        HDR_H      = 3.2
+
+        ind_vals    = {sec: sum(s['trade_val'] for s in stks)
+                       for sec, stks in groups.items()}
+        sorted_inds = sorted(groups, key=lambda x: -ind_vals[x])
+        all_pcts    = [s['chg_pct'] for stks in groups.values() for s in stks]
+        _max_abs    = max((abs(p) for p in all_pcts), default=5.0) or 5.0
+        total_val   = sum(ind_vals.values())
+
+        if not total_val:
+            ax.text(50, 50, '無資料', ha='center', va='center',
+                    color='#888', fontsize=14, fontfamily=CHART_FONT)
+            self._us_mkt_canvas.draw()
+            self._us_mkt_status.set('無法取得資料')
+            return
+
+        cat_sizes = [ind_vals[i] for i in sorted_inds]
+        norm_cats = squarify.normalize_sizes(cat_sizes, 100, 96)
+        cats_raw  = squarify.squarify(norm_cats, 0, 4, 100, 96)
+        cat_rects = [{'x': r['x'],
+                      'y': 4 + 96 - (r['y'] - 4) - r['dy'],
+                      'dx': r['dx'], 'dy': r['dy']} for r in cats_raw]
+
+        self._us_mkt_rects     = []
+        self._us_mkt_cat_rects = []
+
+        for sec_name, cr in zip(sorted_inds, cat_rects):
+            stocks = groups[sec_name]
+            cx, cy, cw, ch = cr['x'], cr['y'], cr['dx'], cr['dy']
+
+            hdr_y    = cy + ch - HDR_H
+            hdr_h_px = HDR_H * _px_per_uy
+            fs_hdr   = min(10, max(6, hdr_h_px * _pt_per_px * 0.62))
+            ax.add_patch(plt.Rectangle(
+                (cx, hdr_y), cw, HDR_H,
+                facecolor='#1a1a2e', edgecolor='none', zorder=6, clip_on=True))
+
+            sec_tv  = ind_vals[sec_name]
+            sec_avg = (sum(s['chg_pct'] * s['trade_val'] for s in stocks) / sec_tv
+                       if sec_tv else 0)
+            sign_hdr = '+' if sec_avg >= 0 else ''
+            ax.text(cx + 0.6, hdr_y + HDR_H / 2,
+                    f'{sec_name}  {sec_tv/total_val*100:.1f}%  {sign_hdr}{sec_avg:.2f}%',
+                    ha='left', va='center', color='#aecde8',
+                    fontsize=fs_hdr, fontweight='bold',
+                    fontfamily=CHART_FONT, clip_on=True, zorder=7)
+
+            ax.add_patch(plt.Rectangle(
+                (cx, cy), cw, ch,
+                facecolor='none', edgecolor='#2a2a2a', linewidth=1.5, zorder=8))
+
+            self._us_mkt_cat_rects.append({
+                'cx': cx, 'cy': cy, 'cw': cw, 'ch': ch,
+                'name': sec_name, 'count': len(stocks),
+                'trade_val': sec_tv, 'avg_chg': sec_avg, 'hdr_h': HDR_H,
+            })
+
+            inner_h = ch - HDR_H
+            if inner_h < 1:
+                continue
+
+            STK_MERGE_THR = 2.0
+            stks_sorted = sorted(stocks, key=lambda s: -s['trade_val'])
+            sec_tv_full = sum(s['trade_val'] for s in stks_sorted) or 1
+            main_stks, tiny_stks = [], []
+            for s in stks_sorted:
+                if s['trade_val'] / sec_tv_full * 100 >= STK_MERGE_THR:
+                    main_stks.append(s)
+                else:
+                    tiny_stks.append(s)
+            if tiny_stks:
+                tiny_tv  = sum(s['trade_val'] for s in tiny_stks)
+                tiny_avg = (sum(s['chg_pct'] * s['trade_val'] for s in tiny_stks) / tiny_tv
+                            if tiny_tv else 0)
+                main_stks.append({
+                    'code': '', 'name': f'其他 {len(tiny_stks)}檔',
+                    'close': 0, 'chg_pct': tiny_avg,
+                    'trade_val': tiny_tv, 'sector': sec_name,
+                    '_is_other': True,
+                })
+            stks_sorted = main_stks
+
+            svals = [s['trade_val'] for s in stks_sorted]
+            if cw >= inner_h:
+                norm_s = squarify.normalize_sizes(svals, cw, inner_h)
+                sr_raw = squarify.squarify(norm_s, cx, cy, cw, inner_h)
+                srects = [{'x': r['x'],
+                           'y': cy + inner_h - (r['y'] - cy) - r['dy'],
+                           'dx': r['dx'], 'dy': r['dy']} for r in sr_raw]
+            else:
+                norm_s = squarify.normalize_sizes(svals, inner_h, cw)
+                sr_t   = squarify.squarify(norm_s, 0, 0, inner_h, cw)
+                srects = [{'x': cx + r['y'],
+                           'y': cy + inner_h - r['x'] - r['dx'],
+                           'dx': r['dy'], 'dy': r['dx']} for r in sr_t]
+
+            for stk, sr in zip(stks_sorted, srects):
+                rx = sr['x'] + GAP / 2;  ry = sr['y'] + GAP / 2
+                rw = sr['dx'] - GAP;     rh = sr['dy'] - GAP
+                if rw <= 0 or rh <= 0:
+                    continue
+                ax.add_patch(plt.Rectangle(
+                    (rx, ry), rw, rh,
+                    facecolor=pnl_color_us(stk['chg_pct'], _max_abs),
+                    edgecolor=SEP_COL, linewidth=0.3, zorder=1))
+                self._us_mkt_rects.append({
+                    'rx': rx, 'ry': ry, 'rw': rw, 'rh': rh,
+                    **stk, 'sector': sec_name,
+                })
+                self._draw_stock_label(ax, stk, rx, ry, rw, rh,
+                                       _px_per_ux, _px_per_uy, _pt_per_px)
+
+        period_lbl = getattr(self, '_us_mkt_period_label', '今日')
+        sax.text(0.5, 0.5, f'顏色：綠色=上漲  紅色=下跌  | 大小：成交金額（USD）  | {period_lbl}漲跌幅',
+                 ha='center', va='center', color='#666', fontsize=7,
+                 fontfamily=CHART_FONT, transform=sax.transAxes)
+
+        self._us_mkt_canvas.draw_idle()
+        total = self._us_mkt_up + self._us_mkt_down
+        self._us_mkt_status.set(
+            f'上漲 {self._us_mkt_up} / 下跌 {self._us_mkt_down} / 共 {total} 檔  '
+            f'（{datetime.now().strftime("%H:%M:%S")} 更新）')
+
+    # ── Drill-down 類股檢視 ────────────────────────────────────────────────────
+
+    def _render_us_drill(self, sec_name: str):
+        stocks  = self._us_mkt_groups.get(sec_name, [])
+        fig     = self._us_mkt_fig
+        fig.clf()
+        ax  = fig.add_axes([0, 0.04, 1, 0.96])
+        ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.axis('off')
+        sax = fig.add_axes([0, 0, 1, 0.04]); sax.axis('off')
+
+        dpi        = fig.dpi
+        _px_per_ux = fig.get_size_inches()[0] * dpi / 100
+        _px_per_uy = fig.get_size_inches()[1] * dpi * 0.96 / 100
+        _pt_per_px = 72 / dpi
+        SEP_COL    = '#111111'
+        GAP        = 0.3
+
+        all_pcts = [s['chg_pct'] for s in stocks]
+        _max_abs = max((abs(p) for p in all_pcts), default=5.0) or 5.0
+        total_tv = sum(s['trade_val'] for s in stocks) or 1.0
+        stks_sorted = sorted(stocks, key=lambda s: -s['trade_val'])
+
+        if not stks_sorted:
+            ax.text(50, 50, '無資料', ha='center', va='center',
+                    color='#888', fontsize=14, fontfamily=CHART_FONT)
+            self._us_mkt_canvas.draw()
+            return
+
+        svals  = [s['trade_val'] for s in stks_sorted]
+        norm_s = squarify.normalize_sizes(svals, 100, 100)
+        sr_raw = squarify.squarify(norm_s, 0, 0, 100, 100)
+        srects = [{'x': r['x'], 'y': 100 - r['y'] - r['dy'],
+                   'dx': r['dx'], 'dy': r['dy']} for r in sr_raw]
+
+        self._us_mkt_rects     = []
+        self._us_mkt_cat_rects = []
+
+        for stk, sr in zip(stks_sorted, srects):
+            rx = sr['x'] + GAP / 2;  ry = sr['y'] + GAP / 2
+            rw = sr['dx'] - GAP;     rh = sr['dy'] - GAP
+            if rw <= 0 or rh <= 0:
+                continue
+            ax.add_patch(plt.Rectangle(
+                (rx, ry), rw, rh,
+                facecolor=pnl_color_us(stk['chg_pct'], _max_abs),
+                edgecolor=SEP_COL, linewidth=0.3, zorder=1))
+            self._us_mkt_rects.append({
+                'rx': rx, 'ry': ry, 'rw': rw, 'rh': rh, **stk})
+            self._draw_stock_label(ax, stk, rx, ry, rw, rh,
+                                   _px_per_ux, _px_per_uy, _pt_per_px)
+
+        sec_avg = sum(s['chg_pct'] * s['trade_val'] for s in stocks) / total_tv
+        sign    = '+' if sec_avg >= 0 else ''
+        period_lbl = getattr(self, '_us_mkt_period_label', '今日')
+        sax.text(0.5, 0.5,
+                 f'{sec_name}  共 {len(stks_sorted)} 檔  |  加權平均 {sign}{sec_avg:.2f}%  '
+                 f'|  {period_lbl}漲跌  |  點擊空白處返回總覽',
+                 ha='center', va='center', color='#888', fontsize=8,
+                 fontfamily=CHART_FONT, transform=sax.transAxes)
+
+        self._us_mkt_canvas.draw_idle()
+
+    # ── 點擊事件 ──────────────────────────────────────────────────────────────
+
+    def _on_us_mkt_click(self, event):
+        if self._current_page != 6:
+            return
+        if event.inaxes is None or event.xdata is None:
+            return
+        x, y = event.xdata, event.ydata
+        self._us_mkt_tooltip.withdraw()
+
+        if self._us_mkt_drill:
+            self._us_mkt_drill = None
+            self._render_us_overview()
+            return
+
+        for c in self._us_mkt_cat_rects:
+            if (c['cx'] <= x <= c['cx'] + c['cw'] and
+                    c['cy'] <= y <= c['cy'] + c['ch']):
+                self._us_mkt_drill = c['name']
+                self._render_us_drill(c['name'])
+                return
+
+    # ── Hover tooltip ─────────────────────────────────────────────────────────
+
+    def _on_us_mkt_motion(self, event):
+        if self._current_page != 6:
+            self._us_mkt_tooltip.withdraw()
+            return
+        if event.inaxes is None or not event.xdata:
+            self._us_mkt_tooltip.withdraw()
+            return
+        x, y = event.xdata, event.ydata
+
+        for r in self._us_mkt_rects:
+            if (r['rx'] <= x <= r['rx'] + r['rw'] and
+                    r['ry'] <= y <= r['ry'] + r['rh']):
+                sign = '+' if r['chg_pct'] >= 0 else ''
+                tv_b = r['trade_val'] / 1e9
+                period_lbl = getattr(self, '_us_mkt_period_label', '今日')
+                if r.get('_is_other'):
+                    tt = (f"{r['name']}  ({r['sector']})\n"
+                          f"{period_lbl}加權平均漲跌：{sign}{r['chg_pct']:.2f}%\n"
+                          f"合計成交金額：${tv_b:.2f}B")
+                else:
+                    tt = (f"{r['code']}\n"
+                          f"收盤：${r['close']:.2f}  {period_lbl}漲跌：{sign}{r['chg_pct']:.2f}%\n"
+                          f"成交金額：${tv_b:.2f}B  |  {r.get('sector', '')}")
+                self._us_mkt_tt_lbl.config(text=tt)
+                self._place_tooltip(self._us_mkt_tooltip,
+                                    event.guiEvent.x_root, event.guiEvent.y_root)
+                self._us_mkt_tooltip.deiconify()
+                return
+
+        if not self._us_mkt_drill:
+            for c in self._us_mkt_cat_rects:
+                if (c['cx'] <= x <= c['cx'] + c['cw'] and
+                        c['cy'] <= y <= c['cy'] + c['ch']):
+                    sign = '+' if c['avg_chg'] >= 0 else ''
+                    tv_b = c['trade_val'] / 1e9
+                    self._us_mkt_tt_lbl.config(text=(
+                        f"{c['name']}  共 {c['count']} 檔\n"
+                        f"加權平均漲跌：{sign}{c['avg_chg']:.2f}%\n"
+                        f"類股成交金額：${tv_b:.2f}B\n"
+                        f"點擊進入類股詳細"))
+                    self._place_tooltip(self._us_mkt_tooltip,
+                                        event.guiEvent.x_root, event.guiEvent.y_root)
+                    self._us_mkt_tooltip.deiconify()
+                    return
+
+        self._us_mkt_tooltip.withdraw()
+
+    # ── 另存圖檔 ───────────────────────────────────────────────────────────────
+
+    def _save_us_market_map(self):
+        from tkinter import filedialog
+        path = filedialog.asksaveasfilename(
+            title='儲存美股總覽圖',
+            defaultextension='.png',
+            filetypes=[('PNG 圖片', '*.png'), ('JPEG 圖片', '*.jpg'), ('所有檔案', '*.*')],
+            initialfile='us_market_overview.png')
+        if path:
+            self._us_mkt_fig.savefig(path, dpi=150, bbox_inches='tight',
+                                      facecolor=self._us_mkt_fig.get_facecolor())
+            self._us_mkt_status.set(f'已儲存：{path}')
 
     # ═══════════════════════════════════════════════════════════════════════════
     # Tab 6 — 籌碼分析
