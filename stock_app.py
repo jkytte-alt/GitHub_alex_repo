@@ -1225,7 +1225,7 @@ def fetch_etf_data(etf_code: str) -> tuple[str, list[dict], str]:
             _yf_log.setLevel(_log.CRITICAL)
             _old_stderr, _sys.stderr = _sys.stderr, io.StringIO()
             try:
-                return yf.download(all_syms, period='2d', auto_adjust=False,
+                return yf.download(all_syms, period='5d', auto_adjust=False,
                                    progress=False, threads=True, timeout=8)
             finally:
                 _sys.stderr = _old_stderr
@@ -5813,7 +5813,7 @@ class StockApp(tk.Tk):
             # 加權指數（1日漲跌）
             taiex_price = taiex_chg = None
             try:
-                hist = yf.Ticker('^TWII').history(period='2d')
+                hist = yf.Ticker('^TWII').history(period='5d')
                 if len(hist) >= 2:
                     taiex_price = float(hist['Close'].iloc[-1])
                     taiex_chg   = (hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) \
@@ -7070,7 +7070,7 @@ class StockApp(tk.Tk):
             dow_price = dow_chg = None
             try:
                 idx_raw = yf.download(
-                    ['^GSPC', '^IXIC', '^DJI'], period='2d',
+                    ['^GSPC', '^IXIC', '^DJI'], period='5d',
                     progress=False, auto_adjust=True,
                     group_by='ticker', threads=True)
                 def _idx_chg(tkr):
