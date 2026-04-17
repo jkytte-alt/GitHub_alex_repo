@@ -4057,10 +4057,27 @@ class StockApp(tk.Tk):
             """yfinance 1.2.0 有 TypeError bug，逐個 suffix 嘗試並捕捉所有例外。
             auto_adjust=True 確保遇到股票分割時使用還原股價（adjusted close）。
             每個 suffix 最多等 12 秒，避免 yfinance 掛住整個 fetch。"""
+            def _fix_unadjusted_splits(s):
+                """偵測單日跌幅 >50% 的異常（yfinance 未補齊的拆分），補正拆分前歷史價格。"""
+                if s is None or len(s) < 2:
+                    return s
+                import numpy as _np2
+                pct = s.pct_change()
+                split_locs = [i for i, v in enumerate(pct) if i > 0 and v < -0.5]
+                for i in split_locs:
+                    pre = float(s.iloc[i - 1])
+                    post = float(s.iloc[i])
+                    if post <= 0:
+                        continue
+                    ratio = pre / post
+                    s = s.copy()
+                    s.iloc[:i] = s.iloc[:i] / ratio
+                return s
+
             def _fetch_sfx(sfx):
                 h = yf.Ticker(code + sfx).history(period=period, auto_adjust=True)
                 if h is not None and not h.empty:
-                    return h['Close'].dropna()
+                    return _fix_unadjusted_splits(h['Close'].dropna())
                 return None
 
             for sfx in ['.TW', '.TWO']:
@@ -4572,12 +4589,97 @@ class StockApp(tk.Tk):
             self._cmp_bar_tip.withdraw()
             cmp_fig_canvas.draw_idle()
 
+        def _on_heat_click(event):
+            if event.inaxes is not ax_heat or event.xdata is None or event.ydata is None:
+                return
+            col = int(round(event.xdata))
+            row = int(round(event.ydata))
+            if not (0 <= row < n_etf and 0 <= col < n_etf) or row == col:
+                return
+            ca = ordered[row]['code']
+            cb = ordered[col]['code']
+            ha = _heat_holdings.get(ca, {})
+            hb = _heat_holdings.get(cb, {})
+            all_c = set(ha) | set(hb)
+            inter    = sum(min(ha.get(c,(None,0))[1], hb.get(c,(None,0))[1])     for c in all_c)
+            a_excess = sum(ha.get(c,(None,0))[1] - min(ha.get(c,(None,0))[1], hb.get(c,(None,0))[1]) for c in all_c)
+            b_excess = sum(hb.get(c,(None,0))[1] - min(ha.get(c,(None,0))[1], hb.get(c,(None,0))[1]) for c in all_c)
+            j_val = matrix[row][col]
+            common = sorted(ha.keys() & hb.keys(), key=lambda c: -(ha[c][1] + hb[c][1]))
+
+            popup = tk.Toplevel(self)
+            popup.title(f'相似度解析：{ca} vs {cb}')
+            popup.configure(bg='#0d0d1a')
+            popup.geometry('860x440')
+            popup.attributes('-topmost', True)
+
+            fig2, (ax_pie, ax_bar) = _plt.subplots(1, 2, figsize=(11, 5.2))
+            fig2.patch.set_facecolor('#111122')
+
+            # ── 圓餅圖：加權 Jaccard 拆解 ────────────────────────────────────
+            pie_vals   = [inter, a_excess, b_excess]
+            pie_labels = [f'共同重疊\n({inter:.1f}%)',
+                          f'{ca} 獨有\n({a_excess:.1f}%)',
+                          f'{cb} 獨有\n({b_excess:.1f}%)']
+            pie_colors = ['#4a90d9', '#5b9cf6', '#f07070']
+            non_zero = [(v, l, c) for v, l, c in zip(pie_vals, pie_labels, pie_colors) if v > 0]
+            if non_zero:
+                pv, pl, pc = zip(*non_zero)
+                wedges, texts, autotexts = ax_pie.pie(
+                    pv, labels=pl, colors=pc, autopct='%1.1f%%', startangle=90,
+                    textprops={'color': 'white', 'fontsize': 8,
+                               'fontfamily': CHART_FONT})
+                for at in autotexts:
+                    at.set_color('white'); at.set_fontsize(8)
+            ax_pie.set_facecolor('#111122')
+            ax_pie.set_title(f'加權 Jaccard＝{j_val:.0f}%\n共同重疊 ÷ 全聯集',
+                             color='#aecde8', fontsize=10, fontfamily=CHART_FONT, pad=10)
+
+            # ── 水平長條圖：前 12 共同持股 ────────────────────────────────────
+            ax_bar.set_facecolor('#111122')
+            if common:
+                top_c  = common[:12]
+                labels = [f'{c} {ha.get(c, hb.get(c,(c,0)))[0][:5]}' for c in top_c]
+                wa_v   = [ha.get(c,(None,0))[1] for c in top_c]
+                wb_v   = [hb.get(c,(None,0))[1] for c in top_c]
+                bh, ys = 0.35, _np.arange(len(top_c))
+                ax_bar.barh(ys + bh/2, wa_v, bh, color='#5b9cf6', label=ca)
+                ax_bar.barh(ys - bh/2, wb_v, bh, color='#f07070', label=cb)
+                ax_bar.set_yticks(ys)
+                ax_bar.set_yticklabels(labels, fontsize=7.5, color='#aaa',
+                                       fontfamily=CHART_FONT)
+                ax_bar.invert_yaxis()
+                ax_bar.set_xlabel('持股比重 %', color='#888899', fontsize=8)
+                ax_bar.set_title('共同持股比重比較', color='#aecde8', fontsize=10,
+                                 fontfamily=CHART_FONT, pad=10)
+                ax_bar.tick_params(colors='#888899', labelsize=7)
+                ax_bar.legend(fontsize=8, facecolor='#1a1a2e',
+                              edgecolor='#333355', labelcolor='white')
+                for spine in ax_bar.spines.values():
+                    spine.set_edgecolor('#333355')
+            else:
+                ax_bar.text(0.5, 0.5, '無共同持股', ha='center', va='center',
+                            color='#555577', fontsize=12, transform=ax_bar.transAxes)
+                for spine in ax_bar.spines.values():
+                    spine.set_edgecolor('#333355')
+
+            fig2.tight_layout(pad=2.5)
+            popup_canvas = _FCA(fig2, master=popup)
+            popup_canvas.get_tk_widget().pack(fill='both', expand=True, padx=8, pady=8)
+            popup_canvas.draw()
+
+            def _close_popup():
+                _plt.close(fig2)
+                popup.destroy()
+            popup.protocol('WM_DELETE_WINDOW', _close_popup)
+
         # 折線圖 canvas 負責 line hover + leave
         line_canvas.mpl_connect('motion_notify_event', _on_cmp_motion)
         line_canvas.mpl_connect('figure_leave_event',  _on_line_leave)
-        # 下方 canvas 負責 bar + heatmap hover
+        # 下方 canvas 負責 bar + heatmap hover 及熱圖點擊
         cmp_fig_canvas.mpl_connect('motion_notify_event', _on_cmp_motion)
         cmp_fig_canvas.mpl_connect('figure_leave_event',  _on_cmp_leave)
+        cmp_fig_canvas.mpl_connect('button_press_event',  _on_heat_click)
 
         tk.Frame(self._cmp_inner, bg='#2a2a3e', height=2).pack(fill='x', pady=(4, 0))
 
@@ -7463,23 +7565,22 @@ class StockApp(tk.Tk):
         ttk.Label(status_bar, textvariable=self._stk_status,
                   foreground='#c8c8d8', font=('Microsoft JhengHei', 13, 'bold')).pack(anchor='w')
 
-        # ── K 線控制列 + 畫布 ───────────────────────────────────────────────
-        kline_outer = tk.Frame(f, bg=CHART_BG)
-        kline_outer.pack(fill='both', expand=True, padx=8, pady=(0, 8))
-
+        # ── 單一捲動區域：K線 + 財報連續顯示 ───────────────────────────────
         _CTRL_BG = '#1c1c28'
-        kctrl = tk.Frame(kline_outer, bg=_CTRL_BG, pady=4)
-        kctrl.pack(fill='x', pady=(0, 2))
 
-        _BTN_OFF = dict(bg='#e8e8ee', fg='#222233',
+        # 控制列固定在最上方（不隨捲動移動）
+        kctrl = tk.Frame(f, bg=_CTRL_BG, pady=4)
+        kctrl.pack(fill='x', padx=8, pady=(0, 2))
+
+        _BTN_OFF = dict(bg='#2a2a3e', fg='#8899cc',
                         font=('Microsoft JhengHei', 8, 'bold'),
-                        relief='flat', bd=0, padx=10, pady=3,
+                        relief='flat', bd=0, padx=9, pady=3,
                         cursor='hand2',
-                        highlightbackground='#aaaacc', highlightthickness=1,
-                        activebackground='#d0d0e0', activeforeground='#111122')
+                        highlightbackground='#3a3a5e', highlightthickness=1,
+                        activebackground='#3a3a5e', activeforeground='#aaaaee')
         _BTN_ON  = dict(bg='#3a5fcd', fg='#ffffff',
                         font=('Microsoft JhengHei', 8, 'bold'),
-                        relief='flat', bd=0, padx=10, pady=3,
+                        relief='flat', bd=0, padx=9, pady=3,
                         cursor='hand2',
                         highlightbackground='#2a4fbd', highlightthickness=1,
                         activebackground='#4a70e0', activeforeground='#ffffff')
@@ -7490,8 +7591,8 @@ class StockApp(tk.Tk):
         # 區間
         self._stk_period = '3M'
         self._stk_period_btns: dict[str, tk.Button] = {}
-        tk.Label(kctrl, text='區間:', bg=_CTRL_BG, fg='#8899cc',
-                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(8, 4))
+        tk.Label(kctrl, text='區間:', bg=_CTRL_BG, fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(8, 4))
 
         def _set_stk_period(lbl):
             self._stk_period = lbl
@@ -7506,15 +7607,15 @@ class StockApp(tk.Tk):
             self._stk_period_btns[_pl] = _b
         _s6btn(self._stk_period_btns['3M'], True)
 
-        tk.Label(kctrl, text='│', bg=_CTRL_BG, fg='#444466').pack(side='left', padx=8)
+        tk.Label(kctrl, text='│', bg=_CTRL_BG, fg='#333355').pack(side='left', padx=6)
 
         # 指標
         self._stk_ind_state: dict[str, bool] = {
-            'MA': True, 'BB': False, 'VOL': False,
-            'MACD': True, 'RSI': False, 'KD': False}
+            'MA': True, 'BB': False, 'VOL': True,
+            'MACD': True, 'RSI': False, 'KD': True}
         self._stk_ind_btns: dict[str, tk.Button] = {}
-        tk.Label(kctrl, text='指標:', bg=_CTRL_BG, fg='#8899cc',
-                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(0, 4))
+        tk.Label(kctrl, text='指標:', bg=_CTRL_BG, fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 4))
 
         def _toggle_stk_ind(lbl):
             self._stk_ind_state[lbl] = not self._stk_ind_state[lbl]
@@ -7529,14 +7630,137 @@ class StockApp(tk.Tk):
             _b.pack(side='left', padx=2)
             self._stk_ind_btns[_il] = _b
 
-        # 畫布
-        self._stk_fig = plt.Figure(figsize=(12, 6.5), dpi=100, facecolor=CHART_BG)
-        self._stk_canvas = FigureCanvasTkAgg(self._stk_fig, master=kline_outer)
+        # WantGoo 快速連結（右側）
+        tk.Label(kctrl, text='│', bg=_CTRL_BG, fg='#333355').pack(side='left', padx=6)
+        self._wg_open_btn = tk.Button(
+            kctrl, text='🌐 WantGoo', **_BTN_OFF,
+            command=self._open_wantgoo_kline)
+        self._wg_open_btn.pack(side='left', padx=2)
+
+        # ── 當日資訊列 ───────────────────────────────────────────────────
+        info_bar = tk.Frame(f, bg='#0d0f17', pady=4)
+        info_bar.pack(fill='x', padx=8, pady=(0, 0))
+        _FI  = ('Microsoft JhengHei', 9)
+        _FIP = ('Microsoft JhengHei', 15, 'bold')
+        self._stk_info_date   = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#777788', font=_FI)
+        self._stk_info_date.pack(side='left', padx=(6, 10))
+        self._stk_info_close  = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#cccccc', font=_FIP)
+        self._stk_info_close.pack(side='left', padx=(0, 4))
+        self._stk_info_chg    = tk.Label(info_bar, text='', bg='#0d0f17', fg='#cccccc', font=_FI)
+        self._stk_info_chg.pack(side='left', padx=(0, 14))
+        for _lbl, _attr in [('開', '_stk_info_o'), ('高', '_stk_info_h'),
+                             ('低', '_stk_info_l'), ('量', '_stk_info_v')]:
+            tk.Label(info_bar, text=_lbl, bg='#0d0f17', fg='#555566', font=_FI).pack(side='left', padx=(4, 1))
+            _w = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#cccccc', font=_FI)
+            _w.pack(side='left', padx=(0, 4))
+            setattr(self, _attr, _w)
+
+        # ── 繪線工具列 ───────────────────────────────────────────────────
+        draw_bar = tk.Frame(f, bg='#1c1c28', pady=3)
+        draw_bar.pack(fill='x', padx=8, pady=(2, 0))
+        tk.Label(draw_bar, text='繪線：', bg='#1c1c28', fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(8, 4))
+        self._stk_draw_mode  = 'none'
+        self._stk_draw_start = None
+        self._stk_drawings   = []
+        self._stk_draw_btns  = {}
+        _DB_OFF = dict(bg='#2a2a3e', fg='#8899cc', font=('Microsoft JhengHei', 9),
+                       relief='flat', padx=8, pady=2, cursor='hand2',
+                       highlightthickness=0, activebackground='#3a3a5e',
+                       activeforeground='#aaaaee')
+        _DB_ON  = dict(bg='#3a5fcd', fg='white', font=('Microsoft JhengHei', 9),
+                       relief='flat', padx=8, pady=2, cursor='hand2',
+                       highlightthickness=0, activebackground='#4a70e0',
+                       activeforeground='white')
+        self._stk_db_off = _DB_OFF
+        self._stk_db_on  = _DB_ON
+        for _mode, _sym in [('line', '╱ 趨勢線'), ('hline', '─ 水平線'),
+                             ('vline', '│ 垂直線'), ('erase', '✕ 清除')]:
+            _b = tk.Button(draw_bar, text=_sym, **_DB_OFF,
+                           command=lambda m=_mode: self._set_draw_mode(m))
+            _b.pack(side='left', padx=2)
+            self._stk_draw_btns[_mode] = _b
+
+        # 顏色選擇
+        tk.Label(draw_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=6)
+        tk.Label(draw_bar, text='顏色：', bg='#1c1c28', fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 4))
+        self._stk_draw_color = '#f0c060'   # 預設黃色
+        self._stk_color_btns = {}
+        _COLORS = [
+            ('#f0c060', '黃'),
+            ('#ef5350', '紅'),
+            ('#26a69a', '綠'),
+            ('#4a9cf0', '藍'),
+            ('#e060e0', '紫'),
+            ('#ffffff', '白'),
+        ]
+        for _clr, _name in _COLORS:
+            _cb = tk.Button(
+                draw_bar, text='  ', width=2,
+                bg=_clr, activebackground=_clr,
+                relief='flat', bd=0, cursor='hand2',
+                highlightbackground='#555577', highlightthickness=1,
+                command=lambda c=_clr: self._set_draw_color(c))
+            _cb.pack(side='left', padx=2)
+            self._stk_color_btns[_clr] = _cb
+        self._set_draw_color('#f0c060')   # 初始選中黃色
+
+        # ── 共用捲動區域（K線 + 財報連續） ──────────────────────────────
+        scroll_outer = tk.Frame(f, bg=CHART_BG)
+        scroll_outer.pack(fill='both', expand=True, padx=8, pady=(0, 8))
+
+        vbar = ttk.Scrollbar(scroll_outer, orient='vertical')
+        vbar.pack(side='right', fill='y')
+
+        self._stk_sc = tk.Canvas(scroll_outer, bg=CHART_BG,
+                                 highlightthickness=0,
+                                 yscrollcommand=vbar.set)
+        self._stk_sc.pack(side='left', fill='both', expand=True)
+        vbar.config(command=self._stk_sc.yview)
+
+        scroll_inner = tk.Frame(self._stk_sc, bg=CHART_BG)
+        _win_id = self._stk_sc.create_window((0, 0), window=scroll_inner, anchor='nw')
+
+        def _inner_cfg(_e):
+            self._stk_sc.configure(scrollregion=self._stk_sc.bbox('all'))
+        scroll_inner.bind('<Configure>', _inner_cfg)
+
+        def _sc_cfg(e):
+            self._stk_sc.itemconfig(_win_id, width=e.width)
+        self._stk_sc.bind('<Configure>', _sc_cfg)
+
+        def _wheel(e):
+            self._stk_sc.yview_scroll(int(-1 * (e.delta / 120)), 'units')
+        for _w in [self._stk_sc, scroll_inner]:
+            _w.bind('<MouseWheel>', _wheel)
+
+        # ── K線 matplotlib 圖（上方） ────────────────────────────────────
+        self._stk_fig = plt.Figure(figsize=(14, 9), dpi=100, facecolor=CHART_BG)
+        self._stk_canvas = FigureCanvasTkAgg(self._stk_fig, master=scroll_inner)
         wk = self._stk_canvas.get_tk_widget()
         wk.configure(bg=CHART_BG)
-        wk.pack(fill='both', expand=True)
+        wk.pack(fill='x', pady=(0, 2))
+        wk.bind('<MouseWheel>', _wheel)
+        self._stk_canvas.mpl_connect('motion_notify_event', self._on_stk_hover)
 
-        # 狀態變數
+        # ── 財報狀態列 + 財報 matplotlib 圖（下方，連續） ──────────────
+        fin_status_bar = tk.Frame(scroll_inner, bg='#1c1c28', pady=3)
+        fin_status_bar.pack(fill='x')
+        self._fin_status = tk.StringVar(value='財報走勢（查詢後顯示）')
+        ttk.Label(fin_status_bar, textvariable=self._fin_status,
+                  foreground='#6a8faf',
+                  font=('Microsoft JhengHei', 8)).pack(side='left', padx=10)
+
+        self._fin_fig = plt.Figure(figsize=(14, 10), dpi=100, facecolor=CHART_BG)
+        self._fin_canvas = FigureCanvasTkAgg(self._fin_fig, master=scroll_inner)
+        fin_wk = self._fin_canvas.get_tk_widget()
+        fin_wk.configure(bg=CHART_BG)
+        fin_wk.pack(fill='x')
+        fin_wk.bind('<MouseWheel>', _wheel)
+        self._fin_canvas.draw()
+
+        # ── 狀態變數 ────────────────────────────────────────────────────────
         self._stk_ax           = None
         self._stk_ohlcv        = None
         self._stk_n            = 0
@@ -7546,8 +7770,6 @@ class StockApp(tk.Tk):
         self._stk_current_code = None
         self._stk_current_name = ''
 
-        self._stk_canvas.mpl_connect('motion_notify_event', self._on_stk_hover)
-
 
     # ── 個股分析（Tab 6）─────────────────────────────────────────────────────
 
@@ -7556,26 +7778,39 @@ class StockApp(tk.Tk):
         self._stk_code.set(code)
         self._show_page(5)
         self._draw_stk_kline(code, name or code)
+        self._fin_status.set(f'載入 {code} 財報資料中…')
+        import threading
+        threading.Thread(target=self._load_fin_data, args=(code,), daemon=True).start()
 
     def _load_stk_chart(self):
-        """查詢按鈕 / Enter：取代號後繪製 K 線。"""
+        """查詢按鈕 / Enter：繪製 K 線並載入財報。"""
         code = self._stk_code.get().strip()
         if not code:
             return
         self._stk_status.set(f'載入 {code} 中…')
+        self._fin_status.set(f'載入 {code} 財報資料中…')
         self._draw_stk_kline(code, code)
+        import threading
+        threading.Thread(target=self._load_fin_data, args=(code,), daemon=True).start()
 
     def _redraw_stk_kline(self):
-        """指標 toggle 後重繪。"""
+        """指標 / 期間 toggle 後重繪 K 線。"""
         if self._stk_current_code:
             self._draw_stk_kline(self._stk_current_code, self._stk_current_name)
+
+    def _open_wantgoo_kline(self):
+        """在預設瀏覽器開啟 WantGoo 個股K線頁。"""
+        import webbrowser
+        code = self._stk_current_code
+        if code:
+            webbrowser.open(f'https://www.wantgoo.com/stock/{code}')
 
     def _draw_stk_kline(self, code: str, name: str):
         """繪製個股 K 線圖（邏輯與 ETF K 線完全相同）。"""
         import numpy as np
 
-        CHART_BG = '#111111'
-        PANEL_BG = '#1a1a2e'
+        CHART_BG = '#131722'   # WantGoo 深藍底
+        PANEL_BG = '#1e2133'
 
         self._stk_current_code = code
         self._stk_current_name = name
@@ -7626,9 +7861,12 @@ class StockApp(tk.Tk):
         ohlcv = ohlcv.copy()
 
         if ind.get('MA'):
-            ohlcv['MA5']  = close.rolling(5,  min_periods=1).mean()
-            ohlcv['MA10'] = close.rolling(10, min_periods=1).mean()
-            ohlcv['MA20'] = close.rolling(20, min_periods=1).mean()
+            ohlcv['MA5']   = close.rolling(5,   min_periods=1).mean()
+            ohlcv['MA10']  = close.rolling(10,  min_periods=1).mean()
+            ohlcv['MA20']  = close.rolling(20,  min_periods=1).mean()
+            ohlcv['MA60']  = close.rolling(60,  min_periods=1).mean()
+            ohlcv['MA120'] = close.rolling(120, min_periods=1).mean()
+            ohlcv['MA240'] = close.rolling(240, min_periods=1).mean()
         if ind.get('BB'):
             _bbm = close.rolling(20, min_periods=5).mean()
             _bbs = close.rolling(20, min_periods=5).std(ddof=0)
@@ -7658,12 +7896,12 @@ class StockApp(tk.Tk):
         n  = len(ohlcv)
         xs = np.arange(n)
 
-        # ── 動態佈局 ──────────────────────────────────────────────────────
+        # ── 動態佈局（順序：VOL → KD → RSI → MACD，與 WantGoo 一致）────────
         sub_list = []
         if ind.get('VOL'):  sub_list.append('VOL')
-        if ind.get('MACD'): sub_list.append('MACD')
-        if ind.get('RSI'):  sub_list.append('RSI')
         if ind.get('KD'):   sub_list.append('KD')
+        if ind.get('RSI'):  sub_list.append('RSI')
+        if ind.get('MACD'): sub_list.append('MACD')
 
         L, W  = 0.07, 0.88
         TOP   = 0.94
@@ -7708,28 +7946,37 @@ class StockApp(tk.Tk):
             if not xticks:
                 ax.set_xticks([])
 
-        # ── 蠟燭圖 ────────────────────────────────────────────────────────
-        cw = 0.55
+        # ── 蠟燭圖（寬度依資料量動態調整，接近 WantGoo 比例）─────────────────
+        cw = max(0.3, min(0.75, 0.72 - n * 0.001))
+        UP_CLR, DN_CLR = '#ef5350', '#26a69a'   # WantGoo 紅漲綠跌
         for i, (_, row) in enumerate(ohlcv.iterrows()):
             o_  = float(row.get('Open',  row['Close']))
             h_  = float(row.get('High',  row['Close']))
             l_  = float(row.get('Low',   row['Close']))
             c_  = float(row['Close'])
-            clr = '#f07070' if c_ >= o_ else '#4ec94e'
-            ax_price.plot([i, i], [l_, h_], color=clr, linewidth=0.7, zorder=2)
+            is_up = c_ >= o_
+            clr = UP_CLR if is_up else DN_CLR
+            # 影線
+            ax_price.plot([i, i], [l_, h_], color=clr, linewidth=0.8, zorder=2)
+            body_h = max(abs(c_ - o_), 0.005 * c_)
+            # 上漲：實心紅；下跌：實心綠
             ax_price.add_patch(plt.Rectangle(
-                (i - cw/2, min(o_, c_)), cw, max(abs(c_ - o_), 0.01),
-                facecolor=clr, edgecolor=clr, linewidth=0, zorder=3))
+                (i - cw/2, min(o_, c_)), cw, body_h,
+                facecolor=clr, edgecolor='none', linewidth=0, zorder=3))
 
-        # ── MA 線 ─────────────────────────────────────────────────────────
+        # ── MA 線（MA5/10/20/60/120/240，對齊 WantGoo 配色）────────────────
         _leg_handles = []
         if ind.get('MA'):
-            for col, clr, lbl in [('MA5',  '#f0e44a', 'MA5'),
-                                   ('MA10', '#4a9cf0', 'MA10'),
-                                   ('MA20', '#f0a04a', 'MA20')]:
+            for col, clr, lbl, lw in [
+                    ('MA5',   '#f0e44a', 'MA5',   1.2),
+                    ('MA10',  '#4a9cf0', 'MA10',  1.1),
+                    ('MA20',  '#f0a04a', 'MA20',  1.1),
+                    ('MA60',  '#e060e0', 'MA60',  1.0),
+                    ('MA120', '#60c060', 'MA120', 1.0),
+                    ('MA240', '#f08040', 'MA240', 1.0)]:
                 if col in ohlcv:
                     ln, = ax_price.plot(xs, ohlcv[col].values, color=clr,
-                                        linewidth=1.1, label=lbl, zorder=4)
+                                        linewidth=lw, label=lbl, zorder=4)
                     _leg_handles.append(ln)
 
         # ── Bollinger Bands ───────────────────────────────────────────────
@@ -7758,18 +8005,19 @@ class StockApp(tk.Tk):
             matplotlib.ticker.MaxNLocator(nbins=6, prune='upper', integer=False))
 
         if _leg_handles:
-            ax_price.legend(handles=_leg_handles, loc='upper right',
-                            fontsize=8.5, facecolor='#111111',
-                            edgecolor='#333', labelcolor='white',
-                            handlelength=1.5, framealpha=0.85, borderpad=0.5)
+            ax_price.legend(handles=_leg_handles, loc='upper left',
+                            fontsize=7.5, facecolor='#1e2133',
+                            edgecolor='#2a2a4a', labelcolor='white',
+                            handlelength=1.2, framealpha=0.80, borderpad=0.4,
+                            ncol=3)
 
         # ── 副圖 ──────────────────────────────────────────────────────────
         if 'VOL' in sub_axes:
             ax_v = sub_axes['VOL']
             vol = ohlcv.get('Volume', None)
             if vol is not None:
-                v_clrs = ['#f07070' if ohlcv['Close'].iloc[i] >= ohlcv['Open'].iloc[i]
-                          else '#4ec94e' for i in range(n)]
+                v_clrs = [UP_CLR if ohlcv['Close'].iloc[i] >= ohlcv['Open'].iloc[i]
+                          else DN_CLR for i in range(n)]
                 ax_v.bar(xs, vol.values, color=v_clrs, width=0.7, zorder=2)
             ax_v.set_ylabel('VOL', color='#888', fontsize=7, labelpad=2)
             ax_v.yaxis.set_label_position('left')
@@ -7815,35 +8063,58 @@ class StockApp(tk.Tk):
         _bottom_ax.set_xticks(xtks)
         _bottom_ax.set_xticklabels(xlbls, rotation=25, ha='right', fontsize=7, color='#888')
 
-        # ── 頂部資訊文字 ─────────────────────────────────────────────────
-        hdr = fig.text(
-            0.07, 0.997,
-            '日期：—    開：—    高：—    低：—    收：—    量：—',
-            va='top', ha='left', color='#cccccc', fontsize=10,
-            fontfamily=CHART_FONT,
-            bbox=dict(facecolor='#111111', alpha=0.0, edgecolor='none', pad=1))
-        self._stk_header = hdr
-
-        # ── 垂直 + 水平游標線 ─────────────────────────────────────────────
+        # ── 游標線（主圖 + 所有副圖共用同一 X）─────────────────────────────
         self._stk_vline = ax_price.axvline(
-            -999, color='#666', linewidth=0.8, linestyle='--', zorder=5)
+            -999, color='#888', linewidth=0.8, linestyle='--', zorder=5)
         self._stk_hline = ax_price.axhline(
             -999, color='#aaa', linewidth=0.7, linestyle=':', zorder=5, alpha=0.8)
+        self._stk_sub_vlines = [
+            ax.axvline(-999, color='#666', linewidth=0.8, linestyle='--', zorder=5)
+            for ax in sub_axes.values()]
 
+        # ── 右側 Y 軸股價標籤 ────────────────────────────────────────────
+        self._stk_price_ann = ax_price.annotate(
+            '', xy=(1.0, 0), xycoords=('axes fraction', 'data'),
+            xytext=(4, 0), textcoords='offset points',
+            ha='left', va='center', fontsize=8, color='white',
+            zorder=10, clip_on=False,
+            bbox=dict(boxstyle='square,pad=0.25', facecolor=UP_CLR,
+                      edgecolor='none', alpha=0.92))
+
+        # 儲存所有 axes 供 hover 使用
+        self._stk_all_axes = [ax_price] + list(sub_axes.values())
         self._stk_ax    = ax_price
         self._stk_ohlcv = ohlcv
         self._stk_n     = n
 
+        # 繪製後連結點擊事件（繪線功能）
+        self._stk_canvas.mpl_connect('button_press_event', self._on_stk_click)
+
         last_close = float(ohlcv['Close'].iloc[-1])
+        prev_close = float(ohlcv['Close'].iloc[-2]) if len(ohlcv) >= 2 else last_close
+        chg = last_close - prev_close
+        is_up = last_close >= prev_close
+        clr_txt = '#ef5350' if is_up else '#26a69a'
+        arrow = '▲' if is_up else '▼'
         self._stk_canvas.draw()
-        self._stk_status.set(
-            f'{code}  {name}  ─  最新：{last_close:.2f}  ─  資料載入完成')
+        self._stk_status.set(f'{code}  {name}  ─  最新：{last_close:.2f}  ─  資料載入完成')
+        # 更新資訊列初始值（最後一筆）
+        last_row = ohlcv.iloc[-1]
+        self._stk_info_date.config(text=ohlcv.index[-1].strftime('%Y-%m-%d'))
+        self._stk_info_close.config(text=f'{last_close:.2f}', fg=clr_txt)
+        self._stk_info_chg.config(
+            text=f'{arrow} {abs(chg):.2f} ({abs(chg/prev_close*100):.2f}%)', fg=clr_txt)
+        self._stk_info_o.config(text=f'{float(last_row.get("Open", last_close)):.2f}')
+        self._stk_info_h.config(text=f'{float(last_row.get("High", last_close)):.2f}')
+        self._stk_info_l.config(text=f'{float(last_row.get("Low",  last_close)):.2f}')
+        self._stk_info_v.config(text=f'{int(last_row.get("Volume", 0)):,}')
 
     def _on_stk_hover(self, event):
-        """個股 K 線 hover：更新頂部資訊與十字游標。"""
-        if (self._stk_ax is None
-                or self._stk_header is None
-                or event.inaxes is not self._stk_ax):
+        """個股 K 線 hover：更新資訊列、十字游標（延伸至副圖）、右側價格標籤。"""
+        if self._stk_ax is None or self._stk_ohlcv is None:
+            return
+        all_ax = getattr(self, '_stk_all_axes', [self._stk_ax])
+        if event.inaxes not in all_ax:
             return
         if event.xdata is None:
             return
@@ -7853,20 +8124,346 @@ class StockApp(tk.Tk):
 
         row      = self._stk_ohlcv.iloc[xi]
         date_str = self._stk_ohlcv.index[xi].strftime('%Y-%m-%d')
-        o  = float(row.get('Open',   row['Close']))
-        h_ = float(row.get('High',   row['Close']))
-        l_ = float(row.get('Low',    row['Close']))
-        c  = float(row['Close'])
-        vol = int(row.get('Volume', 0)) // 1000
+        o_  = float(row.get('Open',   row['Close']))
+        h_  = float(row.get('High',   row['Close']))
+        l_  = float(row.get('Low',    row['Close']))
+        c   = float(row['Close'])
+        vol = int(row.get('Volume', 0))
+        prev_c = float(self._stk_ohlcv['Close'].iloc[xi - 1]) if xi > 0 else c
+        chg  = c - prev_c
+        pct  = chg / prev_c * 100 if prev_c != 0 else 0
+        is_up = c >= prev_c
+        clr  = '#ef5350' if is_up else '#26a69a'
+        arrow = '▲' if is_up else '▼'
 
-        txt = (f'日期：{date_str}    開：{o:.2f}    高：{h_:.2f}'
-               f'    低：{l_:.2f}    收：{c:.2f}    量：{vol}K')
-        self._stk_header.set_text(txt)
+        # 更新 tkinter 資訊列
+        self._stk_info_date.config(text=date_str)
+        self._stk_info_close.config(text=f'{c:.2f}', fg=clr)
+        self._stk_info_chg.config(
+            text=f'{arrow} {abs(chg):.2f} ({abs(pct):.2f}%)', fg=clr)
+        self._stk_info_o.config(text=f'{o_:.2f}')
+        self._stk_info_h.config(text=f'{h_:.2f}')
+        self._stk_info_l.config(text=f'{l_:.2f}')
+        self._stk_info_v.config(text=f'{vol:,}')
+
+        # 主圖游標線
         if self._stk_vline is not None:
             self._stk_vline.set_xdata([xi, xi])
+            self._stk_vline.set_visible(True)
         if self._stk_hline is not None:
             self._stk_hline.set_ydata([c, c])
+            self._stk_hline.set_visible(True)
+
+        # 副圖垂直線延伸
+        for vl in getattr(self, '_stk_sub_vlines', []):
+            vl.set_xdata([xi, xi])
+            vl.set_visible(True)
+
+        # 右側 Y 軸股價標籤
+        ann = getattr(self, '_stk_price_ann', None)
+        if ann is not None:
+            ann.xy = (1.0, c)
+            ann.set_text(f' {c:.2f} ')
+            ann.get_bbox_patch().set_facecolor(clr)
+            ann.set_visible(True)
+
         self._stk_canvas.draw_idle()
+
+    # ── 繪線工具 ──────────────────────────────────────────────────────────
+
+    def _set_draw_mode(self, mode: str):
+        if mode == 'erase':
+            for obj in self._stk_drawings:
+                try:
+                    obj.remove()
+                except Exception:
+                    pass
+            self._stk_drawings.clear()
+            self._stk_draw_mode = 'none'
+            if self._stk_ax:
+                self._stk_canvas.draw_idle()
+        elif self._stk_draw_mode == mode:
+            self._stk_draw_mode = 'none'
+        else:
+            self._stk_draw_mode = mode
+            self._stk_draw_start = None
+        for m, b in self._stk_draw_btns.items():
+            is_on = (m == self._stk_draw_mode)
+            b.config(**(self._stk_db_on if is_on else self._stk_db_off))
+
+    def _set_draw_color(self, color: str):
+        self._stk_draw_color = color
+        for c, b in self._stk_color_btns.items():
+            b.config(highlightbackground='#ffffff' if c == color else '#555577',
+                     highlightthickness=2 if c == color else 1)
+
+    def _on_stk_click(self, event):
+        """處理 K 線圖上的繪線點擊。"""
+        if self._stk_draw_mode == 'none':
+            return
+        if event.inaxes is not self._stk_ax:
+            return
+        if event.xdata is None or event.ydata is None:
+            return
+        xi, yi = event.xdata, event.ydata
+        mode = self._stk_draw_mode
+        ax = self._stk_ax
+        DRAW_CLR = self._stk_draw_color
+
+        if mode == 'hline':
+            ln = ax.axhline(yi, color=DRAW_CLR, linewidth=1.1,
+                            linestyle='--', zorder=6, alpha=0.85)
+            self._stk_drawings.append(ln)
+            self._stk_canvas.draw_idle()
+
+        elif mode == 'vline':
+            ln = ax.axvline(xi, color=DRAW_CLR, linewidth=1.1,
+                            linestyle='--', zorder=6, alpha=0.85)
+            self._stk_drawings.append(ln)
+            self._stk_canvas.draw_idle()
+
+        elif mode == 'line':
+            if self._stk_draw_start is None:
+                self._stk_draw_start = (xi, yi)
+                # 暫時標示起點
+                mk, = ax.plot(xi, yi, 'o', color=DRAW_CLR, markersize=4, zorder=7)
+                self._stk_drawings.append(mk)
+                self._stk_canvas.draw_idle()
+            else:
+                x0, y0 = self._stk_draw_start
+                # 移除起點標記
+                try:
+                    self._stk_drawings[-1].remove()
+                    self._stk_drawings.pop()
+                except Exception:
+                    pass
+                ln, = ax.plot([x0, xi], [y0, yi], color=DRAW_CLR,
+                              linewidth=1.3, zorder=6, alpha=0.9)
+                self._stk_drawings.append(ln)
+                self._stk_draw_start = None
+                self._stk_canvas.draw_idle()
+
+    # ── 舊籌碼資料載入（保留但不再從 UI 呼叫）──────────────────────────────────
+
+    # ── 個股財報載入與繪圖 ─────────────────────────────────────────────────
+
+    def _load_fin_data(self, code: str):
+        """背景執行緒：從 yfinance 取得季財報（營收、EPS、三率）。"""
+        import pandas as pd
+
+        fin_df = pd.DataFrame()
+        eps_df = pd.DataFrame()
+        rev_df = pd.DataFrame()
+        name   = code
+        ticker_obj = None
+
+        for sfx in ['.TW', '.TWO', '']:
+            try:
+                t = yf.Ticker(code + sfx)
+                info = t.fast_info
+                price = getattr(info, 'last_price', None)
+                if price and price > 0:
+                    ticker_obj = t
+                    raw = (getattr(info, 'display_name', None)
+                           or code)
+                    for s in ['股份有限公司', ' Inc.', ' Corp.', ' Co.,Ltd.', ', Ltd.']:
+                        raw = raw.replace(s, '')
+                    name = raw.strip() or code
+                    break
+            except Exception:
+                continue
+
+        if ticker_obj is None:
+            for sfx in ['.TW', '.TWO']:
+                try:
+                    t = yf.Ticker(code + sfx)
+                    h = t.history(period='5d')
+                    if not h.empty:
+                        ticker_obj = t
+                        break
+                except Exception:
+                    continue
+
+        if ticker_obj is not None:
+            try:
+                qfin = ticker_obj.quarterly_financials
+                if qfin is not None and not qfin.empty:
+                    def _row(df, *labels):
+                        for lb in labels:
+                            if lb in df.index:
+                                return df.loc[lb]
+                        return None
+
+                    rev = _row(qfin, 'Total Revenue', 'Revenue')
+                    gp  = _row(qfin, 'Gross Profit', 'GrossProfit')
+                    op  = _row(qfin, 'Operating Income', 'EBIT')
+                    ni  = _row(qfin, 'Net Income', 'NetIncome')
+
+                    if rev is not None and rev.abs().max() > 0:
+                        rev_df = rev.to_frame('Revenue')
+                        rev_df.index = pd.to_datetime(rev_df.index).tz_localize(None)
+                        rev_df = rev_df.sort_index().tail(12)
+                        cols = {}
+                        if gp is not None:
+                            cols['gross_m'] = (gp / rev * 100).round(2)
+                        if op is not None:
+                            cols['op_m'] = (op / rev * 100).round(2)
+                        if ni is not None:
+                            cols['net_m'] = (ni / rev * 100).round(2)
+                        if cols:
+                            fin_df = pd.DataFrame(cols)
+                            fin_df.index = pd.to_datetime(fin_df.index).tz_localize(None)
+                            fin_df = fin_df.sort_index().tail(12)
+            except Exception:
+                pass
+
+            try:
+                qfin2 = ticker_obj.quarterly_financials
+                eps_ser = None
+                if qfin2 is not None:
+                    for lbl in ['Diluted EPS', 'Basic EPS']:
+                        if lbl in qfin2.index:
+                            eps_ser = qfin2.loc[lbl]
+                            break
+                if eps_ser is not None:
+                    eps_df = eps_ser.to_frame('EPS')
+                    eps_df.index = pd.to_datetime(eps_df.index).tz_localize(None)
+                    eps_df = eps_df.sort_index().tail(12)
+            except Exception:
+                pass
+
+        self._stk_current_name = name
+        self._ui_call(lambda: self._render_fin_charts(code, name, fin_df, eps_df, rev_df))
+
+    def _render_fin_charts(self, code: str, name: str,
+                           fin_df, eps_df, rev_df):
+        """在 Tab 6 下半部繪製財報走勢（季營收、EPS、三率）。"""
+        import numpy as _np
+        import matplotlib.ticker as _mtk
+
+        fig = self._fin_fig
+        fig.clf()
+        fig.patch.set_facecolor('#111111')
+
+        CHART_BG = '#111111'
+        PANEL_BG = '#1a1a2e'
+        C_TEXT   = '#aaaacc'
+        C_BORDER = '#333355'
+        FNT      = CHART_FONT
+
+        def _fmt_q(d):
+            q = (d.month - 1) // 3 + 1
+            return f"{d.year}Q{q}"
+
+        def _style(ax):
+            ax.set_facecolor(PANEL_BG)
+            ax.tick_params(colors='#888899', labelsize=6.5)
+            for sp in ax.spines.values():
+                sp.set_edgecolor(C_BORDER)
+            ax.grid(axis='y', color=C_BORDER, linewidth=0.4, alpha=0.5)
+
+        has_rev = not rev_df.empty
+        has_eps = not eps_df.empty
+        has_fin = not fin_df.empty
+
+        gs = fig.add_gridspec(
+            2, 2,
+            height_ratios=[1, 1.1],
+            hspace=0.55, wspace=0.32,
+            left=0.07, right=0.97, top=0.93, bottom=0.10)
+        ax_rev = fig.add_subplot(gs[0, 0])
+        ax_eps = fig.add_subplot(gs[0, 1])
+        ax_rat = fig.add_subplot(gs[1, :])
+
+        for ax in [ax_rev, ax_eps, ax_rat]:
+            _style(ax)
+
+        fig.suptitle(f'{code}  {name}  財報走勢',
+                     color='#aecde8', fontsize=10, fontfamily=FNT, y=0.97)
+
+        # ── 季營收 長條 + YoY 折線 ──────────────────────────────────────────
+        ax_rev.set_title('季營收（億）', color=C_TEXT, fontsize=9, fontfamily=FNT, pad=4)
+        if has_rev:
+            rv  = rev_df['Revenue'].values
+            xr  = list(range(len(rv)))
+            lbl = [_fmt_q(d) for d in rev_df.index]
+            ax_rev.bar(xr, [v / 1e8 for v in rv], color='#5b9cf6', alpha=0.85, zorder=2)
+            ax_rev.set_xticks(xr)
+            ax_rev.set_xticklabels(lbl, rotation=40, ha='right',
+                                   fontsize=6, color='#888899', fontfamily=FNT)
+            ax_rev.set_ylabel('億', color='#888899', fontsize=7, labelpad=2)
+            # YoY（需 4 期前資料）
+            if len(rv) >= 5:
+                yoy = [((rv[i] / rv[i - 4] - 1) * 100 if rv[i - 4] != 0 else None)
+                       if i >= 4 else None for i in range(len(rv))]
+                valid_xs = [i for i, v in enumerate(yoy) if v is not None]
+                valid_y  = [v for v in yoy if v is not None]
+                if valid_xs:
+                    ax2 = ax_rev.twinx()
+                    ax2.set_facecolor(PANEL_BG)
+                    clrs2 = ['#f07070' if v >= 0 else '#4ec94e' for v in valid_y]
+                    ax2.plot(valid_xs, valid_y, color='#f0c060',
+                             linewidth=1.6, marker='o', markersize=3.5, zorder=3)
+                    ax2.axhline(0, color='#333355', linewidth=0.6, linestyle='--')
+                    ax2.tick_params(axis='y', colors='#f0c060', labelsize=6)
+                    ax2.set_ylabel('YoY %', color='#f0c060', fontsize=7, labelpad=2)
+                    for sp in ax2.spines.values():
+                        sp.set_edgecolor(C_BORDER)
+        else:
+            ax_rev.text(0.5, 0.5, '查無資料', ha='center', va='center',
+                        color='#445566', fontsize=10, transform=ax_rev.transAxes)
+
+        # ── 季 EPS 長條 + 趨勢線 ─────────────────────────────────────────────
+        ax_eps.set_title('季EPS（元）', color=C_TEXT, fontsize=9, fontfamily=FNT, pad=4)
+        if has_eps:
+            ev   = eps_df['EPS'].values
+            xe   = list(range(len(ev)))
+            lble = [_fmt_q(d) for d in eps_df.index]
+            clrs = ['#f07070' if v >= 0 else '#4ec94e' for v in ev]
+            ax_eps.bar(xe, ev, color=clrs, alpha=0.85, zorder=2)
+            ax_eps.axhline(0, color='#333355', linewidth=0.6, linestyle='--')
+            if len(ev) >= 3:
+                z = _np.polyfit(xe, ev, 1)
+                ax_eps.plot(xe, _np.polyval(z, xe),
+                            color='#f0c060', linewidth=1.5,
+                            linestyle='--', alpha=0.8, zorder=3)
+            ax_eps.set_xticks(xe)
+            ax_eps.set_xticklabels(lble, rotation=40, ha='right',
+                                   fontsize=6, color='#888899', fontfamily=FNT)
+            ax_eps.set_ylabel('元', color='#888899', fontsize=7, labelpad=2)
+        else:
+            ax_eps.text(0.5, 0.5, '查無資料', ha='center', va='center',
+                        color='#445566', fontsize=10, transform=ax_eps.transAxes)
+
+        # ── 財報三率 折線 ────────────────────────────────────────────────────
+        ax_rat.set_title('財報三率 %', color=C_TEXT, fontsize=9, fontfamily=FNT, pad=4)
+        if has_fin:
+            xf   = list(range(len(fin_df)))
+            lblf = [_fmt_q(d) for d in fin_df.index]
+            RATE_CFG = [
+                ('gross_m', '毛利率',     '#4ec94e', 'o'),
+                ('op_m',    '營業利益率', '#5b9cf6', 's'),
+                ('net_m',   '淨利率',     '#f07070', '^'),
+            ]
+            for col, lbl, clr, mk in RATE_CFG:
+                if col in fin_df.columns:
+                    ax_rat.plot(xf, fin_df[col].values,
+                                color=clr, linewidth=1.8,
+                                marker=mk, markersize=4, label=lbl, zorder=3)
+            ax_rat.axhline(0, color='#333355', linewidth=0.6, linestyle='--')
+            ax_rat.set_xticks(xf)
+            ax_rat.set_xticklabels(lblf, rotation=40, ha='right',
+                                   fontsize=6.5, color='#888899', fontfamily=FNT)
+            ax_rat.set_ylabel('%', color='#888899', fontsize=7, labelpad=2)
+            ax_rat.legend(fontsize=8, facecolor='#1a1a2e',
+                          edgecolor='#333355', labelcolor='white', loc='best')
+        else:
+            ax_rat.text(0.5, 0.5, '查無資料', ha='center', va='center',
+                        color='#445566', fontsize=10, transform=ax_rat.transAxes)
+
+        self._fin_canvas.draw()
+        done_txt = f'{code}  {name}  ─  財報資料載入完成'
+        self._fin_status.set(done_txt)
 
     # ── 舊籌碼資料載入（保留但不再從 UI 呼叫）──────────────────────────────────
 
