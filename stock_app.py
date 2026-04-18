@@ -3850,7 +3850,10 @@ class StockApp(tk.Tk):
         self._kline_n           = 0
         self._kline_header      = None
         self._kline_vline       = None
-        self._kline_hline       = None   # 水平游標線（對應收盤價）
+        self._kline_hline       = None
+        self._kline_sub_vlines  = []
+        self._kline_price_ann   = None
+        self._kline_all_axes    = []
         self._current_kline_code = None
         self._current_kline_name = ''
         self._etf_canvas.mpl_connect('motion_notify_event', self._on_etf_motion)
@@ -5281,14 +5284,18 @@ class StockApp(tk.Tk):
         """Render K-line chart on the UI thread after data is fetched."""
         import numpy as np
 
-        CHART_BG = '#111111'
-        PANEL_BG = '#1a1a2e'
+        CHART_BG = '#131722'
+        PANEL_BG = '#1e2133'
+        UP_CLR, DN_CLR = '#ef5350', '#26a69a'
 
         fig = self._etf_kline_fig
         fig.clear()
         fig.patch.set_facecolor(CHART_BG)
-        self._kline_ax = None
-        self._kline_ohlcv = None
+        self._kline_ax         = None
+        self._kline_ohlcv      = None
+        self._kline_sub_vlines = []
+        self._kline_price_ann  = None
+        self._kline_all_axes   = []
 
         if ohlcv is None or ohlcv.empty:
             ax = fig.add_subplot(111, facecolor=PANEL_BG)
@@ -5306,29 +5313,25 @@ class StockApp(tk.Tk):
         close = ohlcv['Close']
         ohlcv = ohlcv.copy()
 
-        # MA
         if ind.get('MA', True):
-            ohlcv['MA5']  = close.rolling(5,  min_periods=1).mean()
-            ohlcv['MA10'] = close.rolling(10, min_periods=1).mean()
-            ohlcv['MA20'] = close.rolling(20, min_periods=1).mean()
-
-        # Bollinger Bands
+            ohlcv['MA5']   = close.rolling(5,   min_periods=1).mean()
+            ohlcv['MA10']  = close.rolling(10,  min_periods=1).mean()
+            ohlcv['MA20']  = close.rolling(20,  min_periods=1).mean()
+            ohlcv['MA60']  = close.rolling(60,  min_periods=1).mean()
+            ohlcv['MA120'] = close.rolling(120, min_periods=1).mean()
+            ohlcv['MA240'] = close.rolling(240, min_periods=1).mean()
         if ind.get('BB', False):
             _bb_m = close.rolling(20, min_periods=5).mean()
             _bb_s = close.rolling(20, min_periods=5).std(ddof=0)
             ohlcv['BB_U'] = _bb_m + 2 * _bb_s
             ohlcv['BB_M'] = _bb_m
             ohlcv['BB_L'] = _bb_m - 2 * _bb_s
-
-        # MACD(12,26,9)
         if ind.get('MACD', True):
             _e12 = close.ewm(span=12, adjust=False).mean()
             _e26 = close.ewm(span=26, adjust=False).mean()
             ohlcv['MACD_L'] = _e12 - _e26
             ohlcv['MACD_S'] = ohlcv['MACD_L'].ewm(span=9, adjust=False).mean()
             ohlcv['MACD_H'] = ohlcv['MACD_L'] - ohlcv['MACD_S']
-
-        # RSI(14)
         if ind.get('RSI', False):
             _d  = close.diff()
             _g  = _d.clip(lower=0)
@@ -5336,8 +5339,6 @@ class StockApp(tk.Tk):
             _rs = _g.ewm(com=13, adjust=False).mean() / \
                   _l.ewm(com=13, adjust=False).mean().replace(0, float('nan'))
             ohlcv['RSI'] = 100 - 100 / (1 + _rs)
-
-        # KD(9,3,3)
         if ind.get('KD', False):
             _lo = ohlcv.get('Low',  ohlcv['Close']).rolling(9, min_periods=1).min()
             _hi = ohlcv.get('High', ohlcv['Close']).rolling(9, min_periods=1).max()
@@ -5348,19 +5349,19 @@ class StockApp(tk.Tk):
         n  = len(ohlcv)
         xs = np.arange(n)
 
-        # ── 動態佈局：依啟用的副指標數量分配高度 ────────────────────────
-        sub_list = []          # 依顯示順序（價格圖之下由上而下）
+        # ── 動態佈局 ─────────────────────────────────────────────────────
+        sub_list = []
         if ind.get('VOL',  False): sub_list.append('VOL')
-        if ind.get('MACD', True):  sub_list.append('MACD')
-        if ind.get('RSI',  False): sub_list.append('RSI')
         if ind.get('KD',   False): sub_list.append('KD')
+        if ind.get('RSI',  False): sub_list.append('RSI')
+        if ind.get('MACD', True):  sub_list.append('MACD')
 
-        L, W    = 0.07, 0.88
-        TOP     = 0.94          # 頂端預留給資訊文字
-        BOT     = 0.07          # 底端預留給 X 軸日期
-        GAP     = 0.012
-        n_sub   = len(sub_list)
-        avail   = TOP - BOT
+        L, W  = 0.07, 0.88
+        TOP   = 0.94
+        BOT   = 0.07
+        GAP   = 0.012
+        n_sub = len(sub_list)
+        avail = TOP - BOT
 
         if n_sub == 0:
             sub_h = 0.0
@@ -5372,8 +5373,6 @@ class StockApp(tk.Tk):
             p_h   = TOP - p_bot
 
         ax_price = fig.add_axes([L, p_bot, W, max(p_h, 0.25)])
-
-        # 建立副圖軸（由下往上堆疊）
         sub_axes: dict = {}
         _y = BOT
         for _name in reversed(sub_list):
@@ -5388,10 +5387,8 @@ class StockApp(tk.Tk):
             for sp in ax.spines.values():
                 sp.set_color('#333')
             ax.grid(axis='y', color='#2a2a3a', linewidth=0.4, linestyle='-')
-            # 每個子圖 Y 軸最多 4 個 tick，並裁掉邊緣避免與相鄰圖重疊
             ax.yaxis.set_major_locator(
                 matplotlib.ticker.MaxNLocator(nbins=4, prune='both', integer=False))
-            # 自動縮短大數字（千→K，百萬→M）
             ax.yaxis.set_major_formatter(
                 matplotlib.ticker.FuncFormatter(
                     lambda v, _: (f'{v/1e6:.1f}M' if abs(v) >= 1e6
@@ -5400,28 +5397,32 @@ class StockApp(tk.Tk):
             if not xticks:
                 ax.set_xticks([])
 
-        # ── 蠟燭圖 ───────────────────────────────────────────────────────
-        cw = 0.55
+        # ── 蠟燭圖（動態寬度，WantGoo 配色）────────────────────────────
+        cw = max(0.3, min(0.75, 0.72 - n * 0.001))
         for i, (_, row) in enumerate(ohlcv.iterrows()):
             o_  = float(row.get('Open',  row['Close']))
             h_  = float(row.get('High',  row['Close']))
             l_  = float(row.get('Low',   row['Close']))
             c_  = float(row['Close'])
-            clr = '#f07070' if c_ >= o_ else '#4ec94e'
-            ax_price.plot([i, i], [l_, h_], color=clr, linewidth=0.7, zorder=2)
+            clr = UP_CLR if c_ >= o_ else DN_CLR
+            ax_price.plot([i, i], [l_, h_], color=clr, linewidth=0.8, zorder=2)
             ax_price.add_patch(plt.Rectangle(
-                (i - cw/2, min(o_, c_)), cw, max(abs(c_ - o_), 0.01),
-                facecolor=clr, edgecolor=clr, linewidth=0, zorder=3))
+                (i - cw/2, min(o_, c_)), cw, max(abs(c_ - o_), 0.005 * c_),
+                facecolor=clr, edgecolor='none', linewidth=0, zorder=3))
 
-        # ── MA 線（覆蓋於蠟燭圖）────────────────────────────────────────
+        # ── MA 線（MA5/10/20/60/120/240）────────────────────────────────
         _leg_handles = []
         if ind.get('MA', True):
-            for col, clr, lbl in [('MA5',  '#f0e44a', 'MA5'),
-                                   ('MA10', '#4a9cf0', 'MA10'),
-                                   ('MA20', '#f0a04a', 'MA20')]:
+            for col, clr, lbl, lw in [
+                    ('MA5',   '#f0e44a', 'MA5',   1.2),
+                    ('MA10',  '#4a9cf0', 'MA10',  1.1),
+                    ('MA20',  '#f0a04a', 'MA20',  1.1),
+                    ('MA60',  '#e060e0', 'MA60',  1.0),
+                    ('MA120', '#60c060', 'MA120', 1.0),
+                    ('MA240', '#f08040', 'MA240', 1.0)]:
                 if col in ohlcv:
                     ln, = ax_price.plot(xs, ohlcv[col].values, color=clr,
-                                        linewidth=1.1, label=lbl, zorder=4)
+                                        linewidth=lw, label=lbl, zorder=4)
                     _leg_handles.append(ln)
 
         # ── Bollinger Bands ──────────────────────────────────────────────
@@ -5432,11 +5433,10 @@ class StockApp(tk.Tk):
                           linewidth=0.6, linestyle='--', label='BB中', zorder=4)
             ax_price.plot(xs, ohlcv['BB_L'].values, color='#88aaff',
                           linewidth=0.8, linestyle='--', label='BB下', zorder=4)
-            ax_price.fill_between(xs,
-                ohlcv['BB_U'].values, ohlcv['BB_L'].values,
-                color='#4a9cf0', alpha=0.06, zorder=1)
+            ax_price.fill_between(xs, ohlcv['BB_U'].values, ohlcv['BB_L'].values,
+                                  color='#4a9cf0', alpha=0.06, zorder=1)
 
-        # ── 價格 Y 軸自動縮放 ────────────────────────────────────────────
+        # ── Y 軸縮放 ─────────────────────────────────────────────────────
         _price_vals = [ohlcv['High'].dropna().values, ohlcv['Low'].dropna().values]
         if 'BB_U' in ohlcv: _price_vals.append(ohlcv['BB_U'].dropna().values)
         if 'BB_L' in ohlcv: _price_vals.append(ohlcv['BB_L'].dropna().values)
@@ -5450,41 +5450,36 @@ class StockApp(tk.Tk):
         ax_price.yaxis.set_major_locator(
             matplotlib.ticker.MaxNLocator(nbins=6, prune='upper', integer=False))
 
-        # MA legend
         if _leg_handles:
-            ax_price.legend(handles=_leg_handles, loc='upper right',
-                            fontsize=8.5, facecolor='#111111',
-                            edgecolor='#333', labelcolor='white',
-                            handlelength=1.5, framealpha=0.85, borderpad=0.5)
+            ax_price.legend(handles=_leg_handles, loc='upper left',
+                            fontsize=7.5, facecolor='#1e2133',
+                            edgecolor='#2a2a4a', labelcolor='white',
+                            handlelength=1.2, framealpha=0.80, borderpad=0.4,
+                            ncol=3)
 
-        # ── 副圖：VOL ────────────────────────────────────────────────────
+        # ── 副圖 ──────────────────────────────────────────────────────────
         if 'VOL' in sub_axes:
             ax_v = sub_axes['VOL']
             vol = ohlcv.get('Volume', None)
             if vol is not None:
-                v_clrs = ['#f07070' if ohlcv['Close'].iloc[i] >= ohlcv['Open'].iloc[i]
-                          else '#4ec94e' for i in range(n)]
+                v_clrs = [UP_CLR if ohlcv['Close'].iloc[i] >= ohlcv['Open'].iloc[i]
+                          else DN_CLR for i in range(n)]
                 ax_v.bar(xs, vol.values, color=v_clrs, width=0.7, zorder=2)
             ax_v.set_ylabel('VOL', color='#888', fontsize=7, labelpad=2)
             ax_v.yaxis.set_label_position('left')
             _style(ax_v)
 
-        # ── 副圖：MACD(12,26,9) ──────────────────────────────────────────
         if 'MACD' in sub_axes and 'MACD_L' in ohlcv:
             ax_m = sub_axes['MACD']
-            h_clrs = ['#f07070' if v >= 0 else '#4ec94e'
-                      for v in ohlcv['MACD_H'].values]
+            h_clrs = ['#f07070' if v >= 0 else '#4ec94e' for v in ohlcv['MACD_H'].values]
             ax_m.bar(xs, ohlcv['MACD_H'].values, color=h_clrs, width=0.6, zorder=2)
-            ax_m.plot(xs, ohlcv['MACD_L'].values, color='#4a9cf0',
-                      linewidth=0.9, label='MACD', zorder=3)
-            ax_m.plot(xs, ohlcv['MACD_S'].values, color='#f0a04a',
-                      linewidth=0.9, label='Signal', zorder=3)
+            ax_m.plot(xs, ohlcv['MACD_L'].values, color='#4a9cf0', linewidth=0.9, zorder=3)
+            ax_m.plot(xs, ohlcv['MACD_S'].values, color='#f0a04a', linewidth=0.9, zorder=3)
             ax_m.axhline(0, color='#444', linewidth=0.5, linestyle='--')
             ax_m.set_ylabel('MACD', color='#888', fontsize=7, labelpad=2)
             ax_m.yaxis.set_label_position('left')
             _style(ax_m)
 
-        # ── 副圖：RSI(14) ────────────────────────────────────────────────
         if 'RSI' in sub_axes and 'RSI' in ohlcv:
             ax_r = sub_axes['RSI']
             ax_r.plot(xs, ohlcv['RSI'].values, color='#c46af0', linewidth=0.9)
@@ -5495,13 +5490,10 @@ class StockApp(tk.Tk):
             ax_r.yaxis.set_label_position('left')
             _style(ax_r)
 
-        # ── 副圖：KD(9,3,3) ─────────────────────────────────────────────
         if 'KD' in sub_axes and 'KD_K' in ohlcv:
             ax_k = sub_axes['KD']
-            ax_k.plot(xs, ohlcv['KD_K'].values, color='#f0e44a',
-                      linewidth=0.9, label='K')
-            ax_k.plot(xs, ohlcv['KD_D'].values, color='#4a9cf0',
-                      linewidth=0.9, label='D')
+            ax_k.plot(xs, ohlcv['KD_K'].values, color='#f0e44a', linewidth=0.9, label='K')
+            ax_k.plot(xs, ohlcv['KD_D'].values, color='#4a9cf0', linewidth=0.9, label='D')
             ax_k.axhline(80, color='#f07070', linewidth=0.5, linestyle='--')
             ax_k.axhline(20, color='#4ec94e', linewidth=0.5, linestyle='--')
             ax_k.set_ylim(0, 100)
@@ -5509,14 +5501,13 @@ class StockApp(tk.Tk):
             ax_k.yaxis.set_label_position('left')
             _style(ax_k)
 
-        # ── X 軸日期：顯示在最底層副圖，若無副圖則在價格圖 ──────────────
+        # ── X 軸日期 ─────────────────────────────────────────────────────
         _bottom_ax = sub_axes[sub_list[-1]] if sub_list else ax_price
-        step   = max(1, n // 8)
-        xtks   = list(range(0, n, step))
-        xlbls  = [ohlcv.index[i].strftime('%Y-%m-%d') for i in xtks]
+        step  = max(1, n // 8)
+        xtks  = list(range(0, n, step))
+        xlbls = [ohlcv.index[i].strftime('%Y-%m-%d') for i in xtks]
         _bottom_ax.set_xticks(xtks)
-        _bottom_ax.set_xticklabels(xlbls, rotation=25, ha='right',
-                                    fontsize=7, color='#888')
+        _bottom_ax.set_xticklabels(xlbls, rotation=25, ha='right', fontsize=7, color='#888')
 
         # ── 頂部資訊文字 ─────────────────────────────────────────────────
         hdr = fig.text(
@@ -5524,16 +5515,29 @@ class StockApp(tk.Tk):
             '日期：—    開：—    高：—    低：—    收：—    量：—',
             va='top', ha='left', color='#cccccc', fontsize=10,
             fontfamily=CHART_FONT,
-            bbox=dict(facecolor='#111111', alpha=0.0, edgecolor='none', pad=1))
+            bbox=dict(facecolor=CHART_BG, alpha=0.0, edgecolor='none', pad=1))
         self._kline_header = hdr
 
-        # ── 垂直 + 水平游標線 ──────────────────────────────────────────────
+        # ── 游標線（主圖 + 所有副圖共用同一 X）─────────────────────────
         self._kline_vline = ax_price.axvline(
-            -999, color='#666', linewidth=0.8, linestyle='--', zorder=5)
+            -999, color='#888', linewidth=0.8, linestyle='--', zorder=5)
         self._kline_hline = ax_price.axhline(
             -999, color='#aaa', linewidth=0.7, linestyle=':', zorder=5, alpha=0.8)
+        self._kline_sub_vlines = [
+            ax.axvline(-999, color='#666', linewidth=0.8, linestyle='--', zorder=5)
+            for ax in sub_axes.values()]
+
+        # ── 右側 Y 軸股價標籤 ────────────────────────────────────────────
+        self._kline_price_ann = ax_price.annotate(
+            '', xy=(1.0, 0), xycoords=('axes fraction', 'data'),
+            xytext=(4, 0), textcoords='offset points',
+            ha='left', va='center', fontsize=8, color='white',
+            zorder=10, clip_on=False,
+            bbox=dict(boxstyle='square,pad=0.25', facecolor=UP_CLR,
+                      edgecolor='none', alpha=0.92))
 
         # 儲存供 hover 使用
+        self._kline_all_axes = [ax_price] + list(sub_axes.values())
         self._kline_ax    = ax_price
         self._kline_ohlcv = ohlcv
         self._kline_n     = n
@@ -5541,10 +5545,11 @@ class StockApp(tk.Tk):
         self._etf_kline_canvas.draw()
 
     def _on_kline_hover(self, event):
-        """K 線圖 hover：更新頂部資訊文字與垂直/水平游標線。"""
-        if (self._kline_ax is None
-                or self._kline_header is None
-                or event.inaxes is not self._kline_ax):
+        """K 線圖 hover：更新頂部資訊文字、十字游標（延伸副圖）、右側價格標籤。"""
+        if self._kline_ax is None or self._kline_header is None:
+            return
+        all_ax = getattr(self, '_kline_all_axes', [self._kline_ax])
+        if event.inaxes not in all_ax:
             return
         if event.xdata is None:
             return
@@ -5567,6 +5572,17 @@ class StockApp(tk.Tk):
             self._kline_vline.set_xdata([xi, xi])
         if self._kline_hline is not None:
             self._kline_hline.set_ydata([c, c])
+        for vl in getattr(self, '_kline_sub_vlines', []):
+            vl.set_xdata([xi, xi])
+        # 右側價格標籤
+        ann = getattr(self, '_kline_price_ann', None)
+        if ann is not None:
+            prev_c = float(self._kline_ohlcv['Close'].iloc[xi - 1]) if xi > 0 else c
+            is_up  = c >= prev_c
+            clr    = '#ef5350' if is_up else '#26a69a'
+            ann.set_text(f'{c:.2f}')
+            ann.xy = (1.0, c)
+            ann.get_bbox_patch().set_facecolor(clr)
         self._etf_kline_canvas.draw_idle()
 
     # ── ETF 樹狀圖 hover ──────────────────────────────────────────────────────
@@ -7759,6 +7775,19 @@ class StockApp(tk.Tk):
         fin_wk.pack(fill='x')
         fin_wk.bind('<MouseWheel>', _wheel)
         self._fin_canvas.draw()
+        self._fin_canvas.mpl_connect('motion_notify_event', self._on_fin_hover)
+        self._fin_canvas.mpl_connect('figure_leave_event',  lambda e: self._fin_tooltip_hide())
+
+        # 財報 hover 狀態
+        self._fin_tooltip      = None
+        self._fin_tt_lbl       = None
+        self._fin_ax_rev       = None
+        self._fin_ax_rev_twin  = None   # twinx YoY 軸（也會收到 mouse event）
+        self._fin_ax_eps       = None
+        self._fin_ax_rat       = None
+        self._fin_rev_data: list = []   # [(label, rev_億, yoy_or_None), ...]
+        self._fin_eps_data: list = []   # [(label, eps), ...]
+        self._fin_rat_data: list = []   # [(label, gross, op, net), ...]
 
         # ── 狀態變數 ────────────────────────────────────────────────────────
         self._stk_ax           = None
@@ -8381,7 +8410,7 @@ class StockApp(tk.Tk):
         fig.suptitle(f'{code}  {name}  財報走勢',
                      color='#aecde8', fontsize=10, fontfamily=FNT, y=0.97)
 
-        # ── 季營收 長條 + YoY 折線 ──────────────────────────────────────────
+        # ── 季營收 長條 + QoQ 折線 + YoY 折線 ─────────────────────────────────
         ax_rev.set_title('季營收（億）', color=C_TEXT, fontsize=9, fontfamily=FNT, pad=4)
         if has_rev:
             rv  = rev_df['Revenue'].values
@@ -8392,23 +8421,38 @@ class StockApp(tk.Tk):
             ax_rev.set_xticklabels(lbl, rotation=40, ha='right',
                                    fontsize=6, color='#888899', fontfamily=FNT)
             ax_rev.set_ylabel('億', color='#888899', fontsize=7, labelpad=2)
-            # YoY（需 4 期前資料）
-            if len(rv) >= 5:
-                yoy = [((rv[i] / rv[i - 4] - 1) * 100 if rv[i - 4] != 0 else None)
-                       if i >= 4 else None for i in range(len(rv))]
-                valid_xs = [i for i, v in enumerate(yoy) if v is not None]
-                valid_y  = [v for v in yoy if v is not None]
-                if valid_xs:
-                    ax2 = ax_rev.twinx()
-                    ax2.set_facecolor(PANEL_BG)
-                    clrs2 = ['#f07070' if v >= 0 else '#4ec94e' for v in valid_y]
-                    ax2.plot(valid_xs, valid_y, color='#f0c060',
-                             linewidth=1.6, marker='o', markersize=3.5, zorder=3)
-                    ax2.axhline(0, color='#333355', linewidth=0.6, linestyle='--')
-                    ax2.tick_params(axis='y', colors='#f0c060', labelsize=6)
-                    ax2.set_ylabel('YoY %', color='#f0c060', fontsize=7, labelpad=2)
-                    for sp in ax2.spines.values():
-                        sp.set_edgecolor(C_BORDER)
+
+            # QoQ（季增率，只需前一期，2 筆資料就能畫線）
+            qoq = [None] + [(((rv[i] / rv[i - 1] - 1) * 100) if rv[i - 1] != 0 else None)
+                            for i in range(1, len(rv))]
+            qoq_xs = [i for i, v in enumerate(qoq) if v is not None]
+            qoq_y  = [v for v in qoq if v is not None]
+
+            # YoY（年增率，需 4 期前資料）
+            yoy = [((rv[i] / rv[i - 4] - 1) * 100 if rv[i - 4] != 0 else None)
+                   if i >= 4 else None for i in range(len(rv))]
+            yoy_xs = [i for i, v in enumerate(yoy) if v is not None]
+            yoy_y  = [v for v in yoy if v is not None]
+
+            if qoq_xs or yoy_xs:
+                ax2 = ax_rev.twinx()
+                self._fin_ax_rev_twin = ax2   # 記錄 twinx 軸，hover 時才能識別
+                ax2.set_facecolor(PANEL_BG)
+                ax2.axhline(0, color='#333355', linewidth=0.6, linestyle='--', zorder=1)
+                if qoq_xs:
+                    ax2.plot(qoq_xs, qoq_y, color='#80cfff',
+                             linewidth=1.4, linestyle='--', marker='s',
+                             markersize=3, zorder=2, label='QoQ%')
+                if yoy_xs:
+                    ax2.plot(yoy_xs, yoy_y, color='#f0c060',
+                             linewidth=1.6, marker='o', markersize=4, zorder=3, label='YoY%')
+                ax2.tick_params(axis='y', colors='#aaaaaa', labelsize=6)
+                ax2.set_ylabel('增率 %', color='#aaaaaa', fontsize=7, labelpad=2)
+                ax2.legend(loc='upper left', fontsize=6,
+                           facecolor='#1e2133', edgecolor='none',
+                           labelcolor='white', markerscale=0.9)
+                for sp in ax2.spines.values():
+                    sp.set_edgecolor(C_BORDER)
         else:
             ax_rev.text(0.5, 0.5, '查無資料', ha='center', va='center',
                         color='#445566', fontsize=10, transform=ax_rev.transAxes)
@@ -8461,9 +8505,158 @@ class StockApp(tk.Tk):
             ax_rat.text(0.5, 0.5, '查無資料', ha='center', va='center',
                         color='#445566', fontsize=10, transform=ax_rat.transAxes)
 
+        # ── 儲存 hover 用資料 ────────────────────────────────────────────────
+        self._fin_ax_rev      = ax_rev
+        self._fin_ax_rev_twin = None    # 若有 twinx 才設定，預先清空
+        self._fin_ax_eps      = ax_eps
+        self._fin_ax_rat      = ax_rat
+
+        # 季營收資料  (label, rev_億, yoy_or_None, qoq_or_None)
+        self._fin_rev_data = []
+        if has_rev:
+            rv  = rev_df['Revenue'].values
+            lbl = [_fmt_q(d) for d in rev_df.index]
+            yoy_full = [None] * len(rv)
+            qoq_full = [None] * len(rv)
+            for i in range(1, len(rv)):
+                if rv[i - 1] != 0:
+                    qoq_full[i] = (rv[i] / rv[i - 1] - 1) * 100
+            if len(rv) >= 5:
+                for i in range(4, len(rv)):
+                    if rv[i - 4] != 0:
+                        yoy_full[i] = (rv[i] / rv[i - 4] - 1) * 100
+            self._fin_rev_data = [(lbl[i], float(rv[i]) / 1e8, yoy_full[i], qoq_full[i])
+                                  for i in range(len(rv))]
+
+        # 季 EPS 資料
+        self._fin_eps_data = []
+        if has_eps:
+            ev   = eps_df['EPS'].values
+            lble = [_fmt_q(d) for d in eps_df.index]
+            self._fin_eps_data = [(lble[i], float(ev[i])) for i in range(len(ev))]
+
+        # 財報三率資料
+        self._fin_rat_data = []
+        if has_fin:
+            lblf = [_fmt_q(d) for d in fin_df.index]
+            for i in range(len(fin_df)):
+                self._fin_rat_data.append((
+                    lblf[i],
+                    float(fin_df['gross_m'].iloc[i]) if 'gross_m' in fin_df.columns else None,
+                    float(fin_df['op_m'].iloc[i])    if 'op_m'    in fin_df.columns else None,
+                    float(fin_df['net_m'].iloc[i])   if 'net_m'   in fin_df.columns else None,
+                ))
+
         self._fin_canvas.draw()
         done_txt = f'{code}  {name}  ─  財報資料載入完成'
         self._fin_status.set(done_txt)
+
+    # ── 財報圖 hover tooltip ──────────────────────────────────────────────────
+
+    def _fin_tooltip_hide(self):
+        """隱藏財報圖 tooltip。"""
+        if self._fin_tooltip is not None:
+            self._fin_tooltip.withdraw()
+
+    def _on_fin_hover(self, event):
+        """游標移到財報圖時，顯示對應季度資料 tooltip。"""
+        ax_rev      = getattr(self, '_fin_ax_rev',      None)
+        ax_rev_twin = getattr(self, '_fin_ax_rev_twin', None)
+        ax_eps      = getattr(self, '_fin_ax_eps',      None)
+        ax_rat      = getattr(self, '_fin_ax_rat',      None)
+
+        # ax_rev_twin 是 twinx YoY 軸，也算在 ax_rev 範圍內
+        in_rev = event.inaxes in (ax_rev, ax_rev_twin)
+
+        # 確認游標在三個子圖之一
+        if not in_rev and event.inaxes not in (ax_eps, ax_rat):
+            self._fin_tooltip_hide()
+            return
+        if event.xdata is None:
+            self._fin_tooltip_hide()
+            return
+
+        xi = int(round(event.xdata))
+
+        # ── 建立 / 取得 tooltip 視窗 ─────────────────────────────────────────
+        if self._fin_tooltip is None:
+            self._fin_tooltip = tk.Toplevel(self)
+            self._fin_tooltip.withdraw()
+            self._fin_tooltip.overrideredirect(True)
+            self._fin_tooltip.configure(bg='#1a1a2e')
+            self._fin_tt_lbl = tk.Label(
+                self._fin_tooltip, bg='#1a1a2e', fg='#e0e0e0',
+                font=('Microsoft JhengHei', 9), justify='left', padx=10, pady=7)
+            self._fin_tt_lbl.pack()
+
+        # ── 根據子圖組裝文字 ──────────────────────────────────────────────────
+        lines = []
+
+        if in_rev:
+            data = getattr(self, '_fin_rev_data', [])
+            if not data or xi < 0 or xi >= len(data):
+                self._fin_tooltip_hide()
+                return
+            row = data[xi]
+            lbl, rev_e8 = row[0], row[1]
+            yoy = row[2] if len(row) > 2 else None
+            qoq = row[3] if len(row) > 3 else None
+            lines.append(f'📅 {lbl}')
+            lines.append(f'季營收：{rev_e8:,.2f} 億')
+            if qoq is not None:
+                sign = '+' if qoq >= 0 else ''
+                arrow = '▲' if qoq >= 0 else '▼'
+                lines.append(f'季增率：{arrow} {sign}{qoq:.1f}%')
+            else:
+                lines.append('季增率：—')
+            if yoy is not None:
+                sign = '+' if yoy >= 0 else ''
+                arrow = '▲' if yoy >= 0 else '▼'
+                lines.append(f'年增率：{arrow} {sign}{yoy:.1f}%')
+            else:
+                lines.append('年增率：—')
+
+        elif event.inaxes is ax_eps:
+            data = getattr(self, '_fin_eps_data', [])
+            if not data or xi < 0 or xi >= len(data):
+                self._fin_tooltip_hide()
+                return
+            lbl, eps = data[xi]
+            sign = '+' if eps >= 0 else ''
+            arrow = '▲' if eps > 0 else ('▼' if eps < 0 else '─')
+            lines.append(f'📅 {lbl}')
+            lines.append(f'季 EPS：{arrow} {sign}{eps:.2f} 元')
+
+        elif event.inaxes is ax_rat:
+            data = getattr(self, '_fin_rat_data', [])
+            if not data or xi < 0 or xi >= len(data):
+                self._fin_tooltip_hide()
+                return
+            row = data[xi]
+            lbl = row[0]
+            gross_m, op_m, net_m = row[1], row[2], row[3]
+            lines.append(f'📅 {lbl}')
+            lines.append(f'毛利率　　：{gross_m:.1f}%' if gross_m is not None else '毛利率　　：—')
+            lines.append(f'營業利益率：{op_m:.1f}%'   if op_m    is not None else '營業利益率：—')
+            lines.append(f'淨利率　　：{net_m:.1f}%'  if net_m   is not None else '淨利率　　：—')
+
+        if not lines:
+            self._fin_tooltip_hide()
+            return
+
+        self._fin_tt_lbl.config(text='\n'.join(lines))
+
+        # ── 定位 ─────────────────────────────────────────────────────────────
+        try:
+            sx = event.guiEvent.x_root
+            sy = event.guiEvent.y_root
+        except Exception:
+            cw = self._fin_canvas.get_tk_widget()
+            sx = cw.winfo_rootx() + int(event.x)
+            sy = cw.winfo_rooty() + int(cw.winfo_height() - event.y)
+
+        self._place_tooltip(self._fin_tooltip, sx, sy)
+        self._fin_tooltip.deiconify()
 
     # ── 舊籌碼資料載入（保留但不再從 UI 呼叫）──────────────────────────────────
 
