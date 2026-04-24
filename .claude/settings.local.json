@@ -3,7 +3,11 @@
     "allow": [
       "Bash(python -c \"import ast; ast.parse\\(open\\(''stock_app.py'',''r'',encoding=''utf-8''\\).read\\(\\)\\); print\\(''OK''\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('d:/Python/GitHub_alex_repo/stock_app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
-      "Bash(pyinstaller stock_app.spec --noconfirm)"
+      "Bash(pyinstaller stock_app.spec --noconfirm)",
+      "WebSearch",
+      "WebFetch(domain:apps.apple.com)",
+      "WebFetch(domain:play.google.com)",
+      "WebFetch(domain:www.cmoney.tw)"
     ]
   }
 }

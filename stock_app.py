@@ -91,6 +91,29 @@ def _cffi_get_json(url, params=None, headers=None, timeout=15):
         _net_log(f'urllib FAIL [{url[:60]}]: {_e2}')
         raise
 
+def _cffi_get_text(url: str, headers: dict | None = None, timeout: int = 15) -> str:
+    """curl_cffi-based HTML GET returning raw UTF-8 text."""
+    _hdrs = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36',
+        **(headers or {}),
+    }
+    if _CFFI_OK:
+        try:
+            r = _cffi_req.get(url, headers=_hdrs, timeout=timeout,
+                              impersonate='chrome110', verify=False)
+            return r.content.decode('utf-8', errors='replace')
+        except Exception as _e:
+            _net_log(f'curl_cffi text FAIL [{url[:60]}]: {_e}')
+    import urllib.request, ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    with urllib.request.urlopen(
+            urllib.request.Request(url, headers=_hdrs),
+            context=ctx, timeout=timeout) as r:
+        return r.read().decode('utf-8', errors='replace')
+
+
 warnings.filterwarnings('ignore')
 
 # ─── 路徑與欄位 ──────────────────────────────────────────────────────────────
@@ -453,6 +476,9 @@ _MKT_ELEC_GROUPS: dict[str, list[str]] = {
                      '6849', '5267', '7530', '6983', '7849'],
 }
 
+
+_CMONEY_CONCEPT_CACHE_PATH = os.path.join(BASE_DIR, '.cmoney_concept_cache.json')
+_CMONEY_CONCEPT_CACHE: dict[str, list[str]] = {}
 
 FEE_RATE = 0.001425
 TAX_RATE = 0.003
@@ -992,6 +1018,56 @@ def _fetch_tpex_industry_map() -> dict[str, str]:
         print(f'[TPEX industry] 失敗: {type(e).__name__}')
     _TPEX_INDUSTRY_CACHE = result
     return result
+
+
+def _fetch_cmoney_concept_map() -> dict[str, list[str]]:
+    """CMoney 概念股 {概念名稱: [股票代號]}，7天磁碟快取，失敗時 fallback 內建資料。"""
+    global _CMONEY_CONCEPT_CACHE
+    if _CMONEY_CONCEPT_CACHE:
+        return _CMONEY_CONCEPT_CACHE
+    import time as _time, re as _re
+    # 讀磁碟快取
+    try:
+        with open(_CMONEY_CONCEPT_CACHE_PATH, 'r', encoding='utf-8') as _f:
+            _cached = _json.load(_f)
+        if _cached.get('_ts', 0) > _time.time() - 7 * 86400:
+            _CMONEY_CONCEPT_CACHE = _cached.get('data', {})
+            print(f'[CMoney concept] 磁碟快取 {len(_CMONEY_CONCEPT_CACHE)} 筆')
+            return _CMONEY_CONCEPT_CACHE
+    except Exception:
+        pass
+    # 從 CMoney 抓取
+    result: dict[str, list[str]] = {}
+    try:
+        html = _cffi_get_text('https://www.cmoney.tw/forum/concept', timeout=20)
+        pairs = _re.findall(r'href="(/forum/category/C\d+)"[^>]*>\s*([^<]{2,30})\s*<', html)
+        seen: dict[str, str] = {}
+        for path, name in pairs:
+            name = name.strip()
+            if name and path not in seen:
+                seen[path] = name
+        for path, name in list(seen.items())[:60]:
+            try:
+                cat_html = _cffi_get_text(f'https://www.cmoney.tw{path}', timeout=12)
+                codes = _re.findall(r'\b([1-9]\d{3})\b', cat_html)
+                codes = list(dict.fromkeys(c for c in codes if 1000 <= int(c) <= 9999))[:40]
+                if codes:
+                    result[name] = codes
+            except Exception:
+                pass
+        print(f'[CMoney concept] 抓取 {len(result)} 個概念股')
+    except Exception as e:
+        print(f'[CMoney concept] 失敗: {type(e).__name__}')
+    if result:
+        _CMONEY_CONCEPT_CACHE = result
+        try:
+            with open(_CMONEY_CONCEPT_CACHE_PATH, 'w', encoding='utf-8') as _f:
+                _json.dump({'_ts': _time.time(), 'data': result}, _f, ensure_ascii=False)
+        except Exception:
+            pass
+    else:
+        _CMONEY_CONCEPT_CACHE = dict(_MKT_CONCEPT_GROUPS)
+    return _CMONEY_CONCEPT_CACHE
 
 
 def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
@@ -5672,7 +5748,7 @@ class StockApp(tk.Tk):
         self._mkt_group_mode = tk.StringVar(value='上市類股')
         _mode_cb = ttk.Combobox(
             ctrl, textvariable=self._mkt_group_mode,
-            values=['上市類股', '上市+上櫃類股', '概念股', '電子產業'],
+            values=['上市類股', '上市+上櫃類股', '細分類', '概念股'],
             state='readonly', width=12,
             font=('Microsoft JhengHei', 9))
         _mode_cb.pack(side='left', padx=(0, 6))
@@ -5866,7 +5942,7 @@ class StockApp(tk.Tk):
     def _draw_market_map_impl(self):
         import time as _time
         try:
-            group_mode = self._mkt_group_mode.get()   # '上市類股' / '上市+上櫃類股' / '概念股' / '電子產業'
+            group_mode = self._mkt_group_mode.get()   # '上市類股' / '上市+上櫃類股' / '細分類' / '概念股'
             _ts = int(_time.time())   # 時間戳記，用於破除 CDN 快取
             hdr = {'If-Modified-Since': 'Mon, 26 Jul 1997 05:00:00 GMT',
                    'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -6074,22 +6150,21 @@ class StockApp(tk.Tk):
             total_tv = sum(s['trade_val'] for s in base_stocks.values())
 
             if group_mode == '概念股':
-                # 建立「股票代號 → 第一個命中的概念組」對照
+                # CMoney 概念股：股票代號 → 第一個命中的概念組
                 concept_assign: dict[str, str] = {}
-                for cgrp, codes in _MKT_CONCEPT_GROUPS.items():
+                for cgrp, codes in _fetch_cmoney_concept_map().items():
                     for c in codes:
                         if c not in concept_assign:
                             concept_assign[c] = cgrp
                 for stk in base_stocks.values():
                     chg_pct = hist_chg.get(stk['code'], stk['chg_1d']) if period not in ('1D', 'RT') else stk['chg_1d']
                     grp = concept_assign.get(stk['code'], '其他概念')
-                    # 其他概念保留原始 TWSE 產業別，供 drill-down 時顯示子分類
                     industry = stk['industry'] if grp == '其他概念' else grp
                     raw_groups.setdefault(grp, []).append(
                         {**stk, 'chg_pct': chg_pct, 'industry': industry})
 
-            elif group_mode == '電子產業':
-                # 建立「股票代號 → 電子子分類」對照
+            elif group_mode == '細分類':
+                # CMoney 細分類：電子股用 _MKT_ELEC_GROUPS 細分，非電子股用 TWSE 大類
                 elec_assign: dict[str, str] = {}
                 for subcat, codes in _MKT_ELEC_GROUPS.items():
                     for c in codes:
@@ -6097,17 +6172,9 @@ class StockApp(tk.Tk):
                             elec_assign[c] = subcat
                 for stk in base_stocks.values():
                     chg_pct = hist_chg.get(stk['code'], stk['chg_1d']) if period not in ('1D', 'RT') else stk['chg_1d']
-                    if stk['code'] in elec_assign:
-                        grp = elec_assign[stk['code']]
-                    elif stk['industry'] in _ELEC_TWSE_INDUSTRIES:
-                        grp = stk['industry']   # TWSE 大類 fallback
-                    else:
-                        continue   # 非電子股略過
+                    grp = elec_assign.get(stk['code'], stk['industry'])
                     raw_groups.setdefault(grp, []).append(
                         {**stk, 'chg_pct': chg_pct, 'industry': grp})
-                # 以電子股總成交額為基準計算門檻（避免被整體市場稀釋）
-                total_tv = sum(s['trade_val'] for g in raw_groups.values()
-                               for s in g) or 1.0
 
             else:
                 for stk in base_stocks.values():
