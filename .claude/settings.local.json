@@ -7,7 +7,17 @@
       "WebSearch",
       "WebFetch(domain:apps.apple.com)",
       "WebFetch(domain:play.google.com)",
-      "WebFetch(domain:www.cmoney.tw)"
+      "WebFetch(domain:www.cmoney.tw)",
+      "WebFetch(domain:www.twse.com.tw)",
+      "WebFetch(domain:openapi.twse.com.tw)",
+      "WebFetch(domain:www.ezmoney.com.tw)",
+      "WebFetch(domain:www.cathaysite.com.tw)",
+      "WebFetch(domain:www.moneydj.com)",
+      "WebFetch(domain:www.pocket.tw)",
+      "WebFetch(domain:www.threads.com)",
+      "WebFetch(domain:www.sinotrade.com.tw)",
+      "Bash(python -c ' *)",
+      "Bash(del \"d:\\\\Python\\\\GitHub_alex_repo\\\\.etf_pcf_history_00981A.json\")"
     ]
   }
 }

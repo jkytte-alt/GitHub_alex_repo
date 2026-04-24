@@ -1070,6 +1070,137 @@ def _fetch_cmoney_concept_map() -> dict[str, list[str]]:
     return _CMONEY_CONCEPT_CACHE
 
 
+# ── ETF 歷史 PCF 快取 ──────────────────────────────────────────────────────────
+_ETF_PCF_HIST_CACHE: dict[str, dict] = {}   # code → {date_str: [holdings]}
+
+
+def _fetch_etf_pcf_history(code: str, months: int = 6,
+                            progress_cb=None) -> dict[str, list[dict]]:
+    """抓取 ETF 近 N 個月的每週 PCF（申購買回清單）歷史資料。
+
+    以每週一個交易日（週五或往前推）為採樣點，約 26 筆。
+    採樣點不在快取中才呼叫 TWSE API，之後永久快取（歷史日不變）。
+    快取檔：<BASE_DIR>/.etf_pcf_history_<code>.json
+    progress_cb(done, total) 於每次 API 呼叫後觸發。
+    Returns {YYYYMMDD: [{'code','name','weight'}, ...]}
+    """
+    from datetime import datetime as _dt, timedelta as _td
+    import time as _t
+
+    cache_path = os.path.join(BASE_DIR, f'.etf_pcf_history_{code}.json')
+
+    # 讀記憶體快取 → 磁碟快取
+    existing: dict[str, list] = {}
+    if code in _ETF_PCF_HIST_CACHE:
+        existing = _ETF_PCF_HIST_CACHE[code]
+    elif os.path.exists(cache_path):
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as _f:
+                existing = _json.load(_f).get('data', {})
+        except Exception:
+            existing = {}
+
+    # ── 產生採樣日期 ──────────────────────────────────────────────────────
+    # 策略：近 30 天每天採樣（確保 API 可查），更早的每週採樣（減少 API 呼叫）
+    today = _dt.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff = today - _td(days=months * 31)
+    today_str = today.strftime('%Y%m%d')
+    recent_cutoff = today - _td(days=30)
+
+    sample_dates: set[str] = set()
+    cur = today - _td(days=1)
+    while cur >= cutoff:
+        if cur.weekday() < 5:   # 週一~週五
+            ds = cur.strftime('%Y%m%d')
+            if cur >= recent_cutoff:
+                sample_dates.add(ds)       # 近 30 天：每天
+            else:
+                if cur.weekday() == 4:     # 更早：只保留週五
+                    sample_dates.add(ds)
+        cur -= _td(days=1)
+
+    # 剔除快取中已有「非空」結果的日期；空結果不快取（下次重試）
+    cached_ok = {d for d, v in existing.items() if v}
+    missing = sorted(sample_dates - cached_ok)
+
+    twse_hdr = {
+        'Accept':           'application/json, text/javascript, */*; q=0.01',
+        'Accept-Language':  'zh-TW,zh;q=0.9',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Referer': f'https://www.twse.com.tw/zh/ETF/fund/{code}',
+    }
+
+    total = len(missing)
+    done = 0
+
+    def _parse_holdings(data: dict) -> list:
+        fields  = data.get('fields', [])
+        records = data.get('data',   [])
+        out = []
+        for rec in records:
+            row    = dict(zip(fields, rec))
+            s_code = str(next(
+                (row[k] for k in row if any(t in k for t in ('代號', '代碼'))), ''
+            )).strip()
+            s_name = str(next(
+                (row[k] for k in row if '名稱' in k), ''
+            )).strip()
+            w_raw  = next(
+                (row[k] for k in row if any(t in k for t in ('比例', 'percent', 'Percent'))), '0'
+            )
+            try:
+                weight = float(str(w_raw).replace('%', '').replace(',', ''))
+            except (ValueError, TypeError):
+                weight = 0.0
+            if s_code:
+                out.append({'code': s_code, 'name': s_name, 'weight': weight})
+        return out
+
+    for target_date in missing:
+        # 對每個目標日期：往前找 5 天涵蓋假日，先試 DAILY 再試 MONTHLY
+        _base = _dt.strptime(target_date, '%Y%m%d')
+        fetched = False
+        for q_type in ('DAILY', 'MONTHLY'):
+            if fetched:
+                break
+            for _back in range(5):
+                _try_date = (_base - _td(days=_back)).strftime('%Y%m%d')
+                try:
+                    data = _cffi_get_json(
+                        'https://www.twse.com.tw/fund/etfFundHoldingData',
+                        params={'fund': code, 'type': q_type, 'date': _try_date},
+                        headers=twse_hdr, timeout=8)
+                    if not isinstance(data, dict) or data.get('stat') != 'OK':
+                        continue
+                    holdings = _parse_holdings(data)
+                    if holdings:
+                        existing[target_date] = holdings
+                        fetched = True
+                        break
+                except Exception:
+                    pass
+                _t.sleep(0.05)
+
+        # 抓不到不快取（保留 None，下次重試）——不存 [] 避免永久遮蔽
+        done += 1
+        if progress_cb:
+            progress_cb(done, total)
+        _t.sleep(0.2)
+
+    # 寫回磁碟快取（只寫有資料的日期）
+    save_data = {d: v for d, v in existing.items() if v}
+    _ETF_PCF_HIST_CACHE[code] = save_data
+    if missing:
+        try:
+            with open(cache_path, 'w', encoding='utf-8') as _f:
+                _json.dump({'data': save_data}, _f,
+                           ensure_ascii=False, separators=(',', ':'))
+        except Exception:
+            pass
+
+    return save_data
+
+
 def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
     """抓 ETF 完整成分股＋持股比例。
     Returns (holdings, debug_msg)
@@ -3916,6 +4047,21 @@ class StockApp(tk.Tk):
         w2.pack(fill='x', padx=8, pady=(2, 8))
         w2.bind('<MouseWheel>', _mw)
 
+        # ── 歷史熱力圖畫布 ─────────────────────────────────────────────────
+        self._etf_heatmap_fig = plt.Figure(figsize=(9.5, 5.5), dpi=100,
+                                            facecolor='#111111')
+        self._etf_heatmap_canvas = FigureCanvasTkAgg(
+            self._etf_heatmap_fig, master=self._etf_inner)
+        w3 = self._etf_heatmap_canvas.get_tk_widget()
+        w3.configure(bg='#111111')
+        w3.pack(fill='x', padx=8, pady=(2, 2))
+        w3.bind('<MouseWheel>', _mw)
+
+        # ── 成分股變化列表 ──────────────────────────────────────────────
+        self._etf_change_outer = tk.Frame(self._etf_inner, bg='#111111')
+        self._etf_change_outer.pack(fill='x', padx=8, pady=(2, 8))
+        self._etf_change_outer.bind('<MouseWheel>', _mw)
+
         self._etf_rects         = []
         self._etf_tooltip       = None
         self._etf_ax            = None
@@ -3932,6 +4078,8 @@ class StockApp(tk.Tk):
         self._kline_all_axes    = []
         self._current_kline_code = None
         self._current_kline_name = ''
+        self._etf_heatmap_expanded = False   # "其他" 列是否展開
+        self._etf_treemap_expanded = False   # 樹狀圖是否顯示全部
         self._etf_canvas.mpl_connect('motion_notify_event', self._on_etf_motion)
         self._etf_canvas.mpl_connect('figure_leave_event',  lambda e: self._hide_etf_tooltip())
         self._etf_kline_canvas.mpl_connect('motion_notify_event', self._on_kline_hover)
@@ -5030,7 +5178,7 @@ class StockApp(tk.Tk):
         GAP = 0.3
 
         # ── 樹狀圖（依 ETF 權重，無分類）────────────────────────────────────
-        weights = [max(c['weight'], 0.001) for c in components]   # 防 ZeroDivision
+        weights   = [max(c['weight'], 0.001) for c in components]
         norm_w    = squarify.normalize_sizes(weights, 100, 100)
         raw_rects = squarify.squarify(norm_w, 0, 0, 100, 100)
         rects     = [{'x': r['x'], 'y': 100 - r['y'] - r['dy'],
@@ -5131,6 +5279,7 @@ class StockApp(tk.Tk):
         self._etf_canvas.draw()
         self._draw_etf_kline(code, etf_name)
         self._draw_etf_info(components, meta, debug_msg, ind_map or {})
+        self._draw_etf_history(code, etf_name)
 
     # ── ETF 分析圖（互動式環形圖 × 2）────────────────────────────────────────
     def _draw_etf_info(self, components: list, meta: dict,
@@ -5660,6 +5809,259 @@ class StockApp(tk.Tk):
             ann.xy = (1.0, c)
             ann.get_bbox_patch().set_facecolor(clr)
         self._etf_kline_canvas.draw_idle()
+
+    # ── ETF 歷史成分股熱力圖 ──────────────────────────────────────────────────
+    def _draw_etf_history(self, code: str, etf_name: str):
+        """顯示佔位後在背景 thread 載入 PCF 歷史，完成後渲染熱力圖與變化列表。"""
+        fig = self._etf_heatmap_fig
+        fig.clear()
+        fig.patch.set_facecolor('#111111')
+        _ax = fig.add_subplot(111, facecolor='#1a1a2e')
+        _ax.text(0.5, 0.5, f'{code} 歷史成分股資料載入中…',
+                 ha='center', va='center', color='#888',
+                 fontsize=11, fontfamily=CHART_FONT, transform=_ax.transAxes)
+        _ax.axis('off')
+        self._etf_heatmap_canvas.draw()
+
+        # 清空舊的變化列表
+        for w in self._etf_change_outer.winfo_children():
+            w.destroy()
+
+        def _worker():
+            try:
+                def _prog(done, total):
+                    self._ui_call(lambda: self._etf_status.set(
+                        f'載入 {code} 歷史資料 {done}/{total}…'))
+                history = _fetch_etf_pcf_history(code, months=6, progress_cb=_prog)
+                self._ui_call(lambda: self._draw_etf_heatmap_impl(
+                    code, etf_name, history))
+            except Exception as _e:
+                self._ui_call(lambda: (
+                    self._etf_heatmap_fig.clear(),
+                    self._etf_heatmap_canvas.draw()))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _draw_etf_heatmap_impl(self, code: str, etf_name: str,
+                                history: dict):
+        """在主執行緒繪製成分股歷史熱力圖（imshow）。
+
+        history: {YYYYMMDD: [{'code','name','weight'}, ...]}
+        X 軸 = 週次（最多 26 週）；Y 軸 = 前 20 大成分股 + 其他列。
+        """
+        import numpy as np
+        import matplotlib.colors as _mcolors
+
+        HM_BG   = '#111111'
+        PANEL   = '#1a1a2e'
+
+        fig = self._etf_heatmap_fig
+        fig.clear()
+        fig.patch.set_facecolor(HM_BG)
+
+        # 過濾掉空日期
+        dated = {d: v for d, v in history.items() if v}
+        if not dated:
+            ax = fig.add_subplot(111, facecolor=PANEL)
+            ax.text(0.5, 0.55,
+                    f'{code} 暫無歷史成分股資料',
+                    ha='center', va='center', color='#aaa',
+                    fontsize=12, fontfamily=CHART_FONT, transform=ax.transAxes)
+            ax.text(0.5, 0.40,
+                    '可能原因：ETF 上市未滿 1 個月 / 非主動型 ETF / TWSE API 限制\n'
+                    '歷史資料將從今日起逐步累積，請明日再試。',
+                    ha='center', va='center', color='#666',
+                    fontsize=9, fontfamily=CHART_FONT, transform=ax.transAxes)
+            ax.axis('off')
+            self._etf_heatmap_canvas.draw()
+            return
+
+        sorted_dates = sorted(dated.keys())
+
+        # ── 決定前 TOP_N 大成分股（以各期平均權重排序）─────────────────────
+        TOP_N = 20
+        weight_sum: dict[str, float] = {}
+        name_map:   dict[str, str]   = {}
+        for d, holdings in dated.items():
+            for h in holdings:
+                c = h['code']
+                weight_sum[c] = weight_sum.get(c, 0.0) + h['weight']
+                if c not in name_map:
+                    name_map[c] = h['name']
+
+        sorted_by_avg = sorted(weight_sum, key=weight_sum.get, reverse=True)
+        top_codes = sorted_by_avg[:TOP_N]
+        top_names = [f"{name_map.get(c, c)}\n{c}" for c in top_codes]
+
+        # ── 建立熱力圖矩陣 ────────────────────────────────────────────────
+        # rows = top stocks (index 0..TOP_N-1) + "其他" (index TOP_N)
+        # cols = dates
+        n_rows = TOP_N + 1
+        n_cols = len(sorted_dates)
+        matrix    = np.zeros((n_rows, n_cols))
+        heatmap_expanded = getattr(self, '_etf_heatmap_expanded', False)
+
+        for ci, d in enumerate(sorted_dates):
+            holdings = dated.get(d, [])
+            wmap = {h['code']: h['weight'] for h in holdings}
+            others_w = 0.0
+            covered  = set()
+            for ri, c in enumerate(top_codes):
+                matrix[ri, ci] = wmap.get(c, 0.0)
+                if c in wmap:
+                    covered.add(c)
+            for c, w in wmap.items():
+                if c not in covered:
+                    others_w += w
+            matrix[TOP_N, ci] = others_w
+
+        # ── 繪製 ─────────────────────────────────────────────────────────
+        ax = fig.add_axes([0.16, 0.06, 0.80, 0.86])
+        ax.set_facecolor(PANEL)
+
+        cmap = _mcolors.LinearSegmentedColormap.from_list(
+            'etf_hm', ['#1a1a2e', '#1a4a8a', '#2a7ad0', '#58c0f0', '#ffffff'])
+
+        im = ax.imshow(matrix, aspect='auto', cmap=cmap,
+                       vmin=0, vmax=max(matrix.max(), 1),
+                       interpolation='nearest', origin='upper')
+
+        # Y 軸標籤（股票名稱 + 代號）
+        all_row_labels = top_names + ['其他']
+        ax.set_yticks(range(n_rows))
+        ax.set_yticklabels(all_row_labels, fontsize=7, fontfamily=CHART_FONT,
+                           color='#cccccc', va='center')
+        ax.tick_params(axis='y', length=0, pad=4)
+
+        # X 軸標籤（每隔幾週顯示日期）
+        step = max(1, n_cols // 10)
+        xtick_pos = list(range(0, n_cols, step))
+        xtick_lbl = [sorted_dates[i][4:6] + '/' + sorted_dates[i][6:] for i in xtick_pos]
+        ax.set_xticks(xtick_pos)
+        ax.set_xticklabels(xtick_lbl, fontsize=8, fontfamily=CHART_FONT,
+                            color='#aaaaaa', rotation=0)
+        ax.tick_params(axis='x', length=0, pad=3)
+
+        # 分隔線：在「其他」列上方畫虛線
+        ax.axhline(TOP_N - 0.5, color='#555577', linewidth=0.8, linestyle='--')
+
+        # 在每個格子內顯示數值（僅對大格子）
+        if n_cols <= 30:
+            for ri in range(n_rows):
+                for ci in range(n_cols):
+                    v = matrix[ri, ci]
+                    if v > 0.5:
+                        ax.text(ci, ri, f'{v:.1f}', ha='center', va='center',
+                                fontsize=6.5, fontfamily=CHART_FONT,
+                                color='white' if v < matrix.max() * 0.6 else '#333')
+
+        # 色條
+        cbar_ax = fig.add_axes([0.97, 0.06, 0.015, 0.86])
+        cb = fig.colorbar(im, cax=cbar_ax)
+        cb.ax.tick_params(labelsize=7, colors='#aaaaaa', length=0)
+        cb.outline.set_edgecolor('#333355')
+        cb.set_label('%', color='#aaaaaa', fontsize=8)
+
+        # 標題
+        fig.text(0.50, 0.99,
+                 f'{etf_name} ({code})  成分股歷史權重（近 6 個月，週採樣）',
+                 ha='center', va='top', color='#9ab8d8',
+                 fontsize=10, fontfamily=CHART_FONT)
+
+        # 「其他」列點擊提示
+        expand_hint = '▴ 點「其他」收合' if heatmap_expanded else '▾ 點「其他」展開'
+        fig.text(0.99, 0.02, expand_hint, ha='right', va='bottom',
+                 color='#666688', fontsize=8, fontfamily=CHART_FONT)
+
+        self._etf_heatmap_canvas.draw()
+
+        # 畫完熱力圖後，繪製變化列表
+        self._draw_etf_change_table_impl(code, dated, sorted_dates, top_codes, name_map)
+
+    def _draw_etf_change_table_impl(self, code: str, dated: dict,
+                                     sorted_dates: list, top_codes: list,
+                                     name_map: dict):
+        """比較最近兩個採樣日，列出成分股異動（新增 / 移除 / 權重變化 ≥ 1%）。"""
+        # 清空
+        for w in self._etf_change_outer.winfo_children():
+            w.destroy()
+
+        if len(sorted_dates) < 2:
+            return
+
+        d_new = sorted_dates[-1]
+        d_old = sorted_dates[-2]
+        h_new = {h['code']: h for h in dated.get(d_new, [])}
+        h_old = {h['code']: h for h in dated.get(d_old, [])}
+
+        added   = []
+        removed = []
+        changed = []
+
+        all_codes = set(h_new) | set(h_old)
+        for c in all_codes:
+            n = h_new.get(c)
+            o = h_old.get(c)
+            nm = (n or o or {}).get('name', name_map.get(c, c))
+            if n and not o:
+                added.append((c, nm, n['weight']))
+            elif o and not n:
+                removed.append((c, nm, o['weight']))
+            elif n and o:
+                delta = n['weight'] - o['weight']
+                if abs(delta) >= 1.0:
+                    changed.append((c, nm, o['weight'], n['weight'], delta))
+
+        # 如果全部為空則不顯示
+        if not added and not removed and not changed:
+            return
+
+        d_new_fmt = f"{d_new[:4]}/{d_new[4:6]}/{d_new[6:]}"
+        d_old_fmt = f"{d_old[:4]}/{d_old[4:6]}/{d_old[6:]}"
+
+        C_TBL = '#1a1a2e'
+        C_HDR = '#2a3f6f'
+
+        outer = self._etf_change_outer
+
+        # 標題列
+        hdr = tk.Frame(outer, bg=C_HDR, pady=4)
+        hdr.pack(fill='x', pady=(4, 0))
+        tk.Label(hdr, text=f'成分股異動  {d_old_fmt} → {d_new_fmt}',
+                 bg=C_HDR, fg='#9ab8d8',
+                 font=('Microsoft JhengHei', 10, 'bold')).pack(side='left', padx=10)
+
+        def _section(title, rows, title_color):
+            if not rows:
+                return
+            sf = tk.Frame(outer, bg=C_TBL, pady=2)
+            sf.pack(fill='x', pady=(2, 0))
+            tk.Label(sf, text=title, bg=C_TBL, fg=title_color,
+                     font=('Microsoft JhengHei', 9, 'bold')).grid(
+                row=0, column=0, columnspan=4, sticky='w', padx=8, pady=(4, 2))
+            for ri, row in enumerate(rows, start=1):
+                for ci, (txt, anchor, width) in enumerate(row):
+                    tk.Label(sf, text=txt, bg=C_TBL, fg='#cccccc',
+                             font=('Microsoft JhengHei', 9),
+                             anchor=anchor, width=width).grid(
+                        row=ri, column=ci, sticky='w', padx=(8 if ci == 0 else 4), pady=1)
+
+        _section('▲ 新加入', [
+            [(c, 'w', 8), (nm[:12], 'w', 14), (f'{w:.2f}%', 'e', 8), ('', 'w', 1)]
+            for c, nm, w in sorted(added, key=lambda x: -x[2])
+        ], '#4ec94e')
+
+        _section('▼ 移除', [
+            [(c, 'w', 8), (nm[:12], 'w', 14), (f'{w:.2f}%', 'e', 8), ('', 'w', 1)]
+            for c, nm, w in sorted(removed, key=lambda x: -x[2])
+        ], '#f07070')
+
+        _section('⇅ 權重變化 ≥ 1%', [
+            [(c, 'w', 8), (nm[:12], 'w', 14),
+             (f'{ow:.2f}% → {nw:.2f}%', 'e', 16),
+             (f"{'+' if d >= 0 else ''}{d:.2f}%", 'e', 10)]
+            for c, nm, ow, nw, d in sorted(changed, key=lambda x: -abs(x[4]))
+        ], '#8ab4d4')
 
     # ── ETF 樹狀圖 hover ──────────────────────────────────────────────────────
     def _on_etf_motion(self, event):
