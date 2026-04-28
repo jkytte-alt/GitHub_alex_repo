@@ -126,7 +126,7 @@ SHEET_NAME = '交易記錄'
 
 COLUMNS = ['日期', '股票代號', '股票名稱', '分類', '買賣',
            '數量(股)', '價格(元)', '手續費(元)', '交易稅(元)', '淨金額(元)']
-CATEGORIES = ['定期定額', '波段操作', '爸爸合資']
+CATEGORIES = ['定期定額', '波段操作', '爸爸合資', '獲利賣出']
 
 # ─── 股票分割紀錄 ─────────────────────────────────────────────────────────────
 # 格式：股票代號 → [(分割生效日, 換股比例), ...]
@@ -658,6 +658,9 @@ def calc_holdings(df: pd.DataFrame) -> dict:
                 avg = h['total_cost'] / h['qty']
                 h['total_cost'] -= avg * eff_qty
                 h['qty']        -= eff_qty
+                # 獲利賣出：剩餘庫存平均成本重置為獲利賣出價，讓未實現損益歸零
+                if cat == '獲利賣出' and h['qty'] > 0.5:
+                    h['total_cost'] = h['qty'] * price
     result = {}
     for key, h in holdings.items():
         if h['qty'] > 0.5:
@@ -3527,7 +3530,12 @@ class StockApp(tk.Tk):
             self._an_tooltip = tip
 
         w   = self._an_tip_widgets
-        side_color = C_BUY_FG if data['side'] == '買' else C_SELL_FG
+        if data['side'] == '買':
+            side_color = C_BUY_FG
+        elif data['category'] == '獲利賣出':
+            side_color = '#ffd700'
+        else:
+            side_color = C_SELL_FG
         w['title'].config(
             text=f"{data['date']}　{data['side']}　({data['category']})",
             fg=side_color, font=('Microsoft JhengHei', 11, 'bold'))
@@ -3566,28 +3574,42 @@ class StockApp(tk.Tk):
         df   = load_df()
         sdf  = df[df['股票代號'].astype(str) == code].copy()
         if cat_filter:
-            sdf = sdf[sdf['分類'].astype(str) == cat_filter]
+            # 獲利賣出賣出不屬於任何買入分類，但需要一併顯示以反映成本重置
+            sdf = sdf[(sdf['分類'].astype(str) == cat_filter) |
+                      ((sdf['分類'].astype(str) == '獲利賣出') & (sdf['買賣'].astype(str) == '賣'))]
         sdf = sdf.sort_values('日期').reset_index(drop=True)
 
         if sdf.empty:
             messagebox.showinfo('提示', f'找不到 {code} 的交易紀錄\n請確認代號，或先在「買賣紀錄」新增交易。')
             return
 
-        # ── 計算持股均價 ──────────────────────────────────────────────────────
-        qty_cum, cost_cum = 0.0, 0.0
-        avg_costs = []
+        # ── 計算持股均價（追蹤均價：獲利賣出後重置；真實均價：實際投入成本）─────────
+        has_takep = any(str(c) == '獲利賣出' for c in sdf['分類'].values)
+        qty_cum,      cost_cum      = 0.0, 0.0
+        real_qty_cum, real_cost_cum = 0.0, 0.0
+        avg_costs, real_avg_costs   = [], []
         for _, r in sdf.iterrows():
             q, p, fee = float(r['數量(股)']), float(r['價格(元)']), float(r['手續費(元)'])
+            cat = str(r.get('分類', ''))
             if r['買賣'] == '買':
-                cost_cum += q * p + fee
-                qty_cum  += q
+                cost_cum      += q * p + fee
+                qty_cum       += q
+                real_cost_cum += q * p + fee
+                real_qty_cum  += q
             else:
                 if qty_cum > 0:
                     cost_cum -= (cost_cum / qty_cum) * q
                     qty_cum  -= q
+                    if cat == '獲利賣出' and qty_cum > 0.5:
+                        cost_cum = qty_cum * p
+                if real_qty_cum > 0:
+                    real_cost_cum -= (real_cost_cum / real_qty_cum) * q
+                    real_qty_cum  -= q
             avg_costs.append(cost_cum / qty_cum if qty_cum > 0.5 else np.nan)
+            real_avg_costs.append(real_cost_cum / real_qty_cum if real_qty_cum > 0.5 else np.nan)
 
-        sdf['avg_cost'] = avg_costs
+        sdf['avg_cost']      = avg_costs
+        sdf['real_avg_cost'] = real_avg_costs
 
         dates  = sdf['日期'].values
         prices = sdf['價格(元)'].values.astype(float)
@@ -3641,24 +3663,38 @@ class StockApp(tk.Tk):
             sdf['數量(股)'] = qtys
 
             # 重算均價（用調整後的價格與股數）
-            qty_cum2, cost_cum2 = 0.0, 0.0
-            new_avg = []
+            qty_cum2,      cost_cum2      = 0.0, 0.0
+            real_qty_cum2, real_cost_cum2 = 0.0, 0.0
+            new_avg, new_real_avg         = [], []
             for _, r in sdf.iterrows():
                 q   = float(r['數量(股)'])
                 p   = float(r['價格(元)'])
                 fee = float(r['手續費(元)'])
+                cat = str(r.get('分類', ''))
                 if r['買賣'] == '買':
-                    cost_cum2 += q * p + fee
-                    qty_cum2  += q
+                    cost_cum2      += q * p + fee
+                    qty_cum2       += q
+                    real_cost_cum2 += q * p + fee
+                    real_qty_cum2  += q
                 else:
                     if qty_cum2 > 0:
                         cost_cum2 -= (cost_cum2 / qty_cum2) * q
                         qty_cum2  -= q
+                        if cat == '獲利賣出' and qty_cum2 > 0.5:
+                            cost_cum2 = qty_cum2 * p
+                    if real_qty_cum2 > 0:
+                        real_cost_cum2 -= (real_cost_cum2 / real_qty_cum2) * q
+                        real_qty_cum2  -= q
                 new_avg.append(cost_cum2 / qty_cum2 if qty_cum2 > 0.5 else np.nan)
-            sdf['avg_cost'] = new_avg
-            avg_costs = new_avg
-            cost_cum  = cost_cum2
-            qty_cum   = qty_cum2
+                new_real_avg.append(real_cost_cum2 / real_qty_cum2 if real_qty_cum2 > 0.5 else np.nan)
+            sdf['avg_cost']      = new_avg
+            sdf['real_avg_cost'] = new_real_avg
+            avg_costs      = new_avg
+            real_avg_costs = new_real_avg
+            cost_cum       = cost_cum2
+            qty_cum        = qty_cum2
+            real_cost_cum  = real_cost_cum2
+            real_qty_cum   = real_qty_cum2
 
         # ── 繪圖 ──────────────────────────────────────────────────────────────
         self._an_fig.clear()
@@ -3705,14 +3741,26 @@ class StockApp(tk.Tk):
                 pass
 
         # 買賣成交價長條（並排）
-        bar_colors = [C_BUY_FG if s == '買' else C_SELL_FG for s in sides]
+        cats = sdf['分類'].values
+        bar_colors = [
+            C_BUY_FG if s == '買' else ('#ffd700' if str(c) == '獲利賣出' else C_SELL_FG)
+            for s, c in zip(sides, cats)
+        ]
         ax1.bar(per_x, prices, width=per_w, color=bar_colors, alpha=0.70, zorder=3)
 
-        # 持股均價折線（用原始 x_num 保持連續）
+        # 追蹤均價折線（獲利賣出後重置，用原始 x_num 保持連續）
         valid = ~np.isnan(sdf['avg_cost'].values)
         if valid.any():
             ax1.plot(x_num[valid], sdf['avg_cost'].values[valid],
                      color='#64b5f6', linewidth=2.2, marker='o', markersize=5, zorder=5)
+
+        # 真實均價折線（灰色虛線，僅在有獲利賣出紀錄時顯示）
+        if has_takep:
+            real_valid = ~np.isnan(sdf['real_avg_cost'].values)
+            if real_valid.any():
+                ax1.plot(x_num[real_valid], sdf['real_avg_cost'].values[real_valid],
+                         color='#90a4ae', linewidth=1.6, linestyle='--',
+                         marker='o', markersize=3, zorder=5)
 
         # 即時現價橫線
         cur_price, _ = get_price(code)
@@ -3741,12 +3789,18 @@ class StockApp(tk.Tk):
             Patch(color=C_BUY_FG,  alpha=0.8, label='買入'),
             Patch(color=C_SELL_FG, alpha=0.8, label='賣出'),
         ]
+        if has_takep:
+            legend_handles.append(Patch(color='#ffd700', alpha=0.8, label='獲利賣出'))
         if hist_plotted:
             legend_handles.append(
                 Line2D([0], [0], color='#b0bec5', linewidth=1.4, label='收盤價走勢'))
         legend_handles.append(
             Line2D([0], [0], color='#64b5f6', linewidth=2.2,
-                   marker='o', markersize=5, label='持股均價'))
+                   marker='o', markersize=5, label='追蹤均價' if has_takep else '持股均價'))
+        if has_takep:
+            legend_handles.append(
+                Line2D([0], [0], color='#90a4ae', linewidth=1.6, linestyle='--',
+                       marker='o', markersize=3, label='真實均價'))
         if cur_price:
             legend_handles.append(
                 Line2D([0], [0], color='#ffa726', linestyle='--',
@@ -3759,14 +3813,21 @@ class StockApp(tk.Tk):
 
         ax1.set_ylabel('價格 (元)', fontsize=10, color=C_FG)
 
-        name     = sdf['股票名稱'].iloc[0]
-        last_avg = cost_cum / qty_cum if qty_cum > 0.5 else None
-        subtitle = ''
+        name      = sdf['股票名稱'].iloc[0]
+        last_avg  = cost_cum / qty_cum if qty_cum > 0.5 else None
+        real_last = real_cost_cum / real_qty_cum if real_qty_cum > 0.5 else None
+        subtitle  = ''
         if last_avg:
-            pnl_str = (f'{cur_price - last_avg:+.2f} ({(cur_price/last_avg - 1)*100:+.1f}%)'
-                       if cur_price else '')
-            subtitle = (f'庫存 {qty_cum:,.0f} 股  |  均價 {last_avg:.2f} 元'
-                        + (f'  |  損益 {pnl_str}' if pnl_str else ''))
+            pnl_str   = (f'{cur_price - last_avg:+.2f} ({(cur_price/last_avg - 1)*100:+.1f}%)'
+                         if cur_price else '')
+            avg_label = '追蹤均價' if has_takep else '均價'
+            subtitle  = (f'庫存 {qty_cum:,.0f} 股  |  {avg_label} {last_avg:.2f} 元'
+                         + (f'  |  損益 {pnl_str}' if pnl_str else ''))
+            if has_takep and real_last and abs(real_last - last_avg) > 0.01:
+                real_pnl = (f'{cur_price - real_last:+.2f} ({(cur_price/real_last - 1)*100:+.1f}%)'
+                            if cur_price else '')
+                subtitle += (f'\n真實均價 {real_last:.2f} 元'
+                             + (f'  |  實際損益 {real_pnl}' if real_pnl else ''))
 
         cat_label = f'  [{cat_filter}]' if cat_filter else ''
         adj_label = '  ［還原股價］' if adj_mode else ''
