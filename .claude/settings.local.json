@@ -17,7 +17,8 @@
       "WebFetch(domain:www.threads.com)",
       "WebFetch(domain:www.sinotrade.com.tw)",
       "Bash(python -c ' *)",
-      "Bash(del \"d:\\\\Python\\\\GitHub_alex_repo\\\\.etf_pcf_history_00981A.json\")"
+      "Bash(del \"d:\\\\Python\\\\GitHub_alex_repo\\\\.etf_pcf_history_00981A.json\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('d:/python/GitHub_alex_repo/.stock_names_cache.json'\\)\\); print\\(d.get\\('4966'\\)\\)\")"
     ]
   }
 }

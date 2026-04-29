@@ -29,6 +29,14 @@ import squarify
 import yfinance as yf
 import math
 
+# 全域靜音 yfinance 所有子 logger（含 yfinance.base 等），避免下架/查無股票時噴 WARNING
+import logging as _logging
+for _yf_logger_name in ('yfinance', 'yfinance.base', 'yfinance.utils',
+                         'yfinance.scrapers', 'yfinance.cache'):
+    _logging.getLogger(_yf_logger_name).setLevel(_logging.CRITICAL)
+import warnings as _warnings
+_warnings.filterwarnings('ignore', module='yfinance')
+
 # ── PyInstaller exe SSL 憑證修正 ────────────────────────────────────────────
 # certifi CA bundle 需要明確指定路徑，否則 requests/yfinance 在 exe 環境無法驗證 SSL
 import sys as _sys
@@ -221,12 +229,12 @@ _MKT_CONCEPT_GROUPS: dict[str, list[str]] = {
     'NVIDIA 供應鏈':  ['2330', '2454', '6669', '2382', '3231', '2376', '6116', '3189'],
 
     # ── 半導體製造與設計 ──────────────────────────────────────────────────────
-    'IC 設計':        ['3034', '2379', '3661', '6488', '4966', '2337', '3536', '6515',
+    'IC 設計':        ['3034', '2379', '3661', '6488', '2337', '3536', '6515',
                        '3443', '6533', '5274', '4958', '3005', '3051'],
     'IC 製造封測':    ['2330', '2303', '2454', '3711', '2325', '6146', '2449', '5469',
                        '8150', '6147', '3014'],
     '矽智財 IP':      ['3661', '6533', '6488', '5274'],
-    '第三代半導體':   ['3016', '4966', '8044', '6770', '5222'],
+    '第三代半導體':   ['3016', '8044', '6770', '5222'],
 
     # ── 電子零組件 ────────────────────────────────────────────────────────────
     'PCB 電路板':     ['2382', '2383', '3037', '2049', '3149', '5243', '6188', '3376',
@@ -302,7 +310,7 @@ _MKT_ELEC_GROUPS: dict[str, list[str]] = {
     'IC設計服務':    ['4919', '3317', '2436', '6643', '2388', '3545', '6651', '4968',
                      '3006', '8227', '6679', '3228', '6693', '3034', '3150', '2458',
                      '3556', '6962', '7749', '3438', '6129', '3014', '2401', '2379',
-                     '5272', '6103', '6563', '8102', '4961', '6756', '8040', '4966',
+                     '5272', '6103', '6563', '8102', '4961', '6756', '8040',
                      '2363', '3588', '6996', '6411', '6695', '6229', '6842', '5274',
                      '3122', '3288', '5302', '7712', '3227', '7770', '8081', '6202',
                      '6462', '5468', '3169', '5471', '6526', '3094', '5299', '6719',
@@ -670,11 +678,20 @@ def calc_holdings(df: pd.DataFrame) -> dict:
 
 # ─── 報價工具 ────────────────────────────────────────────────────────────────
 def get_price(code: str):
+    import logging as _log, io as _io, sys as _sys_gp
+    _yf_log = _log.getLogger('yfinance')
     code = str(code).strip()
     _logged = False
     for s in ['.TW', '.TWO', '']:
         try:
-            hist = yf.Ticker(code + s).history(period='5d')
+            _prev_lvl = _yf_log.level
+            _yf_log.setLevel(_log.CRITICAL)
+            _old_stderr, _sys_gp.stderr = _sys_gp.stderr, _io.StringIO()
+            try:
+                hist = yf.Ticker(code + s).history(period='5d')
+            finally:
+                _sys_gp.stderr = _old_stderr
+                _yf_log.setLevel(_prev_lvl)
             if not hist.empty:
                 _raw = hist['Close'].dropna()
                 if _raw.empty:
