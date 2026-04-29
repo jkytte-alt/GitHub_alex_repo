@@ -1093,6 +1093,166 @@ def _fetch_cmoney_concept_map() -> dict[str, list[str]]:
 # ── ETF 歷史 PCF 快取 ──────────────────────────────────────────────────────────
 _ETF_PCF_HIST_CACHE: dict[str, dict] = {}   # code → {date_str: [holdings]}
 
+# ── ETF 成分股歷史快照 ──────────────────────────────────────────────────────────
+_ETF_HOLDINGS_HIST_CACHE: dict[str, dict] = {}   # code → {YYYYMMDD: [{code,weight}]}
+
+# ── 主動型 ETF 清單 ────────────────────────────────────────────────────────────
+ACTIVE_ETFS = [
+    ('00400A', '00400A'), ('00401A', '00401A'), ('00981A', '統一增長'),
+    ('00984A', '00984A'), ('00993A', '00993A'), ('00994A', '台新動能'),
+    ('00995A', '統一動力'), ('00990A', '00990A'), ('00992A', '中信順位'),
+    ('00998A', '00998A'),
+]
+
+
+def _squarify_layout(items, x0, y0, w, h):
+    """Squarified treemap layout. items: [(value, tag)] sorted desc. Returns [(x1,y1,x2,y2,tag)]."""
+    if not items or w <= 0 or h <= 0:
+        return []
+    total = sum(v for v, _ in items)
+    if total == 0:
+        return []
+    area = w * h
+    norm = [(v / total * area, t) for v, t in items]
+
+    def _worst(vals, width):
+        if not vals or width == 0:
+            return float('inf')
+        s = sum(vals)
+        return max(width * width * max(vals) / (s * s),
+                   s * s / (width * width * min(vals)))
+
+    def _row_rects(rv, rt, x, y, dx, dy):
+        s = sum(rv)
+        out = []
+        if dx >= dy:
+            rw = s / dy if dy > 0 else 0
+            cy = y
+            for v, t in zip(rv, rt):
+                rh = v / s * dy if s > 0 else 0
+                out.append((x, cy, x + rw, cy + rh, t))
+                cy += rh
+            return out, x + rw, y, dx - rw, dy
+        else:
+            rh = s / dx if dx > 0 else 0
+            cx = x
+            for v, t in zip(rv, rt):
+                rw = v / s * dx if s > 0 else 0
+                out.append((cx, y, cx + rw, y + rh, t))
+                cx += rw
+            return out, x, y + rh, dx, dy - rh
+
+    result = []
+
+    def _rec(items, x, y, dx, dy):
+        if not items or dx <= 0 or dy <= 0:
+            return
+        width = min(dx, dy)
+        rv, rt = [], []
+        for i, (v, t) in enumerate(items):
+            cand = rv + [v]
+            if not rv or _worst(cand, width) <= _worst(rv, width):
+                rv.append(v)
+                rt.append(t)
+            else:
+                rects, nx, ny, ndx, ndy = _row_rects(rv, rt, x, y, dx, dy)
+                result.extend(rects)
+                _rec(items[i:], nx, ny, ndx, ndy)
+                return
+        rects, _, _, _, _ = _row_rects(rv, rt, x, y, dx, dy)
+        result.extend(rects)
+
+    _rec(norm, x0, y0, w, h)
+    return result
+
+
+def _fetch_moneydj_etf_snapshot(code: str) -> list[dict]:
+    """從 MoneyDJ Basic0007B 取得全部成分股，回傳 [{code, weight}, ...]。"""
+    import re as _re
+    _hdrs = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0',
+        'Referer': 'https://www.moneydj.com/',
+    }
+    _pat = _re.compile(
+        r"etfid=(\d{4,6})\.TWO?[^'\"]*['\"][^>]*>[^<]*</a>"
+        r"</td>\s*<td[^>]*>([\d.]+)</td>", _re.I)
+    for _sfx in ['.TW', '.TWO']:
+        _url = (f'https://www.moneydj.com/ETF/X/Basic/Basic0007B.xdjhtm'
+                f'?etfid={code}{_sfx}')
+        try:
+            if _CFFI_OK:
+                _r = _cffi_req.get(_url, headers=_hdrs, timeout=10, verify=False,
+                                   impersonate='chrome110')
+                _html = _r.content.decode('latin-1')
+            else:
+                import urllib.request as _ureq, ssl as _ssl
+                _ctx = _ssl.create_default_context()
+                _ctx.check_hostname = False
+                _ctx.verify_mode = _ssl.CERT_NONE
+                with _ureq.urlopen(_ureq.Request(_url, headers=_hdrs),
+                                   context=_ctx, timeout=10) as _resp:
+                    _html = _resp.read().decode('latin-1')
+            _hits = [(c, float(w)) for c, w in _pat.findall(_html)
+                     if 0 < float(w) <= 100]
+            if _hits:
+                return [{'code': c, 'weight': w} for c, w in _hits]
+        except Exception:
+            continue
+    return []
+
+
+def _load_etf_holdings_history(code: str) -> dict[str, list]:
+    """讀取歷史快照，回傳 {YYYYMMDD: [{code, weight}, ...]}。"""
+    global _ETF_HOLDINGS_HIST_CACHE
+    if code in _ETF_HOLDINGS_HIST_CACHE:
+        return _ETF_HOLDINGS_HIST_CACHE[code]
+    _path = os.path.join(BASE_DIR, f'.etf_holdings_hist_{code}.json')
+    if os.path.exists(_path):
+        try:
+            with open(_path, 'r', encoding='utf-8') as _f:
+                _data = _json.load(_f)
+            _ETF_HOLDINGS_HIST_CACHE[code] = _data
+            return _data
+        except Exception:
+            pass
+    _ETF_HOLDINGS_HIST_CACHE[code] = {}
+    return {}
+
+
+def _save_etf_holdings_snapshot(code: str, holdings: list[dict]) -> str:
+    """儲存一份帶日期的快照到磁碟；回傳日期字串 YYYYMMDD。"""
+    from datetime import date as _ddate
+    _ds = _ddate.today().strftime('%Y%m%d')
+    _hist = _load_etf_holdings_history(code)
+    _hist[_ds] = holdings
+    _ETF_HOLDINGS_HIST_CACHE[code] = _hist
+    _path = os.path.join(BASE_DIR, f'.etf_holdings_hist_{code}.json')
+    try:
+        with open(_path, 'w', encoding='utf-8') as _f:
+            _json.dump(_hist, _f, ensure_ascii=False, separators=(',', ':'))
+    except Exception:
+        pass
+    return _ds
+
+
+def _diff_etf_holdings(old: list[dict], new: list[dict]) -> dict:
+    """比較兩份快照，回傳新進、退出、比例變化三類清單。"""
+    _old = {h['code']: h['weight'] for h in old}
+    _new = {h['code']: h['weight'] for h in new}
+    _entered = sorted(
+        [{'code': c, 'weight': _new[c]} for c in set(_new) - set(_old)],
+        key=lambda x: -x['weight'])
+    _exited = sorted(
+        [{'code': c, 'weight': _old[c]} for c in set(_old) - set(_new)],
+        key=lambda x: -x['weight'])
+    _changed = []
+    for c in set(_old) & set(_new):
+        d = round(_new[c] - _old[c], 2)
+        if abs(d) >= 0.01:
+            _changed.append({'code': c, 'old': _old[c], 'new': _new[c], 'delta': d})
+    _changed.sort(key=lambda x: -abs(x['delta']))
+    return {'entered': _entered, 'exited': _exited, 'changed': _changed}
+
 
 def _fetch_etf_pcf_history(code: str, months: int = 6,
                             progress_cb=None) -> dict[str, list[dict]]:
@@ -3886,7 +4046,9 @@ class StockApp(tk.Tk):
         sub_bar.pack(fill='x', padx=0, pady=0)
 
         self._etf_sub_btns: dict[str, tk.Label] = {}
-        for sid, slbl in [('analysis', 'ETF 成分股分析'), ('compare', 'ETF 比較')]:
+        for sid, slbl in [('analysis', 'ETF 成分股分析'),
+                           ('compare',  'ETF 比較'),
+                           ('change',   'ETF 成分股變化')]:
             btn = tk.Label(sub_bar, text=slbl,
                            bg='#1a1a2e', fg='#9090a0',
                            font=('Microsoft JhengHei', 10, 'bold'),
@@ -3900,18 +4062,24 @@ class StockApp(tk.Tk):
         self._etf_sub_analysis.place(relx=0, rely=0.045, relwidth=1, relheight=0.955)
         self._etf_sub_compare  = tk.Frame(f, bg=C_BG)
         self._etf_sub_compare.place(relx=0, rely=0.045, relwidth=1, relheight=0.955)
+        self._etf_sub_change   = tk.Frame(f, bg=C_BG)
+        self._etf_sub_change.place(relx=0, rely=0.045, relwidth=1, relheight=0.955)
 
         self._build_etf_analysis_sub(self._etf_sub_analysis)
         self._build_etf_compare_sub(self._etf_sub_compare)
+        self._build_etf_change_sub(self._etf_sub_change)
         self._show_etf_sub('analysis')
 
     def _show_etf_sub(self, sid: str):
-        self._etf_sub_analysis.tkraise() if sid == 'analysis' else self._etf_sub_compare.tkraise()
+        _frames = {'analysis': self._etf_sub_analysis,
+                   'compare':  self._etf_sub_compare,
+                   'change':   self._etf_sub_change}
+        _frames.get(sid, self._etf_sub_analysis).tkraise()
         for k, btn in self._etf_sub_btns.items():
-            if k == sid:
-                btn.config(bg='#2a3f6f', fg='white')
-            else:
-                btn.config(bg='#1a1a2e', fg='#9090a0')
+            btn.config(bg='#2a3f6f' if k == sid else '#1a1a2e',
+                       fg='white'   if k == sid else '#9090a0')
+        if sid == 'change':
+            self.after(200, self._chg_fetch_all)
 
     def _build_etf_analysis_sub(self, f):
         # ── 控制列 ────────────────────────────────────────────────────────────
@@ -4297,6 +4465,307 @@ class StockApp(tk.Tk):
         tk.Label(self._cmp_inner, text='請加入至少 2 個 ETF 後點擊「更新比較」',
                  bg=C_BG, fg='#555577', font=('Microsoft JhengHei', 11)).pack(
             pady=60, padx=40)
+
+    # ── ETF 成分股變化子頁面 ──────────────────────────────────────────────────
+    def _build_etf_change_sub(self, f):
+        C_PNL   = '#1a1a2e'
+        self._chg_etf_selected = {code for code, _ in ACTIVE_ETFS}  # 預設全選
+        self._chg_period       = tk.StringVar(value='1d')
+        self._chg_status       = tk.StringVar(value='')
+        self._chg_rects_buy    = []
+        self._chg_rects_sell   = []
+        self._chg_fetching     = False
+
+        # ── ETF 選擇列（2 列各 5 顆切換按鈕）────────────────────────────────
+        etf_bar = tk.Frame(f, bg=C_BG)
+        etf_bar.pack(fill='x', padx=10, pady=(8, 2))
+        tk.Label(etf_bar, text='主動型 ETF：', bg=C_BG, fg=C_FG,
+                 font=('Microsoft JhengHei', 10)
+                 ).grid(row=0, column=0, rowspan=2, sticky='ns', padx=(0, 8))
+        self._chg_etf_btns = {}
+        for i, (code, _lbl) in enumerate(ACTIVE_ETFS):
+            r, c = divmod(i, 5)
+            btn = tk.Label(etf_bar, text=code, bg='#2a5c8f', fg='white',  # 預設選取色
+                           font=('Consolas', 9, 'bold'),
+                           padx=8, pady=4, cursor='hand2', bd=1, relief='solid')
+            btn.grid(row=r, column=c + 1, padx=3, pady=2)
+            self._chg_etf_btns[code] = btn
+            btn.bind('<Button-1>', lambda e, cd=code: self._chg_toggle_etf(cd))
+
+        # ── 操作列 ────────────────────────────────────────────────────────────
+        ctrl = tk.Frame(f, bg=C_BG)
+        ctrl.pack(fill='x', padx=10, pady=(4, 6))
+        tk.Label(ctrl, text='期間：', bg=C_BG, fg=C_FG,
+                 font=('Microsoft JhengHei', 10)).pack(side='left')
+        for pval, plbl in [('1d', '1日'), ('1w', '1週'), ('1m', '1月')]:
+            tk.Radiobutton(ctrl, text=plbl, variable=self._chg_period, value=pval,
+                           bg=C_BG, fg=C_FG, selectcolor='#2a3f6f',
+                           activebackground=C_BG,
+                           font=('Microsoft JhengHei', 10)).pack(side='left', padx=4)
+        ttk.Button(ctrl, text='擷取所有快照', style='Nav.TButton',
+                   command=self._chg_fetch_all).pack(side='left', padx=(16, 4))
+        ttk.Button(ctrl, text='顯示變化', style='Nav.TButton',
+                   command=self._chg_refresh).pack(side='left', padx=4)
+        ttk.Label(ctrl, textvariable=self._chg_status,
+                  foreground='#7090c0').pack(side='left', padx=(10, 0))
+
+        # ── 主要內容區（上下分割）────────────────────────────────────────────
+        content = tk.Frame(f, bg=C_BG)
+        content.pack(fill='both', expand=True, padx=8, pady=(0, 6))
+        content.rowconfigure(0, weight=6)
+        content.rowconfigure(1, weight=5)
+        content.columnconfigure(0, weight=1)
+
+        # 上半：買入 / 賣出 Treemap Canvas
+        top_pane = tk.Frame(content, bg=C_BG)
+        top_pane.grid(row=0, column=0, sticky='nsew', pady=(0, 4))
+        top_pane.columnconfigure(0, weight=1)
+        top_pane.columnconfigure(1, weight=1)
+        top_pane.rowconfigure(1, weight=1)
+
+        tk.Label(top_pane, text='▲  買入 / 增加比例', bg='#0e3018', fg='#80ff80',
+                 font=('Microsoft JhengHei', 10, 'bold'), pady=4
+                 ).grid(row=0, column=0, sticky='ew', padx=(0, 2))
+        tk.Label(top_pane, text='▼  賣出 / 減少比例', bg='#300e0e', fg='#ff8080',
+                 font=('Microsoft JhengHei', 10, 'bold'), pady=4
+                 ).grid(row=0, column=1, sticky='ew', padx=(2, 0))
+
+        self._chg_cv_buy  = tk.Canvas(top_pane, bg='#0a1a0e', highlightthickness=0)
+        self._chg_cv_buy.grid(row=1, column=0, sticky='nsew', padx=(0, 2))
+        self._chg_cv_sell = tk.Canvas(top_pane, bg='#1a0a0a', highlightthickness=0)
+        self._chg_cv_sell.grid(row=1, column=1, sticky='nsew', padx=(2, 0))
+
+        self._chg_cv_buy.bind('<Motion>',  lambda e: self._chg_on_motion(e, 'buy'))
+        self._chg_cv_buy.bind('<Leave>',   lambda e: self._chg_hide_tip())
+        self._chg_cv_sell.bind('<Motion>', lambda e: self._chg_on_motion(e, 'sell'))
+        self._chg_cv_sell.bind('<Leave>',  lambda e: self._chg_hide_tip())
+
+        # 下半：異動統計 Treeview
+        bot_pane = tk.Frame(content, bg=C_BG)
+        bot_pane.grid(row=1, column=0, sticky='nsew')
+        tk.Label(bot_pane, text='ETF 成分股異動統計（依活躍程度排序）',
+                 bg='#2a3f6f', fg='white',
+                 font=('Microsoft JhengHei', 10, 'bold'), pady=4
+                 ).pack(fill='x')
+        tv_fr = tk.Frame(bot_pane, bg=C_PNL)
+        tv_fr.pack(fill='both', expand=True)
+        _cols = [('code', '代號', 58, 'center'),
+                 ('name', '名稱', 95, 'w'),
+                 ('buy_etfs',  '買入 ETF（各自比例）', 260, 'w'),
+                 ('sell_etfs', '賣出 ETF（各自比例）', 260, 'w'),
+                 ('net', '淨變化%', 68, 'center')]
+        self._chg_sum_tv = ttk.Treeview(tv_fr,
+                                         columns=[c for c, _n, _w, _a in _cols],
+                                         show='headings', height=8)
+        for cid, cname, cw, anchor in _cols:
+            self._chg_sum_tv.heading(cid, text=cname)
+            self._chg_sum_tv.column(cid, width=cw, anchor=anchor)
+        vsb = ttk.Scrollbar(tv_fr, orient='vertical',
+                             command=self._chg_sum_tv.yview)
+        self._chg_sum_tv.configure(yscrollcommand=vsb.set)
+        vsb.pack(side='right', fill='y')
+        self._chg_sum_tv.pack(fill='both', expand=True)
+        self._chg_sum_tv.tag_configure('buy',  background='#0a1e0e', foreground='#80ff80')
+        self._chg_sum_tv.tag_configure('sell', background='#1e0a0a', foreground='#ff8080')
+        self._chg_sum_tv.tag_configure('both', background='#1a1a2e', foreground='#c0c0c0')
+
+    # ── ETF 成分股變化 helpers ────────────────────────────────────────────────
+
+    def _chg_toggle_etf(self, code: str):
+        btn = self._chg_etf_btns[code]
+        if code in self._chg_etf_selected:
+            self._chg_etf_selected.discard(code)
+            btn.config(bg='#2a3040', fg='#8090a0')
+        else:
+            self._chg_etf_selected.add(code)
+            btn.config(bg='#2a5c8f', fg='white')
+
+    def _chg_fetch_all(self):
+        if self._chg_fetching:
+            return
+        sel = list(self._chg_etf_selected)
+        if not sel:
+            self._chg_status.set('請先選擇 ETF')
+            return
+        self._chg_fetching = True
+        self._chg_status.set(f'擷取中 0/{len(sel)}…')
+        import threading
+        done = [0]
+        lock = threading.Lock()
+
+        def _fetch_one(code):
+            holdings = _fetch_moneydj_etf_snapshot(code)
+            if holdings:
+                _save_etf_holdings_snapshot(code, holdings)
+            with lock:
+                done[0] += 1
+                n = done[0]
+            if n < len(sel):
+                self.after(0, lambda n=n: self._chg_status.set(f'擷取中 {n}/{len(sel)}…'))
+            else:
+                self._chg_fetching = False
+                self.after(0, lambda: self._chg_status.set(f'擷取完成，分析中…'))
+                self.after(100, self._chg_refresh)
+
+        for code in sel:
+            threading.Thread(target=_fetch_one, args=(code,), daemon=True).start()
+
+    def _chg_refresh(self):
+        from datetime import date as _ddate, timedelta as _td
+        sel = list(self._chg_etf_selected)
+        if not sel:
+            self._chg_status.set('請先選擇 ETF')
+            return
+        days   = {'1d': 1, '1w': 7, '1m': 30}[self._chg_period.get()]
+        cutoff = (_ddate.today() - _td(days=days)).strftime('%Y%m%d')
+
+        agg_buy  = {}   # stock_code → [(etf, weight)]
+        agg_sell = {}
+        missing  = []
+
+        for etf in sel:
+            hist  = _load_etf_holdings_history(etf)
+            if not hist:
+                missing.append(etf)
+                continue
+            dates = sorted(hist.keys(), reverse=True)
+            new_d = dates[0]
+            old_d = next((d for d in dates[1:] if d <= cutoff), None)
+            if old_d is None:
+                old_d = dates[-1] if len(dates) >= 2 else None
+            if not old_d or old_d == new_d:
+                missing.append(etf)
+                continue
+            diff = _diff_etf_holdings(hist[old_d], hist[new_d])
+            for item in diff['entered']:
+                agg_buy.setdefault(item['code'], []).append((etf, item['weight']))
+            for item in diff['exited']:
+                agg_sell.setdefault(item['code'], []).append((etf, item['weight']))
+            for item in diff['changed']:
+                if item['delta'] > 0:
+                    agg_buy.setdefault(item['code'], []).append((etf, item['delta']))
+                else:
+                    agg_sell.setdefault(item['code'], []).append((etf, -item['delta']))
+
+        ok = len(sel) - len(missing)
+        status = f'已分析 {ok}/{len(sel)} 支'
+        if missing:
+            status += f'（{", ".join(missing)} 快照不足）'
+        self._chg_status.set(status)
+
+        self._chg_draw_treemap(self._chg_cv_buy,  agg_buy,  'buy')
+        self._chg_draw_treemap(self._chg_cv_sell, agg_sell, 'sell')
+        self._chg_update_summary(agg_buy, agg_sell)
+
+    def _chg_draw_treemap(self, canvas, agg, side):
+        canvas.delete('all')
+        if not agg:
+            return
+        canvas.update_idletasks()
+        cw, ch = canvas.winfo_width(), canvas.winfo_height()
+        if cw < 10 or ch < 10:
+            return
+        items = sorted([(sum(w for _, w in lst), code)
+                        for code, lst in agg.items()], reverse=True)
+        rects_raw = _squarify_layout(items, 0, 0, cw, ch)
+        names = _TWSE_NAMES_CACHE
+        rects_data = []
+        for x1, y1, x2, y2, code in rects_raw:
+            etf_list  = agg[code]
+            total_w   = sum(w for _, w in etf_list)
+            intensity = min(1.0, total_w / 8.0)
+            if side == 'buy':
+                fill = '#{:02x}{:02x}{:02x}'.format(
+                    int(14 + intensity * 30),
+                    int(80 + intensity * 150),
+                    int(20 + intensity * 30))
+            else:
+                fill = '#{:02x}{:02x}{:02x}'.format(
+                    int(80 + intensity * 150),
+                    int(14 + intensity * 30),
+                    int(20 + intensity * 30))
+            canvas.create_rectangle(x1 + 1, y1 + 1, x2 - 1, y2 - 1,
+                                     fill=fill, outline='#0a0a14', width=1)
+            bw, bh = x2 - x1, y2 - y1
+            cy = (y1 + y2) / 2
+            if bw > 38 and bh > 18:
+                canvas.create_text((x1 + x2) / 2, cy - (8 if bh > 34 else 0),
+                                    text=code, fill='white',
+                                    font=('Consolas', 8, 'bold'), anchor='center')
+            if bw > 38 and bh > 34:
+                canvas.create_text((x1 + x2) / 2, cy + 9,
+                                    text=names.get(code, '')[:5],
+                                    fill='#b0f0b0' if side == 'buy' else '#f0b0b0',
+                                    font=('Microsoft JhengHei', 7), anchor='center')
+            rects_data.append((x1, y1, x2, y2, code, etf_list))
+        if side == 'buy':
+            self._chg_rects_buy  = rects_data
+        else:
+            self._chg_rects_sell = rects_data
+
+    def _chg_on_motion(self, event, side):
+        rects = self._chg_rects_buy if side == 'buy' else self._chg_rects_sell
+        mx, my = event.x, event.y
+        for x1, y1, x2, y2, code, etf_list in rects:
+            if x1 <= mx <= x2 and y1 <= my <= y2:
+                names = _TWSE_NAMES_CACHE
+                lbl   = '買入' if side == 'buy' else '賣出'
+                lines = [f'{code}  {names.get(code, "")}', '─' * 24]
+                for etf, w in sorted(etf_list, key=lambda x: -x[1]):
+                    lines.append(f'  {etf}   {lbl} {w:.2f}%')
+                lines += ['─' * 24,
+                          f'合計 {lbl}：{sum(w for _, w in etf_list):.2f}%']
+                rx = event.widget.winfo_rootx() + mx
+                ry = event.widget.winfo_rooty() + my
+                self._chg_show_tip(rx, ry, '\n'.join(lines))
+                return
+        self._chg_hide_tip()
+
+    def _chg_show_tip(self, x, y, text):
+        if not hasattr(self, '_chg_tip_win') or self._chg_tip_win is None:
+            self._chg_tip_win = tk.Toplevel(self)
+            self._chg_tip_win.wm_overrideredirect(True)
+            self._chg_tip_win.attributes('-topmost', True)
+            self._chg_tip_lbl = tk.Label(
+                self._chg_tip_win, bg='#1c2a3a', fg='#c0d8f0',
+                font=('Microsoft JhengHei', 9), justify='left',
+                padx=10, pady=8, relief='solid', bd=1)
+            self._chg_tip_lbl.pack()
+        self._chg_tip_lbl.config(text=text)
+        self._chg_tip_win.wm_geometry(f'+{x + 16}+{y + 16}')
+        self._chg_tip_win.deiconify()
+
+    def _chg_hide_tip(self):
+        if hasattr(self, '_chg_tip_win') and self._chg_tip_win:
+            self._chg_tip_win.withdraw()
+
+    def _chg_update_summary(self, agg_buy, agg_sell):
+        tv = self._chg_sum_tv
+        for row in tv.get_children():
+            tv.delete(row)
+        all_codes = set(agg_buy) | set(agg_sell)
+        names = _TWSE_NAMES_CACHE
+
+        def _score(c):
+            return (len(agg_buy.get(c, [])) + len(agg_sell.get(c, [])),
+                    sum(w for _, w in agg_buy.get(c, [])) +
+                    sum(w for _, w in agg_sell.get(c, [])))
+
+        for code in sorted(all_codes, key=_score, reverse=True):
+            bl = agg_buy.get(code, [])
+            sl = agg_sell.get(code, [])
+            buy_str  = '  '.join(f'{e}(+{w:.1f}%)' for e, w in
+                                  sorted(bl, key=lambda x: -x[1]))
+            sell_str = '  '.join(f'{e}(-{w:.1f}%)' for e, w in
+                                  sorted(sl, key=lambda x: -x[1]))
+            net  = sum(w for _, w in bl) - sum(w for _, w in sl)
+            nstr = f'+{net:.2f}' if net >= 0 else f'{net:.2f}'
+            tag  = ('buy'  if bl and not sl else
+                    'sell' if sl and not bl else 'both')
+            tv.insert('', 'end',
+                      values=(code, names.get(code, code),
+                               buy_str, sell_str, nstr),
+                      tags=(tag,))
 
     def _cmp_select_combo(self):
         sel = self._cmp_combo.get().strip()

@@ -18,7 +18,11 @@
       "WebFetch(domain:www.sinotrade.com.tw)",
       "Bash(python -c ' *)",
       "Bash(del \"d:\\\\Python\\\\GitHub_alex_repo\\\\.etf_pcf_history_00981A.json\")",
-      "Bash(python -c \"import json; d=json.load\\(open\\('d:/python/GitHub_alex_repo/.stock_names_cache.json'\\)\\); print\\(d.get\\('4966'\\)\\)\")"
+      "Bash(python -c \"import json; d=json.load\\(open\\('d:/python/GitHub_alex_repo/.stock_names_cache.json'\\)\\); print\\(d.get\\('4966'\\)\\)\")",
+      "Bash(python -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(row\\) for row in data]\")",
+      "Bash(python -c \"print\\(open\\('d:/tmp_decode.txt', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "Bash(python -c \"import ast, sys; ast.parse\\(open\\('stock_app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('stock_app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")"
     ]
   }
 }
