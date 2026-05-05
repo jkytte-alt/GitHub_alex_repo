@@ -1098,10 +1098,8 @@ _ETF_HOLDINGS_HIST_CACHE: dict[str, dict] = {}   # code → {YYYYMMDD: [{code,we
 
 # ── 主動型 ETF 清單 ────────────────────────────────────────────────────────────
 ACTIVE_ETFS = [
-    ('00400A', '00400A'), ('00401A', '00401A'), ('00981A', '統一增長'),
-    ('00984A', '00984A'), ('00993A', '00993A'), ('00994A', '台新動能'),
-    ('00995A', '統一動力'), ('00990A', '00990A'), ('00992A', '中信順位'),
-    ('00998A', '00998A'),
+    ('00981A', '統一增長'), ('00992A', '群益科技'), ('00990A', '元大AI'),
+    ('00400A', '國泰動能'), ('00993A', '安聯台灣'),
 ]
 
 
@@ -1173,7 +1171,11 @@ def _fetch_moneydj_etf_snapshot(code: str) -> list[dict]:
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0',
         'Referer': 'https://www.moneydj.com/',
     }
-    _pat = _re.compile(
+    _pat_full = _re.compile(
+        r"etfid=(\d{4,6})\.TWO?[^'\"]*['\"][^>]*>[^<]*</a>"
+        r"</td>\s*<td[^>]*>([\d.]+)</td>"
+        r"\s*<td[^>]*>([\d,]+)</td>", _re.I)
+    _pat_lite = _re.compile(
         r"etfid=(\d{4,6})\.TWO?[^'\"]*['\"][^>]*>[^<]*</a>"
         r"</td>\s*<td[^>]*>([\d.]+)</td>", _re.I)
     for _sfx in ['.TW', '.TWO']:
@@ -1192,7 +1194,13 @@ def _fetch_moneydj_etf_snapshot(code: str) -> list[dict]:
                 with _ureq.urlopen(_ureq.Request(_url, headers=_hdrs),
                                    context=_ctx, timeout=10) as _resp:
                     _html = _resp.read().decode('latin-1')
-            _hits = [(c, float(w)) for c, w in _pat.findall(_html)
+            _raw_full = _pat_full.findall(_html)
+            if _raw_full:
+                _hits = [(c, float(w), int(s.replace(',', '')))
+                         for c, w, s in _raw_full if 0 < float(w) <= 100]
+                if _hits:
+                    return [{'code': c, 'weight': w, 'shares': s} for c, w, s in _hits]
+            _hits = [(c, float(w)) for c, w in _pat_lite.findall(_html)
                      if 0 < float(w) <= 100]
             if _hits:
                 return [{'code': c, 'weight': w} for c, w in _hits]
@@ -1237,19 +1245,25 @@ def _save_etf_holdings_snapshot(code: str, holdings: list[dict]) -> str:
 
 def _diff_etf_holdings(old: list[dict], new: list[dict]) -> dict:
     """比較兩份快照，回傳新進、退出、比例變化三類清單。"""
-    _old = {h['code']: h['weight'] for h in old}
-    _new = {h['code']: h['weight'] for h in new}
+    _old = {h['code']: h for h in old}
+    _new = {h['code']: h for h in new}
+    def _w(h): return h.get('weight', 0.0)
+    def _s(h): return h.get('shares', 0)
     _entered = sorted(
-        [{'code': c, 'weight': _new[c]} for c in set(_new) - set(_old)],
+        [{'code': c, 'weight': _w(_new[c]), 'shares': _s(_new[c])}
+         for c in set(_new) - set(_old)],
         key=lambda x: -x['weight'])
     _exited = sorted(
-        [{'code': c, 'weight': _old[c]} for c in set(_old) - set(_new)],
+        [{'code': c, 'weight': _w(_old[c]), 'shares': _s(_old[c])}
+         for c in set(_old) - set(_new)],
         key=lambda x: -x['weight'])
     _changed = []
     for c in set(_old) & set(_new):
-        d = round(_new[c] - _old[c], 2)
+        d  = round(_w(_new[c]) - _w(_old[c]), 2)
+        ds = _s(_new[c]) - _s(_old[c])
         if abs(d) >= 0.01:
-            _changed.append({'code': c, 'old': _old[c], 'new': _new[c], 'delta': d})
+            _changed.append({'code': c, 'old': _w(_old[c]), 'new': _w(_new[c]),
+                             'delta': d, 'delta_shares': ds})
     _changed.sort(key=lambda x: -abs(x['delta']))
     return {'entered': _entered, 'exited': _exited, 'changed': _changed}
 
@@ -4475,6 +4489,10 @@ class StockApp(tk.Tk):
         self._chg_rects_buy    = []
         self._chg_rects_sell   = []
         self._chg_fetching     = False
+        self._chg_agg_buy      = {}
+        self._chg_agg_sell     = {}
+        self._chg_resize_after = None
+        self._chg_metric       = tk.StringVar(value='weight')
 
         # ── ETF 選擇列（2 列各 5 顆切換按鈕）────────────────────────────────
         etf_bar = tk.Frame(f, bg=C_BG)
@@ -4502,6 +4520,14 @@ class StockApp(tk.Tk):
                            bg=C_BG, fg=C_FG, selectcolor='#2a3f6f',
                            activebackground=C_BG,
                            font=('Microsoft JhengHei', 10)).pack(side='left', padx=4)
+        tk.Label(ctrl, text='  指標：', bg=C_BG, fg=C_FG,
+                 font=('Microsoft JhengHei', 10)).pack(side='left')
+        for mval, mlbl in [('weight', '比重(%)'), ('shares', '張數')]:
+            tk.Radiobutton(ctrl, text=mlbl, variable=self._chg_metric, value=mval,
+                           bg=C_BG, fg=C_FG, selectcolor='#2a3f6f',
+                           activebackground=C_BG,
+                           font=('Microsoft JhengHei', 10),
+                           command=self._chg_refresh).pack(side='left', padx=4)
         ttk.Button(ctrl, text='擷取所有快照', style='Nav.TButton',
                    command=self._chg_fetch_all).pack(side='left', padx=(16, 4))
         ttk.Button(ctrl, text='顯示變化', style='Nav.TButton',
@@ -4535,10 +4561,12 @@ class StockApp(tk.Tk):
         self._chg_cv_sell = tk.Canvas(top_pane, bg='#1a0a0a', highlightthickness=0)
         self._chg_cv_sell.grid(row=1, column=1, sticky='nsew', padx=(2, 0))
 
-        self._chg_cv_buy.bind('<Motion>',  lambda e: self._chg_on_motion(e, 'buy'))
-        self._chg_cv_buy.bind('<Leave>',   lambda e: self._chg_hide_tip())
-        self._chg_cv_sell.bind('<Motion>', lambda e: self._chg_on_motion(e, 'sell'))
-        self._chg_cv_sell.bind('<Leave>',  lambda e: self._chg_hide_tip())
+        self._chg_cv_buy.bind('<Motion>',    lambda e: self._chg_on_motion(e, 'buy'))
+        self._chg_cv_buy.bind('<Leave>',     lambda e: self._chg_hide_tip())
+        self._chg_cv_sell.bind('<Motion>',   lambda e: self._chg_on_motion(e, 'sell'))
+        self._chg_cv_sell.bind('<Leave>',    lambda e: self._chg_hide_tip())
+        self._chg_cv_buy.bind('<Configure>',  lambda e: self._chg_on_resize())
+        self._chg_cv_sell.bind('<Configure>', lambda e: self._chg_on_resize())
 
         # 下半：異動統計 Treeview
         bot_pane = tk.Frame(content, bg=C_BG)
@@ -4554,9 +4582,11 @@ class StockApp(tk.Tk):
                  ('buy_etfs',  '買入 ETF（各自比例）', 260, 'w'),
                  ('sell_etfs', '賣出 ETF（各自比例）', 260, 'w'),
                  ('net', '淨變化%', 68, 'center')]
+        ttk.Style().configure('Chg.Treeview', rowheight=20)
         self._chg_sum_tv = ttk.Treeview(tv_fr,
                                          columns=[c for c, _n, _w, _a in _cols],
-                                         show='headings', height=8)
+                                         show='headings', height=8,
+                                         style='Chg.Treeview')
         for cid, cname, cw, anchor in _cols:
             self._chg_sum_tv.heading(cid, text=cname)
             self._chg_sum_tv.column(cid, width=cw, anchor=anchor)
@@ -4612,6 +4642,7 @@ class StockApp(tk.Tk):
 
     def _chg_refresh(self):
         from datetime import date as _ddate, timedelta as _td
+        _load_twse_stock_names()
         sel = list(self._chg_etf_selected)
         if not sel:
             self._chg_status.set('請先選擇 ETF')
@@ -4619,9 +4650,21 @@ class StockApp(tk.Tk):
         days   = {'1d': 1, '1w': 7, '1m': 30}[self._chg_period.get()]
         cutoff = (_ddate.today() - _td(days=days)).strftime('%Y%m%d')
 
-        agg_buy  = {}   # stock_code → [(etf, weight)]
+        agg_buy  = {}   # stock_code → [(etf, value)]
         agg_sell = {}
         missing  = []
+        metric   = self._chg_metric.get()   # 'weight' or 'shares'
+
+        def _val_enter(item):
+            if metric == 'shares':
+                return item.get('shares', 0) / 1000
+            return item['weight']
+
+        def _val_change(item, sign):
+            if metric == 'shares':
+                ds = item.get('delta_shares', 0)
+                return abs(ds) / 1000 if sign * ds > 0 else 0
+            return abs(item['delta']) if sign * item['delta'] > 0 else 0
 
         for etf in sel:
             hist  = _load_etf_holdings_history(etf)
@@ -4638,14 +4681,20 @@ class StockApp(tk.Tk):
                 continue
             diff = _diff_etf_holdings(hist[old_d], hist[new_d])
             for item in diff['entered']:
-                agg_buy.setdefault(item['code'], []).append((etf, item['weight']))
+                v = _val_enter(item)
+                if v > 0:
+                    agg_buy.setdefault(item['code'], []).append((etf, v))
             for item in diff['exited']:
-                agg_sell.setdefault(item['code'], []).append((etf, item['weight']))
+                v = _val_enter(item)
+                if v > 0:
+                    agg_sell.setdefault(item['code'], []).append((etf, v))
             for item in diff['changed']:
-                if item['delta'] > 0:
-                    agg_buy.setdefault(item['code'], []).append((etf, item['delta']))
-                else:
-                    agg_sell.setdefault(item['code'], []).append((etf, -item['delta']))
+                vb = _val_change(item, +1)
+                vs = _val_change(item, -1)
+                if vb > 0:
+                    agg_buy.setdefault(item['code'], []).append((etf, vb))
+                if vs > 0:
+                    agg_sell.setdefault(item['code'], []).append((etf, vs))
 
         ok = len(sel) - len(missing)
         status = f'已分析 {ok}/{len(sel)} 支'
@@ -4653,6 +4702,8 @@ class StockApp(tk.Tk):
             status += f'（{", ".join(missing)} 快照不足）'
         self._chg_status.set(status)
 
+        self._chg_agg_buy  = agg_buy
+        self._chg_agg_sell = agg_sell
         self._chg_draw_treemap(self._chg_cv_buy,  agg_buy,  'buy')
         self._chg_draw_treemap(self._chg_cv_sell, agg_sell, 'sell')
         self._chg_update_summary(agg_buy, agg_sell)
@@ -4669,11 +4720,12 @@ class StockApp(tk.Tk):
                         for code, lst in agg.items()], reverse=True)
         rects_raw = _squarify_layout(items, 0, 0, cw, ch)
         names = _TWSE_NAMES_CACHE
+        is_shares = self._chg_metric.get() == 'shares'
         rects_data = []
         for x1, y1, x2, y2, code in rects_raw:
             etf_list  = agg[code]
             total_w   = sum(w for _, w in etf_list)
-            intensity = min(1.0, total_w / 8.0)
+            intensity = min(1.0, total_w / (2000.0 if is_shares else 8.0))
             if side == 'buy':
                 fill = '#{:02x}{:02x}{:02x}'.format(
                     int(14 + intensity * 30),
@@ -4706,15 +4758,17 @@ class StockApp(tk.Tk):
     def _chg_on_motion(self, event, side):
         rects = self._chg_rects_buy if side == 'buy' else self._chg_rects_sell
         mx, my = event.x, event.y
+        is_shares = self._chg_metric.get() == 'shares'
+        fmt = (lambda v: f'{v:.0f}張') if is_shares else (lambda v: f'{v:.2f}%')
         for x1, y1, x2, y2, code, etf_list in rects:
             if x1 <= mx <= x2 and y1 <= my <= y2:
                 names = _TWSE_NAMES_CACHE
                 lbl   = '買入' if side == 'buy' else '賣出'
                 lines = [f'{code}  {names.get(code, "")}', '─' * 24]
                 for etf, w in sorted(etf_list, key=lambda x: -x[1]):
-                    lines.append(f'  {etf}   {lbl} {w:.2f}%')
+                    lines.append(f'  {etf}   {lbl} {fmt(w)}')
                 lines += ['─' * 24,
-                          f'合計 {lbl}：{sum(w for _, w in etf_list):.2f}%']
+                          f'合計 {lbl}：{fmt(sum(w for _, w in etf_list))}']
                 rx = event.widget.winfo_rootx() + mx
                 ry = event.widget.winfo_rooty() + my
                 self._chg_show_tip(rx, ry, '\n'.join(lines))
@@ -4739,6 +4793,17 @@ class StockApp(tk.Tk):
         if hasattr(self, '_chg_tip_win') and self._chg_tip_win:
             self._chg_tip_win.withdraw()
 
+    def _chg_on_resize(self):
+        if self._chg_resize_after:
+            self.after_cancel(self._chg_resize_after)
+        self._chg_resize_after = self.after(150, self._chg_redraw_on_resize)
+
+    def _chg_redraw_on_resize(self):
+        self._chg_resize_after = None
+        if self._chg_agg_buy or self._chg_agg_sell:
+            self._chg_draw_treemap(self._chg_cv_buy,  self._chg_agg_buy,  'buy')
+            self._chg_draw_treemap(self._chg_cv_sell, self._chg_agg_sell, 'sell')
+
     def _chg_update_summary(self, agg_buy, agg_sell):
         tv = self._chg_sum_tv
         for row in tv.get_children():
@@ -4751,20 +4816,37 @@ class StockApp(tk.Tk):
                     sum(w for _, w in agg_buy.get(c, [])) +
                     sum(w for _, w in agg_sell.get(c, [])))
 
+        def _wrap(items, per_line=3):
+            lines = ['  '.join(items[i:i+per_line])
+                     for i in range(0, len(items), per_line)]
+            return '\n'.join(lines)
+
+        is_shares = self._chg_metric.get() == 'shares'
+        unit = '張' if is_shares else '%'
+        fmt  = (lambda v: f'{v:.0f}') if is_shares else (lambda v: f'{v:.1f}')
+
+        max_lines = 1
+        rows = []
         for code in sorted(all_codes, key=_score, reverse=True):
             bl = agg_buy.get(code, [])
             sl = agg_sell.get(code, [])
-            buy_str  = '  '.join(f'{e}(+{w:.1f}%)' for e, w in
-                                  sorted(bl, key=lambda x: -x[1]))
-            sell_str = '  '.join(f'{e}(-{w:.1f}%)' for e, w in
-                                  sorted(sl, key=lambda x: -x[1]))
+            buy_items  = [f'{e}(+{fmt(w)}{unit})' for e, w in sorted(bl, key=lambda x: -x[1])]
+            sell_items = [f'{e}(-{fmt(w)}{unit})' for e, w in sorted(sl, key=lambda x: -x[1])]
+            buy_str  = _wrap(buy_items)
+            sell_str = _wrap(sell_items)
+            row_lines = max(buy_str.count('\n') + 1 if buy_str else 1,
+                            sell_str.count('\n') + 1 if sell_str else 1)
+            max_lines = max(max_lines, row_lines)
             net  = sum(w for _, w in bl) - sum(w for _, w in sl)
-            nstr = f'+{net:.2f}' if net >= 0 else f'{net:.2f}'
+            nstr = f'+{fmt(net)}{unit}' if net >= 0 else f'{fmt(net)}{unit}'
             tag  = ('buy'  if bl and not sl else
                     'sell' if sl and not bl else 'both')
+            rows.append((code, names.get(code, code), buy_str, sell_str, nstr, tag))
+
+        ttk.Style().configure('Chg.Treeview', rowheight=max_lines * 20)
+        for code, name, buy_str, sell_str, nstr, tag in rows:
             tv.insert('', 'end',
-                      values=(code, names.get(code, code),
-                               buy_str, sell_str, nstr),
+                      values=(code, name, buy_str, sell_str, nstr),
                       tags=(tag,))
 
     def _cmp_select_combo(self):
