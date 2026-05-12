@@ -1261,10 +1261,10 @@ def _diff_etf_holdings(old: list[dict], new: list[dict]) -> dict:
     for c in set(_old) & set(_new):
         d  = round(_w(_new[c]) - _w(_old[c]), 2)
         ds = _s(_new[c]) - _s(_old[c])
-        if abs(d) >= 0.01:
+        if abs(d) >= 0.01 or abs(ds) >= 1:
             _changed.append({'code': c, 'old': _w(_old[c]), 'new': _w(_new[c]),
                              'delta': d, 'delta_shares': ds})
-    _changed.sort(key=lambda x: -abs(x['delta']))
+    _changed.sort(key=lambda x: -(abs(x['delta_shares']) if abs(x['delta']) < 0.01 else abs(x['delta'])))
     return {'entered': _entered, 'exited': _exited, 'changed': _changed}
 
 
@@ -1997,7 +1997,7 @@ class StockApp(tk.Tk):
         # ── 跨執行緒 UI 回呼佇列（必須最先初始化，背景執行緒可能很早啟動）──────
         import queue as _q
         self._ui_queue: _q.SimpleQueue = _q.SimpleQueue()
-        self.after(50, self._pump_ui_queue)
+        self._pump_job = self.after(50, self._pump_ui_queue)
 
         # ── 主框架：sidebar + content ─────────────────────────────────────────
         root_frame = tk.Frame(self, bg=C_BG)
@@ -2054,7 +2054,7 @@ class StockApp(tk.Tk):
                     pass
         except Exception:
             pass
-        self.after(50, self._pump_ui_queue)
+        self._pump_job = self.after(50, self._pump_ui_queue)
 
     def _ui_call(self, fn):
         """Python 3.13+ 相容的跨執行緒 UI 回呼。
@@ -2068,12 +2068,16 @@ class StockApp(tk.Tk):
     def _on_close(self):
         """視窗關閉：清理 matplotlib 資源後結束程序"""
         try:
+            self.after_cancel(self._pump_job)
+        except Exception:
+            pass
+        try:
             plt.close('all')
         except Exception:
             pass
         self.destroy()
-        import sys
-        sys.exit(0)
+        import os
+        os._exit(0)
 
     # ── Sidebar ───────────────────────────────────────────────────────────────
     def _build_sidebar(self):
@@ -2176,8 +2180,12 @@ class StockApp(tk.Tk):
                 self._us_mkt_tooltip.withdraw()
 
         # Side-effects
-        if idx == 0 and prev != 0:
-            self._draw_treemap()
+        if prev == 0 and idx != 0:
+            self._cancel_tm_refresh()
+        if idx == 0:
+            if prev != 0:
+                self._draw_treemap()
+            self._schedule_tm_refresh()
         elif idx == 1 and prev != 1:
             self._update_stock_list()
         elif idx == 4 and prev != 4:
@@ -2912,11 +2920,13 @@ class StockApp(tk.Tk):
         w.configure(bg='#111111')
         w.pack(fill='both', expand=True, padx=8, pady=(0, 8))
 
-        self._tm_rects     = []      # stock block rects for hover detection
-        self._tm_cat_rects = []      # category rects for hover detection
-        self._tm_tooltip   = None    # tooltip Toplevel
-        self._tm_ax        = None    # saved axes reference for coord transform
-        self._tm_drill_cat = None    # None=全覽, str=鑽入的分類名稱
+        self._tm_rects      = []      # stock block rects for hover detection
+        self._tm_cat_rects  = []      # category rects for hover detection
+        self._tm_tooltip    = None    # tooltip Toplevel
+        self._tm_ax         = None    # saved axes reference for coord transform
+        self._tm_drill_cat  = None    # None=全覽, str=鑽入的分類名稱
+        self._tm_fetching   = False   # background fetch guard
+        self._tm_refresh_job = None   # after() job id for auto-refresh
         self._tm_canvas.mpl_connect('motion_notify_event', self._on_tm_motion)
         self._tm_canvas.mpl_connect('button_press_event',  self._on_tm_click)
         self._tm_canvas.mpl_connect('figure_leave_event',  lambda e: self._hide_tooltip())
@@ -3219,12 +3229,39 @@ class StockApp(tk.Tk):
         if self._tm_tooltip and self._tm_tooltip.winfo_exists():
             self._tm_tooltip.withdraw()
 
+    _TM_REFRESH_MS = 30_000  # 30 秒自動更新間隔
+
     def _draw_treemap(self):
+        if self._tm_fetching:
+            return
+        self._tm_fetching = True
+        self._tm_status.set('更新中…')
+        import threading as _th
+        _th.Thread(target=self._draw_treemap_bg, daemon=True).start()
+
+    def _draw_treemap_bg(self):
         try:
             self._draw_treemap_impl()
         except Exception as e:
             import traceback; traceback.print_exc()
-            self._tm_status.set(f'繪製錯誤：{e}')
+            self._ui_call(lambda: self._tm_status.set(f'繪製錯誤：{e}'))
+        finally:
+            self._tm_fetching = False
+
+    def _schedule_tm_refresh(self):
+        self._cancel_tm_refresh()
+        self._tm_refresh_job = self.after(self._TM_REFRESH_MS, self._on_tm_auto_refresh)
+
+    def _cancel_tm_refresh(self):
+        if self._tm_refresh_job:
+            self.after_cancel(self._tm_refresh_job)
+            self._tm_refresh_job = None
+
+    def _on_tm_auto_refresh(self):
+        self._tm_refresh_job = None
+        if self._current_page == 0:
+            self._draw_treemap()
+            self._schedule_tm_refresh()
 
     def _draw_treemap_impl(self):
         TREE_BG = '#111111'
@@ -3261,13 +3298,24 @@ class StockApp(tk.Tk):
             self._tm_canvas.draw()
             return
 
+        # 批次抓取 MIS 即時報價（tse/otc 各試一次），找不到的 fallback 到 yfinance
+        _uniq_codes = list({code for (code, _) in holdings.keys()})
+        _mis_pairs  = [(c, ex) for c in _uniq_codes for ex in ('tse', 'otc')]
+        try:
+            _mis_prices = self._fetch_mis_prices(_mis_pairs)
+        except Exception:
+            _mis_prices = {}
+
         # 依分類分組
         groups: dict[str, list] = {}
         no_price_list: list[str] = []
         total_val = 0.0
 
         for (code, _cat), h in holdings.items():
-            p, _ = get_price(code)
+            if code in _mis_prices:
+                p = _mis_prices[code][0]
+            else:
+                p, _ = get_price(code)
             cat  = h.get('category', '未分類')
             avg  = h['avg_cost']
             if p:
@@ -3610,8 +3658,9 @@ class StockApp(tk.Tk):
                  fontsize=8, fontfamily=CHART_FONT,
                  transform=sax.transAxes)
 
-        self._tm_status.set(f'更新時間：{datetime.now().strftime("%H:%M:%S")}')
-        self._tm_canvas.draw()
+        self._ui_call(lambda: self._tm_status.set(
+            f'更新時間：{datetime.now().strftime("%H:%M:%S")}  ·  每 30 秒自動更新'))
+        self._ui_call(self._tm_canvas.draw)
 
     # ═══════════════════════════════════════════════════════════════════════════
     # Tab 3：個股買賣分析
@@ -4579,9 +4628,9 @@ class StockApp(tk.Tk):
         tv_fr.pack(fill='both', expand=True)
         _cols = [('code', '代號', 58, 'center'),
                  ('name', '名稱', 95, 'w'),
-                 ('buy_etfs',  '買入 ETF（各自比例）', 260, 'w'),
-                 ('sell_etfs', '賣出 ETF（各自比例）', 260, 'w'),
-                 ('net', '淨變化%', 68, 'center')]
+                 ('buy_etfs',  '買入 ETF（比例/張數）', 280, 'w'),
+                 ('sell_etfs', '賣出 ETF（比例/張數）', 280, 'w'),
+                 ('net', '淨變化', 120, 'center')]
         ttk.Style().configure('Chg.Treeview', rowheight=20)
         self._chg_sum_tv = ttk.Treeview(tv_fr,
                                          columns=[c for c, _n, _w, _a in _cols],
@@ -4650,21 +4699,9 @@ class StockApp(tk.Tk):
         days   = {'1d': 1, '1w': 7, '1m': 30}[self._chg_period.get()]
         cutoff = (_ddate.today() - _td(days=days)).strftime('%Y%m%d')
 
-        agg_buy  = {}   # stock_code → [(etf, value)]
+        agg_buy  = {}   # stock_code → [(etf, weight, shares)]
         agg_sell = {}
         missing  = []
-        metric   = self._chg_metric.get()   # 'weight' or 'shares'
-
-        def _val_enter(item):
-            if metric == 'shares':
-                return item.get('shares', 0) / 1000
-            return item['weight']
-
-        def _val_change(item, sign):
-            if metric == 'shares':
-                ds = item.get('delta_shares', 0)
-                return abs(ds) / 1000 if sign * ds > 0 else 0
-            return abs(item['delta']) if sign * item['delta'] > 0 else 0
 
         for etf in sel:
             hist  = _load_etf_holdings_history(etf)
@@ -4681,20 +4718,24 @@ class StockApp(tk.Tk):
                 continue
             diff = _diff_etf_holdings(hist[old_d], hist[new_d])
             for item in diff['entered']:
-                v = _val_enter(item)
-                if v > 0:
-                    agg_buy.setdefault(item['code'], []).append((etf, v))
+                w = item['weight']
+                s = item.get('shares', 0)
+                if w > 0 or s > 0:
+                    agg_buy.setdefault(item['code'], []).append((etf, w, s))
             for item in diff['exited']:
-                v = _val_enter(item)
-                if v > 0:
-                    agg_sell.setdefault(item['code'], []).append((etf, v))
+                w = item['weight']
+                s = item.get('shares', 0)
+                if w > 0 or s > 0:
+                    agg_sell.setdefault(item['code'], []).append((etf, w, s))
             for item in diff['changed']:
-                vb = _val_change(item, +1)
-                vs = _val_change(item, -1)
-                if vb > 0:
-                    agg_buy.setdefault(item['code'], []).append((etf, vb))
-                if vs > 0:
-                    agg_sell.setdefault(item['code'], []).append((etf, vs))
+                dw = item['delta']
+                ds = item.get('delta_shares', 0)
+                if dw > 0 or ds > 0:
+                    agg_buy.setdefault(item['code'], []).append(
+                        (etf, max(dw, 0.0), max(ds, 0)))
+                if dw < 0 or ds < 0:
+                    agg_sell.setdefault(item['code'], []).append(
+                        (etf, abs(min(dw, 0.0)), abs(min(ds, 0))))
 
         ok = len(sel) - len(missing)
         status = f'已分析 {ok}/{len(sel)} 支'
@@ -4716,15 +4757,17 @@ class StockApp(tk.Tk):
         cw, ch = canvas.winfo_width(), canvas.winfo_height()
         if cw < 10 or ch < 10:
             return
-        items = sorted([(sum(w for _, w in lst), code)
-                        for code, lst in agg.items()], reverse=True)
+        is_shares = self._chg_metric.get() == 'shares'
+        def _sz(w, s): return s / 1000 if is_shares else w
+        items = sorted([(sum(_sz(w, s) for _, w, s in lst), code)
+                        for code, lst in agg.items()
+                        if sum(_sz(w, s) for _, w, s in lst) > 0], reverse=True)
         rects_raw = _squarify_layout(items, 0, 0, cw, ch)
         names = _TWSE_NAMES_CACHE
-        is_shares = self._chg_metric.get() == 'shares'
         rects_data = []
         for x1, y1, x2, y2, code in rects_raw:
             etf_list  = agg[code]
-            total_w   = sum(w for _, w in etf_list)
+            total_w   = sum(_sz(w, s) for _, w, s in etf_list)
             intensity = min(1.0, total_w / (2000.0 if is_shares else 8.0))
             if side == 'buy':
                 fill = '#{:02x}{:02x}{:02x}'.format(
@@ -4759,16 +4802,23 @@ class StockApp(tk.Tk):
         rects = self._chg_rects_buy if side == 'buy' else self._chg_rects_sell
         mx, my = event.x, event.y
         is_shares = self._chg_metric.get() == 'shares'
-        fmt = (lambda v: f'{v:.0f}張') if is_shares else (lambda v: f'{v:.2f}%')
+        def _sz(w, s): return s / 1000 if is_shares else w
+        def _fmt_ws(w, s):
+            parts = []
+            if w > 0.005: parts.append(f'{w:.2f}%')
+            if s > 0:     parts.append(f'{s // 1000:.0f}張')
+            return ' / '.join(parts) or '-'
         for x1, y1, x2, y2, code, etf_list in rects:
             if x1 <= mx <= x2 and y1 <= my <= y2:
                 names = _TWSE_NAMES_CACHE
                 lbl   = '買入' if side == 'buy' else '賣出'
                 lines = [f'{code}  {names.get(code, "")}', '─' * 24]
-                for etf, w in sorted(etf_list, key=lambda x: -x[1]):
-                    lines.append(f'  {etf}   {lbl} {fmt(w)}')
+                for etf, w, s in sorted(etf_list, key=lambda x: -_sz(x[1], x[2])):
+                    lines.append(f'  {etf}   {lbl} {_fmt_ws(w, s)}')
+                total_w = sum(w for _, w, s in etf_list)
+                total_s = sum(s for _, w, s in etf_list)
                 lines += ['─' * 24,
-                          f'合計 {lbl}：{fmt(sum(w for _, w in etf_list))}']
+                          f'合計 {lbl}：{_fmt_ws(total_w, total_s)}']
                 rx = event.widget.winfo_rootx() + mx
                 ry = event.widget.winfo_rooty() + my
                 self._chg_show_tip(rx, ry, '\n'.join(lines))
@@ -4812,33 +4862,43 @@ class StockApp(tk.Tk):
         names = _TWSE_NAMES_CACHE
 
         def _score(c):
-            return (len(agg_buy.get(c, [])) + len(agg_sell.get(c, [])),
-                    sum(w for _, w in agg_buy.get(c, [])) +
-                    sum(w for _, w in agg_sell.get(c, [])))
+            bl = agg_buy.get(c, [])
+            sl = agg_sell.get(c, [])
+            return (len(bl) + len(sl),
+                    sum(w for _, w, s in bl) + sum(w for _, w, s in sl))
 
         def _wrap(items, per_line=3):
             lines = ['  '.join(items[i:i+per_line])
                      for i in range(0, len(items), per_line)]
             return '\n'.join(lines)
 
+        def _fmt_ws(w, s):
+            parts = []
+            if w > 0.005: parts.append(f'{w:.1f}%')
+            if s > 0:     parts.append(f'{s // 1000:.0f}張')
+            return '/'.join(parts) or '-'
+
         is_shares = self._chg_metric.get() == 'shares'
-        unit = '張' if is_shares else '%'
-        fmt  = (lambda v: f'{v:.0f}') if is_shares else (lambda v: f'{v:.1f}')
+        def _sort_key(t): return t[2] / 1000 if is_shares else t[1]
 
         max_lines = 1
         rows = []
         for code in sorted(all_codes, key=_score, reverse=True):
             bl = agg_buy.get(code, [])
             sl = agg_sell.get(code, [])
-            buy_items  = [f'{e}(+{fmt(w)}{unit})' for e, w in sorted(bl, key=lambda x: -x[1])]
-            sell_items = [f'{e}(-{fmt(w)}{unit})' for e, w in sorted(sl, key=lambda x: -x[1])]
+            buy_items  = [f'{e}(+{_fmt_ws(w, s)})' for e, w, s in sorted(bl, key=_sort_key, reverse=True)]
+            sell_items = [f'{e}(-{_fmt_ws(w, s)})' for e, w, s in sorted(sl, key=_sort_key, reverse=True)]
             buy_str  = _wrap(buy_items)
             sell_str = _wrap(sell_items)
             row_lines = max(buy_str.count('\n') + 1 if buy_str else 1,
                             sell_str.count('\n') + 1 if sell_str else 1)
             max_lines = max(max_lines, row_lines)
-            net  = sum(w for _, w in bl) - sum(w for _, w in sl)
-            nstr = f'+{fmt(net)}{unit}' if net >= 0 else f'{fmt(net)}{unit}'
+            net_w = sum(w for _, w, s in bl) - sum(w for _, w, s in sl)
+            net_s = (sum(s for _, w, s in bl) - sum(s for _, w, s in sl)) // 1000
+            nparts = []
+            if abs(net_w) > 0.005: nparts.append(f'{net_w:+.1f}%')
+            if net_s != 0:         nparts.append(f'{net_s:+.0f}張')
+            nstr = ' / '.join(nparts) or '0'
             tag  = ('buy'  if bl and not sl else
                     'sell' if sl and not bl else 'both')
             rows.append((code, names.get(code, code), buy_str, sell_str, nstr, tag))
