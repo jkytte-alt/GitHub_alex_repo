@@ -679,8 +679,18 @@ def calc_holdings(df: pd.DataFrame) -> dict:
 # ─── 報價工具 ────────────────────────────────────────────────────────────────
 def get_price(code: str):
     import logging as _log, io as _io, sys as _sys_gp
-    _yf_log = _log.getLogger('yfinance')
     code = str(code).strip()
+
+    # 優先用 TWSE/TPEX 官方收盤價（rwd afterTrading，永遠回傳最新確認收盤日資料）
+    try:
+        pc = _ensure_twse_price_cache()
+        if code in pc:
+            return pc[code][0], code
+    except Exception:
+        pass
+
+    # 備援：yfinance（美股、ETF、或 TWSE 快取未包含的股票）
+    _yf_log = _log.getLogger('yfinance')
     _logged = False
     for s in ['.TW', '.TWO', '']:
         try:
@@ -700,8 +710,7 @@ def get_price(code: str):
                 import math as _math
                 if _math.isnan(price) or _math.isinf(price) or price <= 0:
                     continue
-                # 若 Yahoo Finance 尚未更新拆分後報價，手動修正：
-                # 判斷依據：若抓到的價格 > 拆分比例 × 10，視為仍是拆前價格
+                # 若 Yahoo Finance 尚未更新拆分後報價，手動修正
                 today = _date.today()
                 for split_date, ratio in STOCK_SPLITS.get(code, []):
                     if split_date <= today and price > ratio * 10:
@@ -711,13 +720,6 @@ def get_price(code: str):
             if not _logged:
                 _net_log(f'get_price({code}{s}) FAIL: {type(_e).__name__}: {_e}')
                 _logged = True
-    # yfinance 失敗 → 改用 TWSE/TPEX 官方 API
-    try:
-        pc = _ensure_twse_price_cache()
-        if code in pc:
-            return pc[code][0], code
-    except Exception:
-        pass
     return None, code
 
 
@@ -770,29 +772,57 @@ _TWSE_PRICE_CACHE: dict[str, tuple[float, float]] = {}
 _TWSE_PRICE_CACHE_DATE: str = ''   # 'YYYY-MM-DD'，當天有效
 
 def _ensure_twse_price_cache() -> dict[str, tuple[float, float]]:
-    """確保 TWSE/TPEX 收盤價快取是今天的資料，否則重新抓取。"""
+    """確保 TWSE/TPEX 收盤價快取是最新交易日的資料，否則重新抓取。"""
     global _TWSE_PRICE_CACHE, _TWSE_PRICE_CACHE_DATE
     today = _date.today().strftime('%Y-%m-%d')
     if _TWSE_PRICE_CACHE and _TWSE_PRICE_CACHE_DATE == today:
         return _TWSE_PRICE_CACHE
     cache: dict[str, tuple[float, float]] = {}
-    # TWSE 上市
+    fetched_date = ''
+
+    # TWSE 上市：優先用 rwd afterTrading（回傳最新確認收盤，不會返回盤中舊資料）
+    # 欄位：[0]代號, [1]名稱, [2]成交量, [3]成交金額, [4]開盤, [5]最高, [6]最低, [7]收盤, [8]漲跌
+    twse_ok = False
     try:
-        rows = _cffi_get_json('https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', timeout=15)
-        for row in rows:
-            code = str(row.get('Code', '')).strip()
-            try:
-                price = float(str(row.get('ClosingPrice', '')).replace(',', '') or '0')
-                chg   = float(str(row.get('Change', '0')).replace(',', '') or '0')
-                if price > 0:
-                    cache[code] = (price, chg)
-            except (ValueError, TypeError):
-                pass
+        data = _cffi_get_json(
+            'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json',
+            timeout=15)
+        if isinstance(data, dict) and data.get('stat') == 'OK':
+            fetched_date = str(data.get('date', ''))
+            for row in data.get('data', []):
+                try:
+                    code  = str(row[0]).strip()
+                    price = float(str(row[7]).replace(',', ''))
+                    chg   = float(str(row[8]).replace(',', '').replace('X', '0'))
+                    if price > 0:
+                        cache[code] = (price, chg)
+                except (ValueError, TypeError, IndexError):
+                    pass
+            twse_ok = bool(cache)
     except Exception as _e:
-        _net_log(f'_ensure_twse_price_cache TWSE fail: {_e}')
+        _net_log(f'_ensure_twse_price_cache rwd fail: {_e}')
+
+    # 備援：openapi（有時資料較舊，但至少有資料）
+    if not twse_ok:
+        try:
+            rows = _cffi_get_json(
+                'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL', timeout=15)
+            for row in rows:
+                code = str(row.get('Code', '')).strip()
+                try:
+                    price = float(str(row.get('ClosingPrice', '')).replace(',', '') or '0')
+                    chg   = float(str(row.get('Change', '0')).replace(',', '') or '0')
+                    if price > 0:
+                        cache[code] = (price, chg)
+                except (ValueError, TypeError):
+                    pass
+        except Exception as _e:
+            _net_log(f'_ensure_twse_price_cache openapi fail: {_e}')
+
     # TPEX 上櫃
     try:
-        rows = _cffi_get_json('https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', timeout=15)
+        rows = _cffi_get_json(
+            'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes', timeout=15)
         for row in rows:
             code = str(row.get('SecuritiesCompanyCode', '')).strip()
             try:
@@ -805,6 +835,7 @@ def _ensure_twse_price_cache() -> dict[str, tuple[float, float]]:
                 pass
     except Exception as _e:
         _net_log(f'_ensure_twse_price_cache TPEX fail: {_e}')
+
     if cache:
         _TWSE_PRICE_CACHE = cache
         _TWSE_PRICE_CACHE_DATE = today
@@ -1617,44 +1648,61 @@ def fetch_etf_data(etf_code: str) -> tuple[str, list[dict], str]:
     all_syms:   list[str]        = [h['sym'] for h in raw_holdings]
     price_map:  dict[str, float] = {}
     change_map: dict[str, float] = {}
+
+    # 優先用 TWSE STOCK_DAY_ALL（官方收盤價，含漲跌幅）
     try:
-        import concurrent.futures as _cff
-        def _do_dl():
-            import logging as _log, io, sys as _sys
-            _yf_log = _log.getLogger('yfinance')
-            _prev_lvl = _yf_log.level
-            _yf_log.setLevel(_log.CRITICAL)
-            _old_stderr, _sys.stderr = _sys.stderr, io.StringIO()
-            try:
-                return yf.download(all_syms, period='5d', auto_adjust=False,
-                                   progress=False, threads=True, timeout=8)
-            finally:
-                _sys.stderr = _old_stderr
-                _yf_log.setLevel(_prev_lvl)
-        with _cff.ThreadPoolExecutor(max_workers=1) as _dl_ex:
-            try:
-                hist = _dl_ex.submit(_do_dl).result(timeout=15)
-            except Exception:
-                hist = pd.DataFrame()
-        if not hist.empty:
-            if isinstance(hist.columns, pd.MultiIndex):
-                close_df = hist['Close']
-            elif 'Close' in hist.columns:
-                close_df = hist[['Close']].rename(columns={'Close': all_syms[0]})
-            else:
-                close_df = pd.DataFrame()
-            for sym in all_syms:
-                if sym in close_df.columns:
-                    prices = close_df[sym].dropna()
-                    if len(prices) >= 2:
-                        price_map[sym]  = float(prices.iloc[-1])
-                        change_map[sym] = ((float(prices.iloc[-1]) - float(prices.iloc[-2]))
-                                           / float(prices.iloc[-2]) * 100)
-                    elif len(prices) == 1:
-                        price_map[sym]  = float(prices.iloc[0])
-                        change_map[sym] = 0.0
+        twse_cache = _ensure_twse_price_cache()  # {代號: (收盤價, 漲跌額)}
+        for h in raw_holdings:
+            c = h['code']
+            if c in twse_cache:
+                close_p, chg_amt = twse_cache[c]
+                price_map[h['sym']] = close_p
+                if close_p and close_p - chg_amt > 0:
+                    change_map[h['sym']] = chg_amt / (close_p - chg_amt) * 100
     except Exception:
         pass
+
+    # 未取得資料的股票，用 Yahoo Finance 補充
+    missing_syms = [h['sym'] for h in raw_holdings if h['sym'] not in price_map]
+    if missing_syms:
+        try:
+            import concurrent.futures as _cff
+            def _do_dl():
+                import logging as _log, io, sys as _sys
+                _yf_log = _log.getLogger('yfinance')
+                _prev_lvl = _yf_log.level
+                _yf_log.setLevel(_log.CRITICAL)
+                _old_stderr, _sys.stderr = _sys.stderr, io.StringIO()
+                try:
+                    return yf.download(missing_syms, period='5d', auto_adjust=False,
+                                       progress=False, threads=True, timeout=8)
+                finally:
+                    _sys.stderr = _old_stderr
+                    _yf_log.setLevel(_prev_lvl)
+            with _cff.ThreadPoolExecutor(max_workers=1) as _dl_ex:
+                try:
+                    hist = _dl_ex.submit(_do_dl).result(timeout=15)
+                except Exception:
+                    hist = pd.DataFrame()
+            if not hist.empty:
+                if isinstance(hist.columns, pd.MultiIndex):
+                    close_df = hist['Close']
+                elif 'Close' in hist.columns:
+                    close_df = hist[['Close']].rename(columns={'Close': missing_syms[0]})
+                else:
+                    close_df = pd.DataFrame()
+                for sym in missing_syms:
+                    if sym in close_df.columns:
+                        prices = close_df[sym].dropna()
+                        if len(prices) >= 2:
+                            price_map[sym]  = float(prices.iloc[-1])
+                            change_map[sym] = ((float(prices.iloc[-1]) - float(prices.iloc[-2]))
+                                               / float(prices.iloc[-2]) * 100)
+                        elif len(prices) == 1:
+                            price_map[sym]  = float(prices.iloc[0])
+                            change_map[sym] = 0.0
+        except Exception:
+            pass
 
     # ── Step 6: 組合結果 ──────────────────────────────────────────────────────
     components = []
@@ -1670,16 +1718,54 @@ def fetch_etf_data(etf_code: str) -> tuple[str, list[dict], str]:
     return etf_name, components, debug_msg
 
 
+def _fetch_etfortune_meta(code: str) -> dict:
+    """Scrape TWSE ETFortune page for AUM, NAV, closing price, and discount/premium.
+    Returns dict with keys: total_assets (元), nav, price, atmps (折溢價 %).
+    """
+    import re as _re
+    meta: dict = {}
+    try:
+        url  = f'https://www.twse.com.tw/zh/ETFortune/etfInfo/{code}'
+        html = _cffi_get_text(url)
+        if not html or len(html) < 500:
+            return meta
+
+        # AUM: first <span>NUMBER</span>&nbsp;<b>億元</b> on page
+        m = _re.search(r'<span>([\d,\.]+)</span>&nbsp;<b>億元</b>', html)
+        if m:
+            meta['total_assets'] = float(m.group(1).replace(',', '')) * 1e8  # 億元 → 元
+
+        # chartData JS variable: netPrice=NAV, close1=market price, atmps=折溢價%
+        idx = html.find('chartData = {')
+        if idx >= 0:
+            chart, _ = _json.JSONDecoder().raw_decode(html[idx + len('chartData = '):])
+            net = chart.get('netPrice', [])
+            if net:
+                meta['nav'] = float(net[-1]['count'])
+            close = chart.get('close1', [])
+            if close:
+                meta['price'] = float(close[-1]['count'])
+            atmps = chart.get('atmps', [])
+            if atmps:
+                meta['atmps'] = float(atmps[-1]['count'])
+    except Exception as _e:
+        _net_log(f'_fetch_etfortune_meta({code}): {_e}')
+    return meta
+
+
 def fetch_etf_meta(etf_code: str) -> dict:
     """Fetch ETF AUM, yield, NAV, sector weights, asset allocation.
-    Source 1: Yahoo Finance quoteSummary
-    Source 2: TWSE ETF openapi (NAV + 規模)
-    Returns dict with keys: total_assets, yield_pct, nav, price, sector_weights, asset_alloc.
+    Source 1: TWSE ETFortune page (authoritative for TW ETFs: AUM, NAV, price, 折溢價)
+    Source 2: Yahoo Finance quoteSummary (yield_pct, sector_weights, asset_alloc)
+    Returns dict with keys: total_assets, yield_pct, nav, price, atmps, sector_weights, asset_alloc.
     """
     code = str(etf_code).strip()
     meta: dict = {}
 
-    # ── 方法1：Yahoo Finance quoteSummary ────────────────────────────────────
+    # ── 方法1：TWSE ETFortune（AUM、NAV、市價、折溢價）────────────────────────
+    meta.update(_fetch_etfortune_meta(code))
+
+    # ── 方法2：Yahoo Finance quoteSummary（補充 yield、sector、asset allocation）
     try:
         from yfinance.data import YfData as _YfData
         _yfdata = _YfData(session=None)
@@ -1697,16 +1783,21 @@ def fetch_etf_meta(etf_code: str) -> dict:
                     continue
                 res  = result[0]
                 sd   = res.get('summaryDetail', {})
-                for src_key, dst_key in [('totalAssets',         'total_assets'),
-                                          ('yield',               'yield_pct'),
-                                          ('navPrice',            'nav'),
-                                          ('regularMarketPrice',  'price'),
-                                          ('previousClose',       'prev_close')]:
-                    val = sd.get(src_key, {})
-                    meta[dst_key] = val.get('raw') if isinstance(val, dict) else (val or None)
+                for src_key, dst_key in [('totalAssets',  'total_assets'),
+                                          ('yield',        'yield_pct'),
+                                          ('navPrice',     'nav'),
+                                          ('regularMarketPrice', 'price'),
+                                          ('previousClose', 'prev_close')]:
+                    if not meta.get(dst_key):
+                        val = sd.get(src_key, {})
+                        v   = val.get('raw') if isinstance(val, dict) else (val or None)
+                        if v:
+                            meta[dst_key] = v
                 ep = res.get('etfProfile', {})
-                meta['sector_weights'] = ep.get('sectorWeightings', [])
-                meta['asset_alloc']    = ep.get('assetAllocations', [])
+                if not meta.get('sector_weights'):
+                    meta['sector_weights'] = ep.get('sectorWeightings', [])
+                if not meta.get('asset_alloc'):
+                    meta['asset_alloc']    = ep.get('assetAllocations', [])
                 if any(v is not None for v in meta.values()):
                     break
             except Exception:
@@ -1714,29 +1805,12 @@ def fetch_etf_meta(etf_code: str) -> dict:
     except Exception:
         pass
 
-    # ── 方法2：TWSE ETF openapi 補充（NAV、規模）────────────────────────────
-    if not meta.get('nav') or not meta.get('total_assets'):
+    # ── 方法3：TWSE 收盤價快取（ETFortune 和 Yahoo 都無法提供市價時）──────────
+    if not meta.get('price') and not meta.get('prev_close'):
         try:
-            rows = _cffi_get_json(
-                'https://openapi.twse.com.tw/v1/ETF/getETFInfo',
-                timeout=10)
-            for row in rows:
-                c = str(row.get('ETFid', '')).strip()
-                if c != code:
-                    continue
-                if not meta.get('nav'):
-                    nav_str = str(row.get('NetAssetValuePerShare', '') or '').replace(',', '')
-                    try:
-                        meta['nav'] = float(nav_str)
-                    except ValueError:
-                        pass
-                if not meta.get('total_assets'):
-                    aum_str = str(row.get('NetAssetValue', '') or '').replace(',', '')
-                    try:
-                        meta['total_assets'] = float(aum_str) * 1e4  # 萬元 → 元
-                    except ValueError:
-                        pass
-                break
+            price_cache = _ensure_twse_price_cache()
+            if code in price_cache:
+                meta['price'] = price_cache[code][0]
         except Exception:
             pass
 
@@ -5840,12 +5914,16 @@ class StockApp(tk.Tk):
         self._etf_sv_yield.set(f'{yld*100:.2f}%' if yld else '—')
         nav = meta.get('nav')
         self._etf_sv_nav.set(f'{nav:.2f}' if nav else '—')
-        # 折溢價 = (市場價格 - NAV) / NAV × 100%
-        nav   = meta.get('nav')
-        price = meta.get('price') or meta.get('prev_close')
-        if nav and price and nav > 0:
-            prem = (price - nav) / nav * 100
-            sign = '+' if prem >= 0 else ''
+        # 折溢價：優先用 TWSE ETFortune 直接計算的 atmps，否則自行計算
+        atmps = meta.get('atmps')
+        if atmps is not None:
+            prem = atmps
+        else:
+            nav   = meta.get('nav')
+            price = meta.get('price') or meta.get('prev_close')
+            prem  = (price - nav) / nav * 100 if nav and price and nav > 0 else None
+        if prem is not None:
+            sign  = '+' if prem >= 0 else ''
             label = '溢價' if prem >= 0 else '折價'
             fg    = '#f07070' if prem >= 0 else '#4ec94e'
             self._etf_sv_alloc.set(f'{sign}{prem:.3f}%（{label}）')
