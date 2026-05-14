@@ -4185,7 +4185,7 @@ class StockApp(tk.Tk):
         self._etf_sub_btns: dict[str, tk.Label] = {}
         for sid, slbl in [('analysis', 'ETF 成分股分析'),
                            ('compare',  'ETF 比較'),
-                           ('change',   'ETF 成分股變化')]:
+                           ('change',   '主動型ETF分析')]:
             btn = tk.Label(sub_bar, text=slbl,
                            bg='#1a1a2e', fg='#9090a0',
                            font=('Microsoft JhengHei', 10, 'bold'),
