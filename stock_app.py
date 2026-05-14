@@ -769,13 +769,15 @@ _NAMES_CACHE_PATH = os.path.join(BASE_DIR, '.stock_names_cache.json')
 
 # ── TWSE/TPEX 即時收盤價快取 {代號: (收盤價, 漲跌)} ─────────────────────────
 _TWSE_PRICE_CACHE: dict[str, tuple[float, float]] = {}
-_TWSE_PRICE_CACHE_DATE: str = ''   # 'YYYY-MM-DD'，當天有效
+_TWSE_PRICE_CACHE_TS: float = 0.0   # 上次成功抓取的 Unix timestamp
+_TWSE_PRICE_CACHE_TTL = 15 * 60     # 15 分鐘後重新抓取
 
 def _ensure_twse_price_cache() -> dict[str, tuple[float, float]]:
     """確保 TWSE/TPEX 收盤價快取是最新交易日的資料，否則重新抓取。"""
-    global _TWSE_PRICE_CACHE, _TWSE_PRICE_CACHE_DATE
-    today = _date.today().strftime('%Y-%m-%d')
-    if _TWSE_PRICE_CACHE and _TWSE_PRICE_CACHE_DATE == today:
+    global _TWSE_PRICE_CACHE, _TWSE_PRICE_CACHE_TS
+    import time as _tm
+    now = _tm.time()
+    if _TWSE_PRICE_CACHE and (now - _TWSE_PRICE_CACHE_TS) < _TWSE_PRICE_CACHE_TTL:
         return _TWSE_PRICE_CACHE
     cache: dict[str, tuple[float, float]] = {}
     fetched_date = ''
@@ -838,7 +840,7 @@ def _ensure_twse_price_cache() -> dict[str, tuple[float, float]]:
 
     if cache:
         _TWSE_PRICE_CACHE = cache
-        _TWSE_PRICE_CACHE_DATE = today
+        _TWSE_PRICE_CACHE_TS = now
     return _TWSE_PRICE_CACHE
 
 # ── 產業別快取 ────────────────────────────────────────────────────────────────
