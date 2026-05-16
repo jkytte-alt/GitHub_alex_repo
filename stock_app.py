@@ -124,6 +124,8 @@ def _cffi_get_text(url: str, headers: dict | None = None, timeout: int = 15) -> 
 
 warnings.filterwarnings('ignore')
 
+APP_VERSION = '1.0.0'
+
 # ─── 路徑與欄位 ──────────────────────────────────────────────────────────────
 if getattr(_sys, 'frozen', False):
     BASE_DIR = os.path.dirname(_sys.executable)  # 執行檔所在目錄
@@ -2080,7 +2082,7 @@ class StockApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
-        self.title('個人股票管理工具')
+        self.title(f'個人股票管理工具 v{APP_VERSION}')
         self.geometry('1200x780')
         self.configure(bg=C_BG)
         self._apply_dark_theme()
