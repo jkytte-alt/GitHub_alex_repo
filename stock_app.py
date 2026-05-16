@@ -1261,10 +1261,25 @@ def _load_etf_holdings_history(code: str) -> dict[str, list]:
 
 
 def _save_etf_holdings_snapshot(code: str, holdings: list[dict]) -> str:
-    """儲存一份帶日期的快照到磁碟；回傳日期字串 YYYYMMDD。"""
+    """儲存一份帶日期的快照到磁碟；回傳日期字串 YYYYMMDD。
+    若新快照與最近一筆完全相同（假日/非交易日重複抓取），跳過儲存以避免
+    diff 時把「今天 vs 今天同內容的昨天」誤判為無異動。
+    """
     from datetime import date as _ddate
     _ds = _ddate.today().strftime('%Y%m%d')
     _hist = _load_etf_holdings_history(code)
+
+    # 比對內容：若與現有最新快照相同就不存新日期
+    if _hist:
+        _latest_d = max(_hist.keys())
+        if _latest_d != _ds:   # 日期不同才需要比對
+            def _sig(lst):
+                return frozenset((h['code'],
+                                  round(h.get('weight', 0.0), 2),
+                                  h.get('shares', 0)) for h in lst)
+            if _sig(holdings) == _sig(_hist[_latest_d]):
+                return _latest_d   # 內容相同，維持上次日期不寫入
+
     _hist[_ds] = holdings
     _ETF_HOLDINGS_HIST_CACHE[code] = _hist
     _path = os.path.join(BASE_DIR, f'.etf_holdings_hist_{code}.json')
@@ -3013,12 +3028,12 @@ class StockApp(tk.Tk):
             return
         xd, yd = event.xdata, event.ydata
 
-        # 右鍵：在個股方塊上點擊 → 開啟個股分析
+        # 右鍵：在個股方塊上點擊 → 開啟庫存個股分析
         if event.button == 3:
             for r in self._tm_rects:
                 if (r['rx'] <= xd <= r['rx'] + r['rw'] and
                         r['ry'] <= yd <= r['ry'] + r['rh']):
-                    self._open_stk_analysis(r['code'], r['name'])
+                    self._open_inventory_analysis(r['code'])
                     return
             return
 
@@ -3761,6 +3776,10 @@ class StockApp(tk.Tk):
         ttk.Checkbutton(ctrl, text='還原股價（含股票分割）',
                         variable=self._adj_var,
                         command=self._draw_analysis).pack(side='left', padx=(14, 0))
+        self._full_period_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(ctrl, text='顯示完整期間',
+                        variable=self._full_period_var,
+                        command=self._draw_analysis).pack(side='left', padx=(10, 0))
 
         self._an_fig    = plt.Figure(figsize=(9.5, 5.5), dpi=100, facecolor=C_BG)
         self._an_canvas = FigureCanvasTkAgg(self._an_fig, master=f)
@@ -3768,11 +3787,17 @@ class StockApp(tk.Tk):
         w.configure(bg=C_BG)
         w.pack(fill='both', expand=True, padx=8, pady=(0, 8))
 
-        self._an_bar_data = []      # list of bar dicts for hover detection
-        self._an_ax1      = None    # saved axes ref
-        self._an_tooltip  = None    # tooltip Toplevel
-        self._an_canvas.mpl_connect('motion_notify_event', self._on_an_motion)
-        self._an_canvas.mpl_connect('figure_leave_event',  lambda e: self._hide_an_tooltip())
+        self._an_bar_data  = []     # list of bar dicts for hover detection
+        self._an_ax1       = None   # saved axes ref
+        self._an_tooltip   = None   # tooltip Toplevel
+        self._an_pan_start = None   # {px, xlim, data_per_px} — drag pan 狀態
+        self._an_panning   = False
+        self._an_xlim_full = None   # 初始完整範圍，雙擊重置用
+        self._an_canvas.mpl_connect('motion_notify_event',  self._on_an_motion)
+        self._an_canvas.mpl_connect('figure_leave_event',   lambda e: self._hide_an_tooltip())
+        self._an_canvas.mpl_connect('scroll_event',         self._on_an_scroll)
+        self._an_canvas.mpl_connect('button_press_event',   self._on_an_press)
+        self._an_canvas.mpl_connect('button_release_event', self._on_an_release)
 
         self._update_stock_list()
 
@@ -3803,8 +3828,62 @@ class StockApp(tk.Tk):
         if not self._stock_var.get() and hold_opts:
             self._stock_var.set(hold_opts[0])
 
+    # ── 個股分析圖表互動：縮放 / 平移 / 重置 ────────────────────────────────────
+    def _on_an_scroll(self, event):
+        """滾輪以游標為中心縮放 x 軸（時間軸）"""
+        if self._an_ax1 is None or event.x is None:
+            return
+        ax = self._an_ax1
+        try:
+            xdata = ax.transData.inverted().transform((event.x, event.y))[0]
+        except Exception:
+            return
+        xlo, xhi = ax.get_xlim()
+        factor = 0.75 if event.button == 'up' else 1.33
+        ax.set_xlim(xdata - (xdata - xlo) * factor,
+                    xdata + (xhi - xdata) * factor)
+        self._an_canvas.draw_idle()
+
+    def _on_an_press(self, event):
+        """左鍵按下：準備拖曳平移；雙擊：重置完整範圍"""
+        if self._an_ax1 is None or event.button != 1:
+            return
+        if event.dblclick:
+            if self._an_xlim_full is not None:
+                self._an_ax1.set_xlim(self._an_xlim_full)
+                self._an_canvas.draw_idle()
+            return
+        ax = self._an_ax1
+        xlo, xhi = ax.get_xlim()
+        w_px = ax.get_window_extent().width
+        self._an_pan_start = {
+            'px':          event.x,
+            'xlim':        (xlo, xhi),
+            'data_per_px': (xhi - xlo) / w_px if w_px > 0 else 1,
+        }
+        self._an_panning = False
+
+    def _on_an_release(self, event):
+        """左鍵放開：結束拖曳平移"""
+        if event.button == 1:
+            self._an_pan_start = None
+            self._an_panning   = False
+
     # ── 個股分析長條 hover helpers ─────────────────────────────────────────────
     def _on_an_motion(self, event):
+        # ── 拖曳平移（優先於 tooltip）────────────────────────────────────────────
+        if self._an_pan_start is not None and event.x is not None and self._an_ax1 is not None:
+            dx_px   = event.x - self._an_pan_start['px']
+            if abs(dx_px) > 3:
+                self._an_panning = True
+            if self._an_panning:
+                dx_data = dx_px * self._an_pan_start['data_per_px']
+                xlo, xhi = self._an_pan_start['xlim']
+                self._an_ax1.set_xlim(xlo - dx_data, xhi - dx_data)
+                self._an_canvas.draw_idle()
+                self._hide_an_tooltip()
+                return
+
         if self._an_ax1 is None or not self._an_bar_data or event.x is None:
             self._hide_an_tooltip()
             return
@@ -3903,8 +3982,10 @@ class StockApp(tk.Tk):
         has_takep = any(str(c) == '獲利賣出' for c in sdf['分類'].values)
         qty_cum,      cost_cum      = 0.0, 0.0
         real_qty_cum, real_cost_cum = 0.0, 0.0
-        avg_costs, real_avg_costs   = [], []
+        avg_costs, real_avg_costs, pre_avgs = [], [], []
         for _, r in sdf.iterrows():
+            # pre_avg：交易執行前的持股均價（用於計算賣出損益）
+            pre_avgs.append(cost_cum / qty_cum if qty_cum > 0.5 else np.nan)
             q, p, fee = float(r['數量(股)']), float(r['價格(元)']), float(r['手續費(元)'])
             cat = str(r.get('分類', ''))
             if r['買賣'] == '買':
@@ -3926,6 +4007,8 @@ class StockApp(tk.Tk):
 
         sdf['avg_cost']      = avg_costs
         sdf['real_avg_cost'] = real_avg_costs
+        sdf['pre_avg']       = pre_avgs
+        is_cleared = bool(np.isnan(sdf['avg_cost'].iloc[-1]))
 
         dates  = sdf['日期'].values
         prices = sdf['價格(元)'].values.astype(float)
@@ -3933,9 +4016,10 @@ class StockApp(tk.Tk):
         qtys   = sdf['數量(股)'].values.astype(float)
 
         # ── 抓歷史收盤價 ──────────────────────────────────────────────────────
-        adj_mode  = self._adj_var.get()
-        start_str = pd.to_datetime(dates[0]).strftime('%Y-%m-%d')
-        hist_close = get_history(code, start_str, auto_adjust=adj_mode)
+        adj_mode    = self._adj_var.get()
+        full_period = self._full_period_var.get()
+        start_str   = pd.to_datetime(dates[0]).strftime('%Y-%m-%d')
+        hist_close  = get_history(code, start_str, auto_adjust=adj_mode)
 
         # ── 還原模式：用 adj/raw 收盤比值推算分割比例，同步調整價格與股數 ──────
         if adj_mode:
@@ -4012,6 +4096,78 @@ class StockApp(tk.Tk):
             real_cost_cum  = real_cost_cum2
             real_qty_cum   = real_qty_cum2
 
+        # ── 日報酬率曲線資料 ──────────────────────────────────────────────────
+        # 先以交易日為錨點計算各期均價 → 再用 hist_close 補全每日收盤報酬率
+        roi_x, roi_y = np.array([]), np.array([])
+
+        def _naive_date(d):
+            """任何格式 → tz-naive 純日期 Timestamp"""
+            ts = pd.Timestamp(d)
+            if ts.tz is not None:
+                ts = ts.tz_convert('Asia/Taipei')
+            return pd.Timestamp(ts.year, ts.month, ts.day)
+
+        # 交易均價快照（時間序列，NaN 表示空倉）
+        _snap_dates = [_naive_date(d) for d in sdf['日期'].values]
+        _snap_avgs  = list(sdf['avg_cost'].values.astype(float))
+
+        def _lookup_avg(target_date):
+            """回傳 target_date 當日或之前最後一筆均價；nan 表示空倉"""
+            result = float('nan')
+            for td, ta in zip(_snap_dates, _snap_avgs):
+                if td <= target_date:
+                    result = ta  # nan（出清）會正確重置，不再前向填充
+            return result
+
+        # 出清日集合：同日賣出+買入時 _lookup_avg 會回傳買入均價，
+        # 需強制在出清日插入 nan 斷點，確保 ROI 曲線在每次換手時明確斷開
+        _sell_all_dates = {sd for sd, sa in zip(_snap_dates, _snap_avgs)
+                           if np.isnan(sa)}
+
+        if hist_close is not None and not hist_close.empty:
+            # 有歷史收盤價：每個交易日算一個 ROI 資料點
+            # 空倉期及出清日插入 nan，讓折線在換手點自然斷開
+            _hc_prices = hist_close.values.astype(float)
+            _hc_dates  = [_naive_date(d) for d in hist_close.index]
+            _rxs, _rys = [], []
+            for hd, hp in zip(_hc_dates, _hc_prices):
+                avg = _lookup_avg(hd)
+                _rxs.append(mdates.date2num(hd))
+                if hd in _sell_all_dates:
+                    _rys.append(float('nan'))       # 出清日強制斷線
+                elif not np.isnan(avg) and avg > 0:
+                    _rys.append((hp / avg - 1) * 100)
+                else:
+                    _rys.append(float('nan'))
+            if _rxs and any(not np.isnan(y) for y in _rys):
+                roi_x = np.array(_rxs)
+                roi_y = np.array(_rys)
+        else:
+            # 無歷史收盤價：退而用各交易日的成交價計算 ROI
+            _rxs, _rys = [], []
+            for snap_d, price, avg in zip(_snap_dates, prices,
+                                          sdf['avg_cost'].values.astype(float)):
+                if not np.isnan(avg) and avg > 0:
+                    _rxs.append(mdates.date2num(snap_d))
+                    _rys.append((price / avg - 1) * 100)
+            if _rxs:
+                roi_x = np.array(_rxs)
+                roi_y = np.array(_rys)
+
+        # 抓即時現價（供 ROI 今日資料點 + 現價橫線共用）— 已出清者不需要
+        _cur_p = None
+        if not is_cleared:
+            _cur_p, _ = get_price(code)
+            # 若曲線未延伸到今天，補一個今日現價資料點
+            _today     = pd.Timestamp.today().normalize()
+            _today_num = mdates.date2num(_today)
+            if _cur_p and (len(roi_x) == 0 or _today_num > roi_x[-1] + 1):
+                _today_avg = _lookup_avg(_today)
+                if not np.isnan(_today_avg) and _today_avg > 0:
+                    _today_roi = (_cur_p / _today_avg - 1) * 100
+                    roi_x = np.append(roi_x, _today_num)
+                    roi_y = np.append(roi_y, _today_roi)
+
         # ── 繪圖 ──────────────────────────────────────────────────────────────
         self._an_fig.clear()
         ax1 = self._an_fig.add_subplot(111, facecolor=C_PANEL)
@@ -4041,7 +4197,7 @@ class StockApp(tk.Tk):
                 per_x[idx] = x_num[idx] - bar_w / 2 + (rank + 0.5) * (bar_w / n)
                 per_w[idx] = sub_w
 
-        # 歷史收盤價折線（最底層）
+        # 收盤價折線（最底層）
         hist_plotted = False
         if hist_close is not None and not hist_close.empty:
             try:
@@ -4050,80 +4206,165 @@ class StockApp(tk.Tk):
                     hidx = hidx.tz_localize(None)
                 hx = mdates.date2num(pd.to_datetime(hidx))
                 hy = hist_close.values.astype(float)
-                ax1.plot(hx, hy, color='#b0bec5', linewidth=1.4,
-                         alpha=0.75, zorder=2, label='收盤價走勢')
+                ax1.plot(hx, hy, color='#b0bec5', linewidth=0.9,
+                         linestyle='--', alpha=0.75, zorder=4, label='收盤價走勢')
                 hist_plotted = True
             except Exception:
                 pass
 
-        # 買賣成交價長條（並排）
+        # ── 成交柱：窄條 + 頂端標記點，不遮蔽後方線條 ─────────────────────────
+        C_BUY_BAR  = '#42a5f5'   # 材質藍
+        C_SELL_BAR = '#ef5350'   # 亮紅
+        C_PROF_BAR = '#ffd54f'   # 金黃
         cats = sdf['分類'].values
         bar_colors = [
-            C_BUY_FG if s == '買' else ('#ffd700' if str(c) == '獲利賣出' else C_SELL_FG)
+            C_BUY_BAR if s == '買'
+            else (C_PROF_BAR if str(c) == '獲利賣出' else C_SELL_BAR)
             for s, c in zip(sides, cats)
         ]
-        ax1.bar(per_x, prices, width=per_w, color=bar_colors, alpha=0.70, zorder=3)
+        dot_colors = bar_colors
 
-        # 追蹤均價折線（獲利賣出後重置，用原始 x_num 保持連續）
-        valid = ~np.isnan(sdf['avg_cost'].values)
-        if valid.any():
-            ax1.plot(x_num[valid], sdf['avg_cost'].values[valid],
-                     color='#64b5f6', linewidth=2.2, marker='o', markersize=5, zorder=5)
+        # 決定 bar 的底部（價格區間底 * 0.96，讓柱子「懸浮」在價格帶內）
+        _all_prices = np.concatenate([prices,
+                                      sdf['avg_cost'].dropna().values.astype(float)])
+        _bar_bot    = max(0.0, float(_all_prices.min()) * 0.96)
+        _bar_h      = prices - _bar_bot
+        ax1.bar(per_x, _bar_h, bottom=_bar_bot,
+                width=per_w * 0.55, color=bar_colors, alpha=0.42,
+                edgecolor='none', zorder=3)
+        # 頂端小圓點：清晰標示成交價
+        ax1.scatter(per_x, prices, c=dot_colors, s=40,
+                    edgecolors='white', linewidths=0.6, zorder=6, alpha=0.95)
 
-        # 真實均價折線（灰色虛線，僅在有獲利賣出紀錄時顯示）
+        # 賣出損益標記：標示每筆賣出相對於當時持股均價的報酬率與獲利金額
+        pre_avg_vals = sdf['pre_avg'].values.astype(float)
+        for i, (side, price_i, pre_avg_i, qty_i) in enumerate(
+                zip(sides, prices, pre_avg_vals, qtys)):
+            if side == '賣' and not np.isnan(pre_avg_i) and pre_avg_i > 0:
+                sell_roi  = (price_i / pre_avg_i - 1) * 100
+                profit    = (price_i - pre_avg_i) * qty_i
+                ann_color = '#66bb6a' if sell_roi >= 0 else '#ef5350'
+                if abs(profit) >= 10_000:
+                    profit_str = f'{profit/10_000:+.1f}萬'
+                else:
+                    profit_str = f'{profit:+,.0f}元'
+                ax1.annotate(f'{sell_roi:+.1f}%\n{profit_str}',
+                             xy=(per_x[i], price_i),
+                             xytext=(0, 9), textcoords='offset points',
+                             ha='center', va='bottom', zorder=8,
+                             fontsize=8, color=ann_color, fontweight='bold',
+                             fontfamily=CHART_FONT,
+                             linespacing=1.4)
+
+        # ── 均價折線（含 nan 使出清後自然斷線）────────────────────────────────────
+        avg_vals = sdf['avg_cost'].values.astype(float)
+        if (~np.isnan(avg_vals)).any():
+            ax1.plot(x_num, avg_vals,
+                     color='#26c6da', linewidth=2.2,
+                     marker='o', markersize=4, zorder=7,
+                     markerfacecolor='#26c6da', markeredgecolor='white',
+                     markeredgewidth=0.6)
+
+        # 真實均價（獲利賣出時顯示灰色虛線）
         if has_takep:
-            real_valid = ~np.isnan(sdf['real_avg_cost'].values)
-            if real_valid.any():
-                ax1.plot(x_num[real_valid], sdf['real_avg_cost'].values[real_valid],
-                         color='#90a4ae', linewidth=1.6, linestyle='--',
+            real_avg_vals = sdf['real_avg_cost'].values.astype(float)
+            if (~np.isnan(real_avg_vals)).any():
+                ax1.plot(x_num, real_avg_vals,
+                         color='#78909c', linewidth=1.6, linestyle='--',
                          marker='o', markersize=3, zorder=5)
 
         # 即時現價橫線
-        cur_price, _ = get_price(code)
+        cur_price = _cur_p
         if cur_price:
-            ax1.axhline(cur_price, color='#ffa726', linestyle='--', linewidth=1.8, zorder=4)
+            ax1.axhline(cur_price, color='#ff8f00', linestyle='--',
+                        linewidth=1.4, alpha=0.85, zorder=4)
 
-        # 次軸：交易股數（並排）
-        vol_colors = ['#4caf50' if s == '買' else '#f44336' for s in sides]
-        ax2.bar(per_x, qtys, width=per_w, color=vol_colors, alpha=0.18, zorder=1)
+        # ── 次軸：交易股數 ────────────────────────────────────────────────────
+        vol_colors = [C_BUY_BAR if s == '買' else C_SELL_BAR for s in sides]
+        ax2.bar(per_x, qtys, width=per_w * 0.55, color=vol_colors,
+                alpha=0.15, zorder=1)
         ax2.set_ylabel('交易股數', color=C_FG2, fontsize=9)
-        ax2.tick_params(axis='y', colors=C_FG2)
+        ax2.tick_params(axis='y', colors=C_FG2, labelsize=8)
         ax2.yaxis.set_major_formatter(
             matplotlib.ticker.FuncFormatter(lambda v, _: f'{int(v):,}'))
         for sp in ax2.spines.values():
             sp.set_edgecolor(C_BORDER)
+
+        # ── 第三軸：報酬率曲線 ────────────────────────────────────────────────
+        ax3 = ax1.twinx()
+        ax3.spines['right'].set_position(('outward', 52))
+        ax3.spines['right'].set_edgecolor(C_BORDER)
+        for _sp in ['left', 'top', 'bottom']:
+            ax3.spines[_sp].set_visible(False)
+        ax3.tick_params(axis='y', colors='#ffb300', labelsize=8)
+        ax3.set_ylabel('報酬率 (%)', color='#ffb300', fontsize=9)
+        ax3.yaxis.set_major_formatter(
+            matplotlib.ticker.FuncFormatter(lambda v, _: f'{v:+.1f}%'))
+        if len(roi_x) > 0:
+            # 填色：正報酬綠、負報酬紅
+            ax3.fill_between(roi_x, roi_y, 0,
+                             where=(roi_y >= 0), interpolate=True, alpha=0.13,
+                             color='#00e676', zorder=1)
+            ax3.fill_between(roi_x, roi_y, 0,
+                             where=(roi_y < 0), interpolate=True, alpha=0.13,
+                             color='#ff5252', zorder=1)
+            ax3.plot(roi_x, roi_y, color='#ffb300', linewidth=2.4,
+                     alpha=0.95, zorder=6)
+            ax3.axhline(0, color='#ffffff', linestyle='--',
+                        linewidth=0.7, alpha=0.30)
 
         ax1.xaxis_date()
         ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         self._an_fig.autofmt_xdate(rotation=28, ha='right')
         ax1.yaxis.set_major_formatter(
             matplotlib.ticker.FuncFormatter(lambda v, _: f'{v:,.1f}'))
-        ax1.grid(axis='y', alpha=0.15, linestyle='--', color=C_FG2)
+        ax1.grid(axis='both', alpha=0.10, linestyle=':', color=C_FG2)
+
+        # 顯示完整期間：x 軸延伸（已出清→最後交易日；持倉中→今天）
+        if full_period:
+            if is_cleared:
+                _end_ts = pd.Timestamp(dates[-1]).normalize()
+            else:
+                _end_ts = pd.Timestamp.today().normalize()
+                if hist_close is not None and not hist_close.empty:
+                    _hc_last = pd.Timestamp(hist_close.index[-1])
+                    if _hc_last.tz is not None:
+                        _hc_last = _hc_last.tz_convert(None)
+                    _end_ts = max(_end_ts, _hc_last.normalize())
+            _end_num   = mdates.date2num(_end_ts)
+            _start_num = x_num[0] - bar_w * 1.5
+            ax1.set_xlim(_start_num, _end_num + bar_w * 1.5)
 
         # 圖例
         legend_handles = [
-            Patch(color=C_BUY_FG,  alpha=0.8, label='買入'),
-            Patch(color=C_SELL_FG, alpha=0.8, label='賣出'),
+            Patch(color=C_BUY_BAR,  alpha=0.85, label='買入'),
+            Patch(color=C_SELL_BAR, alpha=0.85, label='賣出'),
         ]
         if has_takep:
-            legend_handles.append(Patch(color='#ffd700', alpha=0.8, label='獲利賣出'))
+            legend_handles.append(Patch(color=C_PROF_BAR, alpha=0.85, label='獲利賣出'))
         if hist_plotted:
             legend_handles.append(
-                Line2D([0], [0], color='#b0bec5', linewidth=1.4, label='收盤價走勢'))
+                Line2D([0], [0], color='#b0bec5', linewidth=0.9,
+                       linestyle='--', label='收盤價走勢'))
         legend_handles.append(
-            Line2D([0], [0], color='#64b5f6', linewidth=2.2,
-                   marker='o', markersize=5, label='追蹤均價' if has_takep else '持股均價'))
+            Line2D([0], [0], color='#26c6da', linewidth=2.2,
+                   marker='o', markersize=4, label='追蹤均價' if has_takep else '持股均價'))
         if has_takep:
             legend_handles.append(
-                Line2D([0], [0], color='#90a4ae', linewidth=1.6, linestyle='--',
+                Line2D([0], [0], color='#78909c', linewidth=1.6, linestyle='--',
                        marker='o', markersize=3, label='真實均價'))
         if cur_price:
             legend_handles.append(
-                Line2D([0], [0], color='#ffa726', linestyle='--',
-                       linewidth=1.8, label=f'現價 {cur_price:.1f}'))
+                Line2D([0], [0], color='#ff8f00', linestyle='--',
+                       linewidth=1.4, label=f'現價 {cur_price:.1f}'))
+        if len(roi_x) > 0:
+            legend_handles.append(
+                Line2D([0], [0], color='#ffb300', linewidth=2.4, label='報酬率'))
         legend = ax1.legend(handles=legend_handles, loc='best',
-                            fontsize=9, framealpha=0.6)
-        legend.get_frame().set_facecolor(C_PANEL)
+                            fontsize=9, framealpha=0.5,
+                            borderpad=0.8, labelspacing=0.5)
+        legend.get_frame().set_facecolor('#0d1117')
+        legend.get_frame().set_edgecolor(C_BORDER)
         for text in legend.get_texts():
             text.set_color(C_FG)
 
@@ -4171,6 +4412,7 @@ class StockApp(tk.Tk):
             })
 
         self._an_fig.tight_layout()
+        self._an_xlim_full = ax1.get_xlim()   # 儲存完整範圍供雙擊重置
         self._an_canvas.draw()
 
 
@@ -4748,10 +4990,15 @@ class StockApp(tk.Tk):
         done = [0]
         lock = threading.Lock()
 
+        failed = []
+
         def _fetch_one(code):
             holdings = _fetch_moneydj_etf_snapshot(code)
             if holdings:
                 _save_etf_holdings_snapshot(code, holdings)
+            else:
+                with lock:
+                    failed.append(code)
             with lock:
                 done[0] += 1
                 n = done[0]
@@ -4759,7 +5006,11 @@ class StockApp(tk.Tk):
                 self.after(0, lambda n=n: self._chg_status.set(f'擷取中 {n}/{len(sel)}…'))
             else:
                 self._chg_fetching = False
-                self.after(0, lambda: self._chg_status.set(f'擷取完成，分析中…'))
+                if failed:
+                    msg = f'擷取失敗：{", ".join(failed)}；其餘分析中…'
+                else:
+                    msg = '擷取完成，分析中…'
+                self.after(0, lambda m=msg: self._chg_status.set(m))
                 self.after(100, self._chg_refresh)
 
         for code in sel:
@@ -4779,16 +5030,32 @@ class StockApp(tk.Tk):
         agg_sell = {}
         missing  = []
 
+        def _snap_sig(lst):
+            """快照內容指紋，用於偵測假日重複快照"""
+            return frozenset((h['code'],
+                              round(h.get('weight', 0.0), 2),
+                              h.get('shares', 0)) for h in lst)
+
         for etf in sel:
             hist  = _load_etf_holdings_history(etf)
             if not hist:
                 missing.append(etf)
                 continue
-            dates = sorted(hist.keys(), reverse=True)
-            new_d = dates[0]
-            old_d = next((d for d in dates[1:] if d <= cutoff), None)
+            dates = sorted(hist.keys(), reverse=True)   # 新→舊
+
+            # 跳過開頭連續內容相同的快照（週末/假日重複抓取）
+            # → new_d = 最後一個「與前一筆相同內容」的日期，即真正的最後交易日
+            new_idx = 0
+            leading_sig = _snap_sig(hist[dates[0]])
+            while (new_idx + 1 < len(dates) and
+                   _snap_sig(hist[dates[new_idx + 1]]) == leading_sig):
+                new_idx += 1
+            new_d = dates[new_idx]
+
+            dates_before = [d for d in dates if d < new_d]
+            old_d = next((d for d in dates_before if d <= cutoff), None)
             if old_d is None:
-                old_d = dates[-1] if len(dates) >= 2 else None
+                old_d = dates_before[-1] if dates_before else None
             if not old_d or old_d == new_d:
                 missing.append(etf)
                 continue
@@ -4817,6 +5084,9 @@ class StockApp(tk.Tk):
         status = f'已分析 {ok}/{len(sel)} 支'
         if missing:
             status += f'（{", ".join(missing)} 快照不足）'
+        if ok > 0 and not agg_buy and not agg_sell:
+            period_lbl = {'1d': '1日', '1w': '1週', '1m': '1月'}[self._chg_period.get()]
+            status += f'　— {period_lbl}內無持股異動，請嘗試較長期間'
         self._chg_status.set(status)
 
         self._chg_agg_buy  = agg_buy
@@ -4827,10 +5097,15 @@ class StockApp(tk.Tk):
 
     def _chg_draw_treemap(self, canvas, agg, side):
         canvas.delete('all')
-        if not agg:
-            return
         canvas.update_idletasks()
         cw, ch = canvas.winfo_width(), canvas.winfo_height()
+        if not agg:
+            if cw > 10 and ch > 10:
+                canvas.create_text(cw // 2, ch // 2,
+                                   text='此期間無持股異動',
+                                   fill='#555566',
+                                   font=('Microsoft JhengHei', 14))
+            return
         if cw < 10 or ch < 10:
             return
         is_shares = self._chg_metric.get() == 'shares'
@@ -9039,6 +9314,12 @@ class StockApp(tk.Tk):
 
 
     # ── 個股分析（Tab 6）─────────────────────────────────────────────────────
+
+    def _open_inventory_analysis(self, code: str):
+        """從庫存樹狀圖右鍵：切換到庫存個股分析並繪圖。"""
+        self._stock_var.set(code)
+        self._show_page(1)
+        self._draw_analysis()
 
     def _open_stk_analysis(self, code: str, name: str = ''):
         """從樹狀圖右鍵呼叫：切換到個股分析並載入。"""
