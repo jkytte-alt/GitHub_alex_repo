@@ -1131,10 +1131,37 @@ _ETF_PCF_HIST_CACHE: dict[str, dict] = {}   # code → {date_str: [holdings]}
 # ── ETF 成分股歷史快照 ──────────────────────────────────────────────────────────
 _ETF_HOLDINGS_HIST_CACHE: dict[str, dict] = {}   # code → {YYYYMMDD: [{code,weight}]}
 
-# ── 主動型 ETF 清單 ────────────────────────────────────────────────────────────
+# ── 主動型 ETF 清單（台股全部主動型 ETF）────────────────────────────────────────
 ACTIVE_ETFS = [
-    ('00981A', '統一增長'), ('00992A', '群益科技'), ('00990A', '元大AI'),
-    ('00400A', '國泰動能'), ('00993A', '安聯台灣'),
+    ('00400A', '主動國泰動能高息'), ('00401A', '主動摩根台灣鑫收'),
+    ('00403A', '主動統一升級50'),   ('00980A', '主動野村臺灣優選'),
+    ('00981A', '主動統一台股增長'), ('00982A', '主動群益台灣強棒'),
+    ('00983A', '主動中信ARK創新'), ('00984A', '主動安聯台灣高息'),
+    ('00985A', '主動野村台灣50'),   ('00986A', '主動台新龍頭成長'),
+    ('00987A', '主動台新優勢成長'), ('00988A', '主動統一全球創新'),
+    ('00989A', '主動摩根美國科技'), ('00990A', '主動元大AI新經濟'),
+    ('00991A', '主動復華未來50'),   ('00992A', '主動群益科技創新'),
+    ('00993A', '主動安聯台灣'),     ('00994A', '主動第一金台股優'),
+    ('00995A', '主動中信台灣卓越'), ('00996A', '主動兆豐台灣豐收'),
+    ('00997A', '主動群益美國增長'), ('00999A', '主動野村臺灣高息'),
+]
+
+# ── ETF 分析頁脈絡屬性（供雙 tab context-swap 使用）────────────────────────────
+_ETF_CTX_ATTRS = [
+    '_etf_ax', '_etf_canvas', '_etf_change_outer', '_etf_code_var',
+    '_etf_combo', '_etf_fig', '_etf_heatmap_canvas', '_etf_heatmap_expanded',
+    '_etf_show_history',
+    '_etf_heatmap_fig', '_etf_info_canvas', '_etf_info_charts', '_etf_info_cid',
+    '_etf_info_fig', '_etf_inner', '_etf_kline_canvas', '_etf_kline_fig',
+    '_etf_rects', '_etf_sc', '_etf_sl_alloc', '_etf_sl_aum', '_etf_sl_change',
+    '_etf_sl_count', '_etf_sl_name', '_etf_sl_nav', '_etf_sl_top', '_etf_sl_yield',
+    '_etf_status', '_etf_sv_alloc', '_etf_sv_aum', '_etf_sv_change', '_etf_sv_count',
+    '_etf_sv_name', '_etf_sv_nav', '_etf_sv_top', '_etf_sv_yield', '_etf_tip_widgets',
+    '_etf_tooltip', '_etf_treemap_expanded', '_etf_var',
+    '_kline_all_axes', '_kline_header', '_kline_hline', '_kline_ind_btns',
+    '_kline_ind_state', '_kline_n', '_kline_ohlcv', '_kline_period', '_kline_period_btns',
+    '_kline_price_ann', '_kline_sub_vlines', '_kline_vline',
+    '_current_kline_code', '_current_kline_name',
 ]
 
 
@@ -4429,9 +4456,10 @@ class StockApp(tk.Tk):
         sub_bar.pack(fill='x', padx=0, pady=0)
 
         self._etf_sub_btns: dict[str, tk.Label] = {}
-        for sid, slbl in [('analysis', 'ETF 成分股分析'),
-                           ('compare',  'ETF 比較'),
-                           ('change',   '主動型ETF分析')]:
+        for sid, slbl in [('analysis',        'ETF 成分股分析'),
+                           ('compare',         'ETF 比較'),
+                           ('change',          '主動型ETF分析'),
+                           ('active_analysis', '主動型ETF成分股分析')]:
             btn = tk.Label(sub_bar, text=slbl,
                            bg='#1a1a2e', fg='#9090a0',
                            font=('Microsoft JhengHei', 10, 'bold'),
@@ -4447,24 +4475,55 @@ class StockApp(tk.Tk):
         self._etf_sub_compare.place(relx=0, rely=0.045, relwidth=1, relheight=0.955)
         self._etf_sub_change   = tk.Frame(f, bg=C_BG)
         self._etf_sub_change.place(relx=0, rely=0.045, relwidth=1, relheight=0.955)
+        self._etf_sub_active   = tk.Frame(f, bg=C_BG)
+        self._etf_sub_active.place(relx=0, rely=0.045, relwidth=1, relheight=0.955)
 
-        self._build_etf_analysis_sub(self._etf_sub_analysis)
+        # 建立一般 ETF 分析 tab，儲存其 UI 脈絡
+        self._build_etf_analysis_sub(self._etf_sub_analysis, ETF_LIST)
+        self._etf_ctx_normal = {k: getattr(self, k, None) for k in _ETF_CTX_ATTRS}
+
+        # 建立主動型 ETF 分析 tab，儲存其 UI 脈絡（不顯示歷史變化區）
+        self._build_etf_analysis_sub(self._etf_sub_active, ACTIVE_ETFS, show_history=False)
+        self._etf_ctx_active = {k: getattr(self, k, None) for k in _ETF_CTX_ATTRS}
+
+        # 預設顯示一般 ETF 脈絡
+        for k, v in self._etf_ctx_normal.items():
+            setattr(self, k, v)
+        self._etf_current_mode = 'normal'
+
         self._build_etf_compare_sub(self._etf_sub_compare)
         self._build_etf_change_sub(self._etf_sub_change)
         self._show_etf_sub('analysis')
 
     def _show_etf_sub(self, sid: str):
-        _frames = {'analysis': self._etf_sub_analysis,
-                   'compare':  self._etf_sub_compare,
-                   'change':   self._etf_sub_change}
+        _frames = {'analysis':        self._etf_sub_analysis,
+                   'compare':         self._etf_sub_compare,
+                   'change':          self._etf_sub_change,
+                   'active_analysis': self._etf_sub_active}
         _frames.get(sid, self._etf_sub_analysis).tkraise()
         for k, btn in self._etf_sub_btns.items():
             btn.config(bg='#2a3f6f' if k == sid else '#1a1a2e',
                        fg='white'   if k == sid else '#9090a0')
+
+        # ── 脈絡切換：在一般/主動型 ETF 分析 tab 之間切換時交換 UI 狀態 ──────
+        if sid == 'analysis' and self._etf_current_mode != 'normal':
+            self._etf_ctx_active = {k: getattr(self, k, None) for k in _ETF_CTX_ATTRS}
+            for k, v in self._etf_ctx_normal.items():
+                setattr(self, k, v)
+            self._etf_current_mode = 'normal'
+        elif sid == 'active_analysis' and self._etf_current_mode != 'active':
+            self._etf_ctx_normal = {k: getattr(self, k, None) for k in _ETF_CTX_ATTRS}
+            for k, v in self._etf_ctx_active.items():
+                setattr(self, k, v)
+            self._etf_current_mode = 'active'
+            self.after(200, self._active_etf_fetch_snapshots)
+
         if sid == 'change':
             self.after(200, self._chg_fetch_all)
 
-    def _build_etf_analysis_sub(self, f):
+    def _build_etf_analysis_sub(self, f, etf_list=None, show_history=True):
+        if etf_list is None:
+            etf_list = ETF_LIST
         # ── 控制列 ────────────────────────────────────────────────────────────
         ctrl = ttk.Frame(f)
         ctrl.pack(fill='x', padx=14, pady=8)
@@ -4477,8 +4536,8 @@ class StockApp(tk.Tk):
             _held = set(load_df()['股票代號'].dropna().astype(str).unique())
         except Exception:
             _held = set()
-        _held_opts  = [f'{c}  ★{n}' for c, n in ETF_LIST if c in _held]
-        _other_opts = [f'{c}  {n}'  for c, n in ETF_LIST if c not in _held]
+        _held_opts  = [f'{c}  ★{n}' for c, n in etf_list if c in _held]
+        _other_opts = [f'{c}  {n}'  for c, n in etf_list if c not in _held]
         etf_options = _held_opts + _other_opts
         self._etf_combo = ttk.Combobox(ctrl, textvariable=self._etf_var,
                                         values=etf_options, state='normal', width=26)
@@ -4683,13 +4742,188 @@ class StockApp(tk.Tk):
             self._etf_heatmap_fig, master=self._etf_inner)
         w3 = self._etf_heatmap_canvas.get_tk_widget()
         w3.configure(bg='#111111')
-        w3.pack(fill='x', padx=8, pady=(2, 2))
-        w3.bind('<MouseWheel>', _mw)
+        if show_history:
+            w3.pack(fill='x', padx=8, pady=(2, 2))
+            w3.bind('<MouseWheel>', _mw)
 
         # ── 成分股變化列表 ──────────────────────────────────────────────
         self._etf_change_outer = tk.Frame(self._etf_inner, bg='#111111')
-        self._etf_change_outer.pack(fill='x', padx=8, pady=(2, 8))
-        self._etf_change_outer.bind('<MouseWheel>', _mw)
+        if show_history:
+            self._etf_change_outer.pack(fill='x', padx=8, pady=(2, 8))
+            self._etf_change_outer.bind('<MouseWheel>', _mw)
+
+        self._etf_show_history  = show_history
+
+        # ── 主動型ETF 成分股比對區（僅 show_history=False 的分頁使用）──────────
+        if not show_history:
+            _DIFF_BG = '#111111'
+            _BAR_BG  = '#1c1c28'
+            _BTN_OFF = dict(bg='#2a2a3a', fg='#9090a0', padx=8, pady=3,
+                            font=('Microsoft JhengHei', 8), cursor='hand2',
+                            relief='flat', bd=0, activebackground='#3a3a4a')
+            _BTN_ON  = dict(bg='#2a3f6f', fg='#ffffff', padx=8, pady=3,
+                            font=('Microsoft JhengHei', 8, 'bold'), cursor='hand2',
+                            relief='flat', bd=0, activebackground='#3a5090')
+            _VS_OFF  = dict(bg='#1c1c28', fg='#6699ff', padx=8, pady=3,
+                            font=('Microsoft JhengHei', 8), cursor='hand2',
+                            relief='flat', bd=0, activebackground='#2a2a3a')
+            _VS_ON   = dict(bg='#1a3a5a', fg='#99ccff', padx=8, pady=3,
+                            font=('Microsoft JhengHei', 8, 'bold'), cursor='hand2',
+                            relief='flat', bd=0, activebackground='#2a4a6a')
+
+            diff_outer = tk.Frame(self._etf_inner, bg=_DIFF_BG)
+            diff_outer.pack(fill='x', padx=8, pady=(4, 8))
+            diff_outer.bind('<MouseWheel>', _mw)
+            self._aetf_diff_outer = diff_outer
+
+            # ── 日期列（上下兩排：基準日期 / 比較日期）─────────────────────
+            date_bar = tk.Frame(diff_outer, bg=_BAR_BG)
+            date_bar.pack(fill='x')
+
+            _LBL_W = 4   # 左側標籤固定寬度（字元）
+
+            # Row 1 — 基準日期
+            row1 = tk.Frame(date_bar, bg=_BAR_BG, pady=4)
+            row1.pack(fill='x')
+            tk.Label(row1, text='日期', bg=_BAR_BG, fg='#8899cc',
+                     font=('Microsoft JhengHei', 9, 'bold'),
+                     width=_LBL_W, anchor='e').pack(side='left', padx=(10, 6))
+            self._aetf_date_canvas = tk.Canvas(row1, bg=_BAR_BG,
+                                               height=28, highlightthickness=0)
+            self._aetf_date_canvas.pack(side='left', fill='x', expand=True, padx=(0, 10))
+            self._aetf_dates_inner = tk.Frame(self._aetf_date_canvas, bg=_BAR_BG)
+            self._aetf_dates_win = self._aetf_date_canvas.create_window(
+                0, 0, anchor='nw', window=self._aetf_dates_inner)
+
+            def _update_scroll_region(e=None):
+                self._aetf_date_canvas.configure(
+                    scrollregion=self._aetf_date_canvas.bbox('all'))
+            self._aetf_dates_inner.bind('<Configure>', _update_scroll_region)
+
+            # Row 2 — 比較日期 (vs)
+            row2 = tk.Frame(date_bar, bg=_BAR_BG, pady=4)
+            row2.pack(fill='x')
+            tk.Label(row2, text='vs', bg=_BAR_BG, fg='#666688',
+                     font=('Microsoft JhengHei', 9, 'bold'),
+                     width=_LBL_W, anchor='e').pack(side='left', padx=(10, 6))
+            self._aetf_vs_canvas = tk.Canvas(row2, bg=_BAR_BG,
+                                             height=28, highlightthickness=0)
+            self._aetf_vs_canvas.pack(side='left', fill='x', expand=True, padx=(0, 10))
+            self._aetf_vs_btns_frame = tk.Frame(self._aetf_vs_canvas, bg=_BAR_BG)
+            self._aetf_vs_win = self._aetf_vs_canvas.create_window(
+                0, 0, anchor='nw', window=self._aetf_vs_btns_frame)
+
+            def _update_vs_scroll_region(e=None):
+                self._aetf_vs_canvas.configure(
+                    scrollregion=self._aetf_vs_canvas.bbox('all'))
+            self._aetf_vs_btns_frame.bind('<Configure>', _update_vs_scroll_region)
+
+            # 拖拉狀態 — 基準日期列
+            _pan = {'x0': 0, 'win_x': 0, 'dragged': False}
+
+            def _pan_press(e):
+                _pan['x0'] = e.x_root
+                _pan['win_x'] = self._aetf_date_canvas.coords(self._aetf_dates_win)[0]
+                _pan['dragged'] = False
+
+            def _pan_move(e):
+                if abs(e.x_root - _pan['x0']) > 3:
+                    _pan['dragged'] = True
+                inner_w  = self._aetf_dates_inner.winfo_reqwidth()
+                canvas_w = self._aetf_date_canvas.winfo_width()
+                limit    = max(0, inner_w - canvas_w)
+                new_x    = max(-limit, min(0, _pan['win_x'] + (e.x_root - _pan['x0'])))
+                self._aetf_date_canvas.coords(self._aetf_dates_win, new_x, 0)
+
+            self._aetf_date_canvas.bind('<ButtonPress-1>', _pan_press)
+            self._aetf_date_canvas.bind('<B1-Motion>',     _pan_move)
+            self._aetf_pan_state = _pan
+            self._aetf_pan_press = _pan_press
+            self._aetf_pan_move  = _pan_move
+
+            # 拖拉狀態 — 比較日期列
+            _vs_pan = {'x0': 0, 'win_x': 0, 'dragged': False}
+
+            def _vs_pan_press(e):
+                _vs_pan['x0'] = e.x_root
+                _vs_pan['win_x'] = self._aetf_vs_canvas.coords(self._aetf_vs_win)[0]
+                _vs_pan['dragged'] = False
+
+            def _vs_pan_move(e):
+                if abs(e.x_root - _vs_pan['x0']) > 3:
+                    _vs_pan['dragged'] = True
+                inner_w  = self._aetf_vs_btns_frame.winfo_reqwidth()
+                canvas_w = self._aetf_vs_canvas.winfo_width()
+                limit    = max(0, inner_w - canvas_w)
+                new_x    = max(-limit, min(0, _vs_pan['win_x'] + (e.x_root - _vs_pan['x0'])))
+                self._aetf_vs_canvas.coords(self._aetf_vs_win, new_x, 0)
+
+            self._aetf_vs_canvas.bind('<ButtonPress-1>', _vs_pan_press)
+            self._aetf_vs_canvas.bind('<B1-Motion>',     _vs_pan_move)
+            self._aetf_vs_pan_state = _vs_pan
+            self._aetf_vs_pan_press = _vs_pan_press
+            self._aetf_vs_pan_move  = _vs_pan_move
+
+            # 摘要 badges
+            badge_bar = tk.Frame(diff_outer, bg=_DIFF_BG)
+            badge_bar.pack(fill='x', padx=4, pady=(4, 2))
+            self._aetf_badge_add = tk.Label(badge_bar, text='', bg='#0a2010', fg='#60e060',
+                                            font=('Microsoft JhengHei', 9, 'bold'),
+                                            padx=10, pady=3)
+            self._aetf_badge_add.pack(side='left', padx=4)
+            self._aetf_badge_inc = tk.Label(badge_bar, text='', bg='#2e0808', fg='#ff7070',
+                                            font=('Microsoft JhengHei', 9, 'bold'),
+                                            padx=10, pady=3)
+            self._aetf_badge_inc.pack(side='left', padx=4)
+            self._aetf_badge_dec = tk.Label(badge_bar, text='', bg='#1a1a1a', fg='#909090',
+                                            font=('Microsoft JhengHei', 9, 'bold'),
+                                            padx=10, pady=3)
+            self._aetf_badge_dec.pack(side='left', padx=4)
+
+            # Treeview 比對表格（含欄位排序）
+            tv_fr = tk.Frame(diff_outer, bg=_DIFF_BG)
+            tv_fr.pack(fill='both', expand=True, padx=0, pady=(2, 0))
+
+            _cols = [
+                ('#',      '#',       35,  'center'),
+                ('code',   '代號',    65,  'center'),
+                ('name',   '名稱',   140,  'w'),
+                ('shares', '張數',    90,  'e'),
+                ('weight', '比重',    90,  'e'),
+                ('wchg',   '比重變化', 100, 'e'),
+                ('schg',   '張數變化', 100, 'e'),
+                ('pchg',   '個股變化', 100, 'e'),
+            ]
+            ttk.Style().configure('AEtf.Treeview', rowheight=22)
+            self._aetf_tv = ttk.Treeview(tv_fr,
+                                          columns=[c for c, *_ in _cols],
+                                          show='headings', height=14,
+                                          style='AEtf.Treeview')
+            for cid, cname, cw, anch in _cols:
+                self._aetf_tv.heading(
+                    cid, text=cname,
+                    command=(lambda _c=cid: self._aetf_sort_col_click(_c))
+                    if cid != '#' else lambda: None)
+                self._aetf_tv.column(cid, width=cw, minwidth=cw, anchor=anch)
+            tv_vsb = ttk.Scrollbar(tv_fr, orient='vertical', command=self._aetf_tv.yview)
+            self._aetf_tv.configure(yscrollcommand=tv_vsb.set)
+            tv_vsb.pack(side='right', fill='y')
+            self._aetf_tv.pack(fill='both', expand=True)
+            self._aetf_tv.tag_configure('add', background='#091a09', foreground='#70e070')
+            self._aetf_tv.tag_configure('inc', background='#1a0909', foreground='#ff7070')
+            self._aetf_tv.tag_configure('dec', background='#131313', foreground='#909090')
+            self._aetf_tv.tag_configure('hdr', background='#1a1a2e', foreground='#aaaacc',
+                                         font=('Microsoft JhengHei', 9, 'bold'))
+
+            self._aetf_date_btns   = {}   # YYYYMMDD → tk.Button (base 列)
+            self._aetf_vs_btns     = {}   # YYYYMMDD → tk.Button (vs 列)
+            self._aetf_base_date   = None
+            self._aetf_comp_date   = None
+            self._aetf_diff_code   = None
+            self._aetf_btn_cfg     = (_BTN_OFF, _BTN_ON)
+            self._aetf_vs_btn_cfg  = (_VS_OFF, _VS_ON)
+            self._aetf_groups      = []   # [(tag, hdr_label, [row_dict])]
+            self._aetf_sort_state  = {'col': None, 'asc': True}
 
         self._etf_rects         = []
         self._etf_tooltip       = None
@@ -4978,6 +5212,31 @@ class StockApp(tk.Tk):
         else:
             self._chg_etf_selected.add(code)
             btn.config(bg='#2a5c8f', fg='white')
+
+    def _active_etf_fetch_snapshots(self):
+        """切換到主動型ETF成分股分析時，靜默在背景更新全部主動型ETF快照。"""
+        if getattr(self, '_active_etf_fetching', False):
+            return
+        self._active_etf_fetching = True
+        codes = [c for c, _ in ACTIVE_ETFS]
+        import threading
+        done = [0]
+        lock = threading.Lock()
+
+        def _fetch_one(code):
+            try:
+                holdings = _fetch_moneydj_etf_snapshot(code)
+                if holdings:
+                    _save_etf_holdings_snapshot(code, holdings)
+            except Exception:
+                pass
+            with lock:
+                done[0] += 1
+                if done[0] == len(codes):
+                    self._active_etf_fetching = False
+
+        for code in codes:
+            threading.Thread(target=_fetch_one, args=(code,), daemon=True).start()
 
     def _chg_fetch_all(self):
         if self._chg_fetching:
@@ -6326,6 +6585,8 @@ class StockApp(tk.Tk):
         self._draw_etf_kline(code, etf_name)
         self._draw_etf_info(components, meta, debug_msg, ind_map or {})
         self._draw_etf_history(code, etf_name)
+        if not getattr(self, '_etf_show_history', True):
+            self._aetf_update_diff_ui(code)
 
     # ── ETF 分析圖（互動式環形圖 × 2）────────────────────────────────────────
     def _draw_etf_info(self, components: list, meta: dict,
@@ -6859,6 +7120,8 @@ class StockApp(tk.Tk):
     # ── ETF 歷史成分股熱力圖 ──────────────────────────────────────────────────
     def _draw_etf_history(self, code: str, etf_name: str):
         """顯示佔位後在背景 thread 載入 PCF 歷史，完成後渲染熱力圖與變化列表。"""
+        if not getattr(self, '_etf_show_history', True):
+            return
         fig = self._etf_heatmap_fig
         fig.clear()
         fig.patch.set_facecolor('#111111')
@@ -7108,6 +7371,229 @@ class StockApp(tk.Tk):
              (f"{'+' if d >= 0 else ''}{d:.2f}%", 'e', 10)]
             for c, nm, ow, nw, d in sorted(changed, key=lambda x: -abs(x[4]))
         ], '#8ab4d4')
+
+    # ── 主動型ETF 成分股比對 ──────────────────────────────────────────────────
+    def _aetf_update_diff_ui(self, code: str):
+        """繪製新 ETF 後，重新建立日期按鈕列並刷新比對表格。"""
+        self._aetf_diff_code = code
+
+        for w in self._aetf_dates_inner.winfo_children():
+            w.destroy()
+        for w in self._aetf_vs_btns_frame.winfo_children():
+            w.destroy()
+        self._aetf_date_canvas.coords(self._aetf_dates_win, 0, 0)
+        self._aetf_vs_canvas.coords(self._aetf_vs_win, 0, 0)
+        self._aetf_date_btns = {}
+        self._aetf_vs_btns   = {}
+        self._aetf_sort_state = {'col': None, 'asc': True}
+
+        hist = _load_etf_holdings_history(code)
+        # 過濾週末及無資料日期
+        dates = sorted(
+            [d for d in hist if hist[d] and
+             datetime.strptime(d, '%Y%m%d').weekday() < 5],
+            reverse=True
+        )
+        if not dates:
+            return
+
+        _BTN_OFF, _BTN_ON = self._aetf_btn_cfg
+
+        def _fmt(d): return f'{d[:4]}/{d[4:6]}/{d[6:]}'
+
+        for d in dates:
+            btn = tk.Button(
+                self._aetf_dates_inner, text=_fmt(d),
+                **(dict(_BTN_ON) if d == dates[0] else dict(_BTN_OFF)),
+                command=lambda _d=d: self._aetf_select_base_date(_d))
+            btn.pack(side='left', padx=2)
+            btn.bind('<ButtonPress-1>', self._aetf_pan_press)
+            btn.bind('<B1-Motion>',     self._aetf_pan_move)
+            self._aetf_date_btns[d] = btn
+
+        self._aetf_select_base_date(dates[0], _init=True)
+
+    def _aetf_select_base_date(self, d: str, _init: bool = False):
+        """點選基準日期，更新 vs 按鈕列並刷新比對表。"""
+        if not _init and self._aetf_pan_state.get('dragged', False):
+            return
+
+        _BTN_OFF, _BTN_ON = self._aetf_btn_cfg
+        _VS_OFF,  _VS_ON  = self._aetf_vs_btn_cfg
+
+        for _d, btn in self._aetf_date_btns.items():
+            btn.config(**(dict(_BTN_ON) if _d == d else dict(_BTN_OFF)))
+        self._aetf_base_date = d
+
+        # 重建 vs 按鈕（只顯示比 base_d 更早的日期）
+        for w in self._aetf_vs_btns_frame.winfo_children():
+            w.destroy()
+        self._aetf_vs_btns = {}
+
+        dates   = sorted(self._aetf_date_btns.keys(), reverse=True)
+        earlier = [x for x in dates if x < d]
+
+        hist = _load_etf_holdings_history(self._aetf_diff_code)
+
+        if not earlier:
+            self._aetf_comp_date = d
+            self._aetf_refresh_diff(hist, d, d)
+            return
+
+        # 維持上次選的 comp 日期（若仍在 earlier 中），否則取最近一天
+        comp_d = self._aetf_comp_date if self._aetf_comp_date in earlier else earlier[0]
+        self._aetf_comp_date = comp_d
+
+        def _fmt(x): return f'{x[:4]}/{x[4:6]}/{x[6:]}'
+
+        for x in earlier:
+            btn = tk.Button(
+                self._aetf_vs_btns_frame, text=_fmt(x),
+                **(dict(_VS_ON) if x == comp_d else dict(_VS_OFF)),
+                command=lambda _x=x: self._aetf_select_vs_date(_x))
+            btn.pack(side='left', padx=2)
+            btn.bind('<ButtonPress-1>', self._aetf_vs_pan_press)
+            btn.bind('<B1-Motion>',     self._aetf_vs_pan_move)
+            self._aetf_vs_btns[x] = btn
+
+        self._aetf_refresh_diff(hist, d, comp_d)
+
+    def _aetf_select_vs_date(self, d: str):
+        """點選比較日期按鈕。"""
+        if self._aetf_vs_pan_state.get('dragged', False):
+            return
+        _VS_OFF, _VS_ON = self._aetf_vs_btn_cfg
+        for _d, btn in self._aetf_vs_btns.items():
+            btn.config(**(dict(_VS_ON) if _d == d else dict(_VS_OFF)))
+        self._aetf_comp_date = d
+        hist = _load_etf_holdings_history(self._aetf_diff_code)
+        self._aetf_refresh_diff(hist, self._aetf_base_date, d)
+
+    def _aetf_refresh_diff(self, hist: dict, base_d: str, comp_d: str):
+        """比對兩個快照，分類為新增/加碼/減碼，存入 _aetf_groups，呼叫 _aetf_populate_tv。"""
+        self._aetf_badge_add.config(text='')
+        self._aetf_badge_inc.config(text='')
+        self._aetf_badge_dec.config(text='')
+
+        base = {h['code']: h for h in hist.get(base_d, [])}
+        comp = {h['code']: h for h in hist.get(comp_d, [])}
+        if not base:
+            self._aetf_groups = []
+            self._aetf_populate_tv()
+            return
+
+        _load_twse_stock_names()
+
+        added_rows     = []
+        increased_rows = []
+        decreased_rows = []
+
+        for code, bh in base.items():
+            ch      = comp.get(code)
+            bshares = bh.get('shares', 0)
+            bweight = bh.get('weight', 0)
+
+            if ch is None:
+                added_rows.append({
+                    'code': code, 'name': _TWSE_NAMES_CACHE.get(code, code),
+                    'shares': bshares, 'weight': bweight,
+                    'wchg': bweight, 'schg': bshares, 'pchg': None,
+                })
+            else:
+                cshares = ch.get('shares', 0)
+                cweight = ch.get('weight', 0)
+                dw = bweight - cweight
+                ds = bshares - cshares
+                if abs(dw) < 0.005:
+                    continue
+                pchg = (ds / cshares * 100) if cshares else None
+                row = {
+                    'code': code, 'name': _TWSE_NAMES_CACHE.get(code, code),
+                    'shares': bshares, 'weight': bweight,
+                    'wchg': dw, 'schg': ds, 'pchg': pchg,
+                }
+                if dw > 0:
+                    increased_rows.append(row)
+                else:
+                    decreased_rows.append(row)
+
+        added_rows.sort(    key=lambda r: -r['weight'])
+        increased_rows.sort(key=lambda r: -r['wchg'])
+        decreased_rows.sort(key=lambda r:  r['wchg'])
+
+        self._aetf_groups = [
+            ('add', f'↑ 新增  {len(added_rows)} 檔',     added_rows),
+            ('inc', f'↑ 加碼  {len(increased_rows)} 檔', increased_rows),
+            ('dec', f'↓ 減碼  {len(decreased_rows)} 檔', decreased_rows),
+        ]
+        self._aetf_populate_tv()
+
+        self._aetf_badge_add.config(text=f'↑ 新增 {len(added_rows)} 檔'     if added_rows     else '')
+        self._aetf_badge_inc.config(text=f'↑ 加碼 {len(increased_rows)} 檔' if increased_rows else '')
+        self._aetf_badge_dec.config(text=f'↓ 減碼 {len(decreased_rows)} 檔' if decreased_rows else '')
+
+    def _aetf_populate_tv(self):
+        """依 _aetf_sort_state 排序後填入 Treeview。"""
+        tv  = self._aetf_tv
+        col = self._aetf_sort_state['col']
+        asc = self._aetf_sort_state['asc']
+
+        for iid in tv.get_children():
+            tv.delete(iid)
+
+        def _fmt_wu(v): return f'{v:.2f}%'
+        def _fmt_s(v):  return f'{v/1000:,.0f}'
+
+        for tag, hdr_label, rows in self._aetf_groups:
+            if not rows:
+                continue
+            if col:
+                none_rows   = [r for r in rows if r.get(col) is None]
+                valued_rows = [r for r in rows if r.get(col) is not None]
+                sorted_rows = sorted(valued_rows,
+                                     key=lambda r: r[col],
+                                     reverse=not asc) + none_rows
+            else:
+                sorted_rows = rows
+
+            tv.insert('', 'end', values=(hdr_label, '', '', '', '', '', '', ''), tags=('hdr',))
+            for i, r in enumerate(sorted_rows, 1):
+                is_add   = (tag == 'add')
+                wchg_str = f"{r['wchg']:+.2f}%"
+                schg_str = '新' if is_add else f"{r['schg']/1000:+,.0f}"
+                pchg_str = '新' if is_add else (
+                    f"{r['pchg']:+.1f}%" if r['pchg'] is not None else '--')
+                tv.insert('', 'end', tags=(tag,), values=(
+                    i,
+                    r['code'],
+                    r['name'],
+                    _fmt_s(r['shares']),
+                    _fmt_wu(r['weight']),
+                    wchg_str,
+                    schg_str,
+                    pchg_str,
+                ))
+
+    def _aetf_sort_col_click(self, col_id: str):
+        """欄位標題點擊，切換排序方向並重新填入 Treeview。"""
+        st = self._aetf_sort_state
+        if st['col'] == col_id:
+            st['asc'] = not st['asc']
+        else:
+            st['col'] = col_id
+            st['asc'] = True
+
+        _col_names = {
+            '#': '#', 'code': '代號', 'name': '名稱', 'shares': '張數',
+            'weight': '比重', 'wchg': '比重變化', 'schg': '張數變化', 'pchg': '個股變化',
+        }
+        for cid, cname in _col_names.items():
+            if cid == '#':
+                continue
+            ind = (' ▲' if st['asc'] else ' ▼') if cid == col_id else ''
+            self._aetf_tv.heading(cid, text=cname + ind)
+
+        self._aetf_populate_tv()
 
     # ── ETF 樹狀圖 hover ──────────────────────────────────────────────────────
     def _on_etf_motion(self, event):
