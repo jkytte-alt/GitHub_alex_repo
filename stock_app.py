@@ -1289,25 +1289,45 @@ def _load_etf_holdings_history(code: str) -> dict[str, list]:
     return {}
 
 
+def _last_weekday_str() -> str:
+    """回傳最近一個工作日（週一~週五）的 YYYYMMDD 字串。
+    週六/週日往前推到週五，確保快照 key 不落在非交易日。"""
+    from datetime import date as _d, timedelta as _td
+    d = _d.today()
+    while d.weekday() >= 5:   # 5=Sat, 6=Sun
+        d -= _td(days=1)
+    return d.strftime('%Y%m%d')
+
+
 def _save_etf_holdings_snapshot(code: str, holdings: list[dict]) -> str:
     """儲存一份帶日期的快照到磁碟；回傳日期字串 YYYYMMDD。
-    若新快照與最近一筆完全相同（假日/非交易日重複抓取），跳過儲存以避免
-    diff 時把「今天 vs 今天同內容的昨天」誤判為無異動。
+    使用最近工作日（非週末）作為 key，內容不變則跳過儲存。
     """
-    from datetime import date as _ddate
-    _ds = _ddate.today().strftime('%Y%m%d')
+    _ds   = _last_weekday_str()
     _hist = _load_etf_holdings_history(code)
 
-    # 比對內容：若與現有最新快照相同就不存新日期
+    def _sig(lst):
+        return frozenset((h['code'],
+                          round(h.get('weight', 0.0), 2),
+                          h.get('shares', 0)) for h in lst)
+
+    # 若最新快照內容完全相同（無論日期是否不同），跳過
     if _hist:
         _latest_d = max(_hist.keys())
-        if _latest_d != _ds:   # 日期不同才需要比對
-            def _sig(lst):
-                return frozenset((h['code'],
-                                  round(h.get('weight', 0.0), 2),
-                                  h.get('shares', 0)) for h in lst)
-            if _sig(holdings) == _sig(_hist[_latest_d]):
-                return _latest_d   # 內容相同，維持上次日期不寫入
+        if _sig(holdings) == _sig(_hist[_latest_d]):
+            # 若 key 也相同直接返回；若 key 不同（舊日期→新工作日）仍更新 key
+            if _latest_d == _ds:
+                return _ds
+            # 把舊日期的快照重新掛到新工作日 key（補齊缺漏日期）
+            _hist[_ds] = _hist[_latest_d]
+            _ETF_HOLDINGS_HIST_CACHE[code] = _hist
+            _path = os.path.join(BASE_DIR, f'.etf_holdings_hist_{code}.json')
+            try:
+                with open(_path, 'w', encoding='utf-8') as _f:
+                    _json.dump(_hist, _f, ensure_ascii=False, separators=(',', ':'))
+            except Exception:
+                pass
+            return _ds
 
     _hist[_ds] = holdings
     _ETF_HOLDINGS_HIST_CACHE[code] = _hist
@@ -4864,7 +4884,7 @@ class StockApp(tk.Tk):
             self._aetf_vs_pan_press = _vs_pan_press
             self._aetf_vs_pan_move  = _vs_pan_move
 
-            # 摘要 badges
+            # 摘要 badges + 更新狀態
             badge_bar = tk.Frame(diff_outer, bg=_DIFF_BG)
             badge_bar.pack(fill='x', padx=4, pady=(4, 2))
             self._aetf_badge_add = tk.Label(badge_bar, text='', bg='#0a2010', fg='#60e060',
@@ -4879,6 +4899,9 @@ class StockApp(tk.Tk):
                                             font=('Microsoft JhengHei', 9, 'bold'),
                                             padx=10, pady=3)
             self._aetf_badge_dec.pack(side='left', padx=4)
+            self._aetf_fetch_lbl = tk.Label(badge_bar, text='', bg=_DIFF_BG, fg='#555577',
+                                            font=('Microsoft JhengHei', 8))
+            self._aetf_fetch_lbl.pack(side='right', padx=8)
 
             # Treeview 比對表格（含欄位排序）
             tv_fr = tk.Frame(diff_outer, bg=_DIFF_BG)
@@ -5220,20 +5243,53 @@ class StockApp(tk.Tk):
         self._active_etf_fetching = True
         codes = [c for c, _ in ACTIVE_ETFS]
         import threading
-        done = [0]
-        lock = threading.Lock()
+        done  = [0]
+        saved = [0]   # 真正寫入新快照的數量
+        lock  = threading.Lock()
+
+        from datetime import datetime as _dt_cls
+        _today_ds = _last_weekday_str()
+
+        def _set_lbl(text, color='#555577'):
+            lbl = getattr(self, '_aetf_fetch_lbl', None)
+            if lbl and lbl.winfo_exists():
+                lbl.config(text=text, fg=color)
+
+        self.after(0, lambda: _set_lbl(f'↻ 更新中 0/{len(codes)}…', '#7799bb'))
 
         def _fetch_one(code):
+            refreshed   = False
+            got_new     = False
             try:
                 holdings = _fetch_moneydj_etf_snapshot(code)
                 if holdings:
-                    _save_etf_holdings_snapshot(code, holdings)
+                    saved_ds = _save_etf_holdings_snapshot(code, holdings)
+                    if saved_ds == _today_ds:
+                        got_new = True
+                        if getattr(self, '_aetf_diff_code', None) == code:
+                            refreshed = True
             except Exception:
                 pass
             with lock:
                 done[0] += 1
-                if done[0] == len(codes):
+                if got_new:
+                    saved[0] += 1
+                n, total = done[0], len(codes)
+                if n < total:
+                    self.after(0, lambda _n=n: _set_lbl(
+                        f'↻ 更新中 {_n}/{total}…', '#7799bb'))
+                else:
                     self._active_etf_fetching = False
+                    _ts  = _dt_cls.now().strftime('%H:%M')
+                    _cnt = saved[0]
+                    if _cnt:
+                        self.after(0, lambda: _set_lbl(
+                            f'✓ {_ts} 新增 {_cnt} 筆快照', '#55bb77'))
+                    else:
+                        self.after(0, lambda: _set_lbl(
+                            f'✓ {_ts} 無新資料（已是最新）', '#556677'))
+            if refreshed:
+                self.after(0, lambda: self._aetf_update_diff_ui(code))
 
         for code in codes:
             threading.Thread(target=_fetch_one, args=(code,), daemon=True).start()
