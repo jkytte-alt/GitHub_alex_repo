@@ -22,7 +22,9 @@
       "Bash(python -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(row\\) for row in data]\")",
       "Bash(python -c \"print\\(open\\('d:/tmp_decode.txt', encoding='utf-8'\\).read\\(\\)\\)\")",
       "Bash(python -c \"import ast, sys; ast.parse\\(open\\('stock_app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('stock_app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('stock_app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('stock_app.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(grep -n \"get_price\\\\|get_history\\\\|get_price_on_date\" d:\\\\\\\\python\\\\\\\\GitHub_alex_repo\\\\\\\\stock_app.py)"
     ]
   }
 }

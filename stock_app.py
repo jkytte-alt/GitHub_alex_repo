@@ -1940,6 +1940,266 @@ def pnl_color_us(pct: float, max_abs: float = 10.0) -> str:
         b = int(0x3a + t * (0x20 - 0x3a))
     return f'#{r:02x}{g:02x}{b:02x}'
 
+
+def _fetch_earn_pct(hist: dict, rows_by_tag: dict, date_vs: str, date_sel: str) -> dict:
+    """
+    逐日追蹤快照持股異動，計算加權平均買入/賣出價，回傳 {code: earn_pct}。
+    rows_by_tag: {'add': [...], 'inc': [...], 'dec': [...]}
+    date_vs/date_sel: YYYYMMDD，date_vs 為舊（比較）日，date_sel 為新（選擇）日。
+    加碼/新增 → 加權平均買入價 vs date_sel 收盤；減碼 → 加權平均賣出價 vs date_sel 收盤。
+    """
+    code_to_tag = {}
+    all_codes = set()
+    for tag, rows in rows_by_tag.items():
+        for r in rows:
+            code_to_tag[r['code']] = tag
+            all_codes.add(r['code'])
+    if not all_codes:
+        return {}
+
+    # 找出兩日期之間所有已快取的快照日期（含兩端）
+    snap_dates = sorted(d for d in hist.keys() if date_vs <= d <= date_sel)
+    if len(snap_dates) < 2:
+        return {}
+
+    # 逐日計算持股變化量 (delta > 0 = 買入, delta < 0 = 賣出)
+    code_changes: dict[str, list] = {c: [] for c in all_codes}
+    for code in all_codes:
+        prev = None
+        for d in snap_dates:
+            snap = {h['code']: h for h in hist.get(d, [])}
+            curr = snap[code].get('shares', 0) if code in snap else 0
+            if prev is not None and curr != prev:
+                code_changes[code].append((d, curr - prev))
+            prev = curr
+
+    # 收集所有需要抓取股價的日期
+    price_dates = {date_sel}
+    for changes in code_changes.values():
+        for d, _ in changes:
+            price_dates.add(d)
+
+    # 批次下載股價
+    try:
+        tickers   = [f'{c}.TW' for c in all_codes]
+        d_start   = min(price_dates)
+        d_start_s = f'{d_start[:4]}-{d_start[4:6]}-{d_start[6:]}'
+        d_sel_s   = f'{date_sel[:4]}-{date_sel[4:6]}-{date_sel[6:]}'
+        d_end_s   = (datetime.strptime(d_sel_s, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+        df = yf.download(tickers, start=d_start_s, end=d_end_s,
+                         auto_adjust=True, progress=False, threads=True)
+        if df.empty:
+            return {}
+        if isinstance(df.columns, pd.MultiIndex):
+            close = df['Close']
+        else:
+            close = df[['Close']].rename(columns={'Close': tickers[0]})
+        price_series: dict[str, pd.Series] = {}
+        for code in all_codes:
+            ticker = f'{code}.TW'
+            if ticker in close.columns:
+                col = close[ticker].dropna()
+                if not col.empty:
+                    price_series[code] = col
+    except Exception:
+        return {}
+
+    def _get_price(code, date_str):
+        col = price_series.get(code)
+        if col is None:
+            return None
+        ts  = pd.Timestamp(f'{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}')
+        sub = col[col.index <= ts]
+        return float(sub.iloc[-1]) if not sub.empty else None
+
+    pct_result: dict[str, float]       = {}
+    chg_result: dict[str, list]        = {}
+    for code in all_codes:
+        changes = code_changes.get(code, [])
+        if not changes:
+            continue
+        p_sel = _get_price(code, date_sel)
+        if p_sel is None:
+            continue
+        tag = code_to_tag.get(code)
+        total_shares, total_cost = 0, 0.0
+        detail: list[tuple] = []
+        for d, delta in changes:
+            # 新增/加碼：只累計正向（買入）異動；減碼：只累計負向（賣出）
+            if tag in ('add', 'inc') and delta <= 0:
+                continue
+            if tag == 'dec' and delta >= 0:
+                continue
+            p = _get_price(code, d)
+            if p and p > 0:
+                total_shares += abs(delta)
+                total_cost   += abs(delta) * p
+                detail.append((d, delta, p))
+        if total_shares > 0:
+            wavg = total_cost / total_shares
+            if wavg > 0:
+                pct_result[code] = (p_sel - wavg) / wavg * 100
+                chg_result[code] = detail
+    return pct_result, chg_result
+
+
+def _draw_heatmap(fig, canvas, all_rows: list, groups: list,
+                  mode: str, title_str: str, rects_out: list = None):
+    """繪製主動型ETF成分股 treemap 熱力圖。回傳 ax 供 hover 使用。"""
+    add_codes = {r['code'] for tag, _, rows in groups if tag == 'add' for r in rows}
+
+    if rects_out is not None:
+        rects_out.clear()
+
+    fig.clear()
+    fig.patch.set_facecolor('#111111')
+
+    sax = fig.add_axes([0, 0.965, 1, 0.035])
+    sax.set_facecolor('#1a1a2e')
+    sax.axis('off')
+    sax.text(0.5, 0.5, title_str,
+             ha='center', va='center', color='#9090cc',
+             fontsize=9, fontfamily=CHART_FONT, transform=sax.transAxes)
+
+    ax = fig.add_axes([0, 0, 1, 0.96])
+    ax.set_facecolor('#111111')
+    ax.set_xlim(0, 100)
+    ax.set_ylim(0, 100)
+    ax.axis('off')
+
+    rows = [r for r in all_rows if (r.get('weight') or 0) > 0]
+    if not rows:
+        ax.text(0.5, 0.5, '無成分股資料', ha='center', va='center',
+                color='#888', fontsize=14, fontfamily=CHART_FONT,
+                transform=ax.transAxes)
+        canvas.draw()
+        return ax
+
+    rows.sort(key=lambda r: r['weight'], reverse=True)
+
+    weights = [r['weight'] for r in rows]
+    norm_w  = squarify.normalize_sizes(weights, 100, 100)
+    raw     = squarify.squarify(norm_w, 0, 0, 100, 100)
+    rects   = [{'x': r['x'], 'y': 100 - r['y'] - r['dy'],
+                'dx': r['dx'], 'dy': r['dy']} for r in raw]
+
+    vals = []
+    for r in rows:
+        v = r.get(mode)
+        vals.append(float(v) if v is not None else 0.0)
+
+    max_abs = max((abs(v) for v in vals), default=5.0) or 5.0
+
+    dpi       = fig.dpi
+    fig_w_px  = fig.get_size_inches()[0] * dpi
+    fig_h_px  = fig.get_size_inches()[1] * dpi * 0.96
+    px_per_ux = fig_w_px / 100
+    px_per_uy = fig_h_px / 100
+    pt_per_px = 72 / dpi
+    GAP = 0.35
+
+    for row, rect, val in zip(rows, rects, vals):
+        rx = rect['x'] + GAP / 2
+        ry = rect['y'] + GAP / 2
+        rw = rect['dx'] - GAP
+        rh = rect['dy'] - GAP
+        if rw <= 0 or rh <= 0:
+            continue
+
+        fc     = pnl_color(val, max_abs)
+        is_new = row['code'] in add_codes
+        ec     = '#ffffff' if is_new else '#222233'
+        lw     = 1.2 if is_new else 0.4
+
+        ax.add_patch(plt.Rectangle(
+            (rx, ry), rw, rh,
+            facecolor=fc, edgecolor=ec, linewidth=lw, zorder=1))
+
+        if rects_out is not None:
+            rects_out.append({
+                'rx': rx, 'ry': ry, 'rw': rw, 'rh': rh,
+                'code':     row['code'],
+                'name':     row['name'],
+                'weight':   row['weight'],
+                'wchg':     row.get('wchg'),
+                'pchg':     row.get('pchg'),
+                'shares':   row.get('shares'),
+                'schg':     row.get('schg'),
+                'earn_pct':     row.get('earn_pct'),
+                'earn_label':   row.get('earn_label', '期間漲跌'),
+                'earn_changes': row.get('earn_changes', []),
+                'is_new':       is_new,
+                'mode':         mode,
+            })
+
+        min_dim = min(rw, rh)
+        if min_dim < 1.5:
+            continue
+
+        rw_px     = rw * px_per_ux
+        rh_px     = rh * px_per_uy
+        name_disp = row['name'][:8] if len(row['name']) > 8 else row['name']
+        code_disp = row['code']
+        if mode == 'pchg':
+            chg_str = ('新' if is_new
+                       else (f"{val:+.1f}%" if row.get('pchg') is not None else '--'))
+        else:
+            chg_str = f"{val:+.2f}%"
+
+        chars   = max(len(name_disp), len(code_disp), 4)
+        fs_by_w = 0.55 * rw_px * pt_per_px / (chars * 0.60)
+        fs_by_h = 0.60 * rh_px * pt_per_px / 3.8
+        fs_name = max(min(fs_by_w, fs_by_h, 36), 5.5)
+        fs_code = max(fs_name * 0.80, 5)
+        fs_pct  = max(fs_name * 0.72, 5)
+        cx_t    = rx + rw / 2
+        mid_y   = ry + rh * 0.50
+
+        if min_dim >= 6:
+            line_gap  = fs_name / pt_per_px / px_per_uy * 1.15
+            earn_pct  = row.get('earn_pct')
+            show_earn = earn_pct is not None and rh_px >= 60
+            off       = 0.5 if show_earn else 0
+            ax.text(cx_t, mid_y + line_gap * (1 + off), name_disp,
+                    ha='center', va='center', color='white',
+                    fontsize=fs_name, fontweight='bold',
+                    fontfamily=CHART_FONT, clip_on=True, zorder=4)
+            ax.text(cx_t, mid_y + line_gap * off, code_disp,
+                    ha='center', va='center', color='#cccccc',
+                    fontsize=fs_code, fontfamily=CHART_FONT,
+                    clip_on=True, zorder=4)
+            ax.text(cx_t, mid_y - line_gap * (1 - off), chg_str,
+                    ha='center', va='center', color='white',
+                    fontsize=fs_pct, fontfamily=CHART_FONT,
+                    clip_on=True, zorder=4)
+            if show_earn:
+                earn_fg = '#f07070' if earn_pct >= 0 else '#4ec94e'
+                ax.text(cx_t, mid_y - line_gap * (1 + off),
+                        f'期間 {earn_pct:+.2f}%',
+                        ha='center', va='center', color=earn_fg,
+                        fontsize=fs_pct * 0.88, fontfamily=CHART_FONT,
+                        clip_on=True, zorder=4)
+        elif min_dim >= 4:
+            gap = (fs_name / pt_per_px / px_per_uy +
+                   fs_pct  / pt_per_px / px_per_uy) * 0.55
+            ax.text(cx_t, mid_y + gap * 0.5, name_disp,
+                    ha='center', va='center', color='white',
+                    fontsize=fs_name, fontweight='bold',
+                    fontfamily=CHART_FONT, clip_on=True, zorder=4)
+            ax.text(cx_t, mid_y - gap * 0.5, chg_str,
+                    ha='center', va='center', color='white',
+                    fontsize=fs_pct, fontfamily=CHART_FONT,
+                    clip_on=True, zorder=4)
+        else:
+            ax.text(cx_t, mid_y, name_disp,
+                    ha='center', va='center', color='white',
+                    fontsize=fs_name, fontweight='bold',
+                    fontfamily=CHART_FONT, clip_on=True, zorder=4)
+
+    canvas.draw()
+    return ax
+
+
 # ─── 美股 S&P 500 類股代號對照表 ──────────────────────────────────────────────
 _US_SECTOR_STOCKS: dict[str, list[str]] = {
     '科技': [
@@ -4739,21 +4999,23 @@ class StockApp(tk.Tk):
         wk.pack(fill='both', expand=True)
         wk.bind('<MouseWheel>', _mw)
 
-        # ── 樹狀圖畫布（K 線之後）────────────────────────────────────────
+        # ── 樹狀圖畫布（K 線之後，主動型tab 則排在比對區後面）────────────
         self._etf_fig    = plt.Figure(figsize=(9.5, 5.3), dpi=100, facecolor='#111111')
         self._etf_canvas = FigureCanvasTkAgg(self._etf_fig, master=self._etf_inner)
         w = self._etf_canvas.get_tk_widget()
         w.configure(bg='#111111')
-        w.pack(fill='x', padx=8, pady=(2, 2))
-        w.bind('<MouseWheel>', _mw)
+        if show_history:
+            w.pack(fill='x', padx=8, pady=(2, 2))
+            w.bind('<MouseWheel>', _mw)
 
         # ── 分析圖畫布（環形圖）────────────────────────────────────────────
         self._etf_info_fig = plt.Figure(figsize=(9.5, 4.2), dpi=100, facecolor='#1a1a2e')
         self._etf_info_canvas = FigureCanvasTkAgg(self._etf_info_fig, master=self._etf_inner)
         w2 = self._etf_info_canvas.get_tk_widget()
         w2.configure(bg='#1a1a2e')
-        w2.pack(fill='x', padx=8, pady=(2, 8))
-        w2.bind('<MouseWheel>', _mw)
+        if show_history:
+            w2.pack(fill='x', padx=8, pady=(2, 8))
+            w2.bind('<MouseWheel>', _mw)
 
         # ── 歷史熱力圖畫布 ─────────────────────────────────────────────────
         self._etf_heatmap_fig = plt.Figure(figsize=(9.5, 5.5), dpi=100,
@@ -4903,6 +5165,76 @@ class StockApp(tk.Tk):
                                             font=('Microsoft JhengHei', 8))
             self._aetf_fetch_lbl.pack(side='right', padx=8)
 
+            # ── 熱力圖模式切換列 ───────────────────────────────────────────
+            _HM_SEL   = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', bd=0,
+                              font=('Microsoft JhengHei', 8, 'bold'),
+                              padx=10, pady=3, cursor='hand2',
+                              activebackground='#3a5090')
+            _HM_UNSEL = dict(bg='#1a1a2e', fg='#7a8aaa', relief='flat', bd=0,
+                              font=('Microsoft JhengHei', 8),
+                              padx=10, pady=3, cursor='hand2',
+                              activebackground='#2a2a3e')
+
+            hm_ctrl = tk.Frame(diff_outer, bg='#1a1a2e')
+            hm_ctrl.pack(fill='x', pady=(2, 0))
+            tk.Label(hm_ctrl, text='熱力圖', bg='#1a1a2e', fg='#555577',
+                     font=('Microsoft JhengHei', 8)).pack(side='left', padx=8)
+
+            self._aetf_hm_mode    = 'wchg'
+            self._aetf_hm_rects   = []
+            self._aetf_hm_ax      = None
+            self._aetf_hm_tooltip = None
+
+            self._aetf_hm_today_btn = tk.Button(hm_ctrl, text='今日漲跌', **_HM_UNSEL)
+            self._aetf_hm_wchg_btn  = tk.Button(hm_ctrl, text='比重變化',  **_HM_SEL)
+            self._aetf_hm_pchg_btn  = tk.Button(hm_ctrl, text='張數變化率', **_HM_UNSEL)
+
+            def _hm_all_unsel():
+                self._aetf_hm_today_btn.config(**_HM_UNSEL)
+                self._aetf_hm_wchg_btn.config(**_HM_UNSEL)
+                self._aetf_hm_pchg_btn.config(**_HM_UNSEL)
+
+            def _hm_set_today():
+                self._aetf_hm_mode = 'today'
+                _hm_all_unsel()
+                self._aetf_hm_today_btn.config(**_HM_SEL)
+                self._aetf_hm_rects = []
+                self._aetf_redraw_heatmap()
+
+            def _hm_set_wchg():
+                self._aetf_hm_mode = 'wchg'
+                _hm_all_unsel()
+                self._aetf_hm_wchg_btn.config(**_HM_SEL)
+                self._aetf_redraw_heatmap()
+
+            def _hm_set_pchg():
+                self._aetf_hm_mode = 'pchg'
+                _hm_all_unsel()
+                self._aetf_hm_pchg_btn.config(**_HM_SEL)
+                self._aetf_redraw_heatmap()
+
+            self._aetf_hm_today_btn.config(command=_hm_set_today)
+            self._aetf_hm_wchg_btn.config(command=_hm_set_wchg)
+            self._aetf_hm_pchg_btn.config(command=_hm_set_pchg)
+            self._aetf_hm_today_btn.pack(side='left', padx=2)
+            self._aetf_hm_wchg_btn.pack(side='left', padx=2)
+            self._aetf_hm_pchg_btn.pack(side='left', padx=0)
+
+            # ── 嵌入式熱力圖畫布 ──────────────────────────────────────────
+            self._aetf_hm_fig    = plt.Figure(figsize=(9.5, 4.5), dpi=100,
+                                              facecolor='#111111')
+            self._aetf_hm_canvas = FigureCanvasTkAgg(self._aetf_hm_fig,
+                                                      master=diff_outer)
+            _wh = self._aetf_hm_canvas.get_tk_widget()
+            _wh.configure(bg='#111111')
+            _wh.pack(fill='x', padx=0, pady=(0, 2))
+            _wh.bind('<MouseWheel>', _mw)
+            self._aetf_hm_canvas.mpl_connect(
+                'motion_notify_event', self._on_aetf_hm_motion)
+            self._aetf_hm_canvas.mpl_connect(
+                'figure_leave_event',
+                lambda _e: self._hide_aetf_hm_tooltip())
+
             # Treeview 比對表格（含欄位排序）
             tv_fr = tk.Frame(diff_outer, bg=_DIFF_BG)
             tv_fr.pack(fill='both', expand=True, padx=0, pady=(2, 0))
@@ -4947,6 +5279,8 @@ class StockApp(tk.Tk):
             self._aetf_vs_btn_cfg  = (_VS_OFF, _VS_ON)
             self._aetf_groups      = []   # [(tag, hdr_label, [row_dict])]
             self._aetf_sort_state  = {'col': None, 'asc': True}
+
+            # 主動型ETF tab：樹狀圖和分析圖整合進嵌入式熱力圖，不另外顯示
 
         self._etf_rects         = []
         self._etf_tooltip       = None
@@ -5120,40 +5454,101 @@ class StockApp(tk.Tk):
         self._chg_resize_after = None
         self._chg_metric       = tk.StringVar(value='weight')
 
-        # ── ETF 選擇列（2 列各 5 顆切換按鈕）────────────────────────────────
+        # ── ETF 選擇列（單行橫向捲動）───────────────────────────────────────
         etf_bar = tk.Frame(f, bg=C_BG)
         etf_bar.pack(fill='x', padx=10, pady=(8, 2))
         tk.Label(etf_bar, text='主動型 ETF：', bg=C_BG, fg=C_FG,
-                 font=('Microsoft JhengHei', 10)
-                 ).grid(row=0, column=0, rowspan=2, sticky='ns', padx=(0, 8))
+                 font=('Microsoft JhengHei', 10)).pack(side='left', padx=(0, 6))
+
+        _etf_canvas = tk.Canvas(etf_bar, bg=C_BG, height=30, highlightthickness=0)
+        _etf_canvas.pack(side='left', fill='x', expand=True)
+        _etf_inner = tk.Frame(_etf_canvas, bg=C_BG)
+        _etf_win = _etf_canvas.create_window(0, 0, anchor='nw', window=_etf_inner)
+
+        def _etf_bar_cfg(e=None):
+            _etf_canvas.configure(scrollregion=_etf_canvas.bbox('all'))
+        _etf_inner.bind('<Configure>', _etf_bar_cfg)
+
+        _pan = {'x0': 0, 'win_x': 0, 'dragged': False}
+
+        def _pan_press(e):
+            _pan['x0']    = e.x_root
+            _pan['win_x'] = _etf_canvas.coords(_etf_win)[0]
+            _pan['dragged'] = False
+
+        def _pan_move(e):
+            if abs(e.x_root - _pan['x0']) > 3:
+                _pan['dragged'] = True
+            inner_w  = _etf_inner.winfo_reqwidth()
+            canvas_w = _etf_canvas.winfo_width()
+            limit    = max(0, inner_w - canvas_w)
+            new_x    = max(-limit, min(0, _pan['win_x'] + (e.x_root - _pan['x0'])))
+            _etf_canvas.coords(_etf_win, new_x, 0)
+
+        _etf_canvas.bind('<ButtonPress-1>', _pan_press)
+        _etf_canvas.bind('<B1-Motion>',     _pan_move)
+        _etf_inner.bind('<ButtonPress-1>',  _pan_press)
+        _etf_inner.bind('<B1-Motion>',      _pan_move)
+
         self._chg_etf_btns = {}
-        for i, (code, _lbl) in enumerate(ACTIVE_ETFS):
-            r, c = divmod(i, 5)
-            btn = tk.Label(etf_bar, text=code, bg='#2a5c8f', fg='white',  # 預設選取色
+        for code, _lbl in ACTIVE_ETFS:
+            btn = tk.Label(_etf_inner, text=code, bg='#2a5c8f', fg='white',
                            font=('Consolas', 9, 'bold'),
                            padx=8, pady=4, cursor='hand2', bd=1, relief='solid')
-            btn.grid(row=r, column=c + 1, padx=3, pady=2)
+            btn.pack(side='left', padx=3, pady=2)
             self._chg_etf_btns[code] = btn
-            btn.bind('<Button-1>', lambda e, cd=code: self._chg_toggle_etf(cd))
+            btn.bind('<ButtonPress-1>',   _pan_press, add='+')
+            btn.bind('<B1-Motion>',        _pan_move,  add='+')
+            btn.bind('<ButtonRelease-1>',
+                     lambda e, cd=code: (None if _pan['dragged']
+                                         else self._chg_toggle_etf(cd)))
 
         # ── 操作列 ────────────────────────────────────────────────────────────
+        _SEL   = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', bd=0,
+                      font=('Microsoft JhengHei', 9, 'bold'),
+                      padx=10, pady=3, cursor='hand2',
+                      activebackground='#3a5090')
+        _UNSEL = dict(bg='#1a1a2e', fg='#7a8aaa', relief='flat', bd=0,
+                      font=('Microsoft JhengHei', 9),
+                      padx=10, pady=3, cursor='hand2',
+                      activebackground='#2a2a3e')
+
         ctrl = tk.Frame(f, bg=C_BG)
         ctrl.pack(fill='x', padx=10, pady=(4, 6))
+
         tk.Label(ctrl, text='期間：', bg=C_BG, fg=C_FG,
-                 font=('Microsoft JhengHei', 10)).pack(side='left')
+                 font=('Microsoft JhengHei', 9)).pack(side='left')
+
+        _period_btns = {}
+        def _set_period(val):
+            self._chg_period.set(val)
+            for v, b in _period_btns.items():
+                b.config(**(_SEL if v == val else _UNSEL))
+
         for pval, plbl in [('1d', '1日'), ('1w', '1週'), ('1m', '1月')]:
-            tk.Radiobutton(ctrl, text=plbl, variable=self._chg_period, value=pval,
-                           bg=C_BG, fg=C_FG, selectcolor='#2a3f6f',
-                           activebackground=C_BG,
-                           font=('Microsoft JhengHei', 10)).pack(side='left', padx=4)
+            b = tk.Button(ctrl, text=plbl,
+                          **(_SEL if pval == self._chg_period.get() else _UNSEL),
+                          command=lambda v=pval: _set_period(v))
+            b.pack(side='left', padx=2)
+            _period_btns[pval] = b
+
         tk.Label(ctrl, text='  指標：', bg=C_BG, fg=C_FG,
-                 font=('Microsoft JhengHei', 10)).pack(side='left')
+                 font=('Microsoft JhengHei', 9)).pack(side='left', padx=(6, 0))
+
+        _metric_btns = {}
+        def _set_metric(val):
+            self._chg_metric.set(val)
+            for v, b in _metric_btns.items():
+                b.config(**(_SEL if v == val else _UNSEL))
+            self._chg_refresh()
+
         for mval, mlbl in [('weight', '比重(%)'), ('shares', '張數')]:
-            tk.Radiobutton(ctrl, text=mlbl, variable=self._chg_metric, value=mval,
-                           bg=C_BG, fg=C_FG, selectcolor='#2a3f6f',
-                           activebackground=C_BG,
-                           font=('Microsoft JhengHei', 10),
-                           command=self._chg_refresh).pack(side='left', padx=4)
+            b = tk.Button(ctrl, text=mlbl,
+                          **(_SEL if mval == self._chg_metric.get() else _UNSEL),
+                          command=lambda v=mval: _set_metric(v))
+            b.pack(side='left', padx=2)
+            _metric_btns[mval] = b
+
         ttk.Button(ctrl, text='擷取所有快照', style='Nav.TButton',
                    command=self._chg_fetch_all).pack(side='left', padx=(16, 4))
         ttk.Button(ctrl, text='顯示變化', style='Nav.TButton',
@@ -5164,8 +5559,8 @@ class StockApp(tk.Tk):
         # ── 主要內容區（上下分割）────────────────────────────────────────────
         content = tk.Frame(f, bg=C_BG)
         content.pack(fill='both', expand=True, padx=8, pady=(0, 6))
-        content.rowconfigure(0, weight=6)
-        content.rowconfigure(1, weight=5)
+        content.rowconfigure(0, weight=5, minsize=320)
+        content.rowconfigure(1, weight=4)
         content.columnconfigure(0, weight=1)
 
         # 上半：買入 / 賣出 Treemap Canvas
@@ -5460,6 +5855,11 @@ class StockApp(tk.Tk):
                                     text=names.get(code, '')[:5],
                                     fill='#b0f0b0' if side == 'buy' else '#f0b0b0',
                                     font=('Microsoft JhengHei', 7), anchor='center')
+            if bw > 38 and bh > 48:
+                val_txt = f'{total_w:,.0f}張' if is_shares else f'{total_w:.2f}%'
+                canvas.create_text((x1 + x2) / 2, cy + 22,
+                                    text=val_txt, fill='#e0e0e0',
+                                    font=('Consolas', 7), anchor='center')
             rects_data.append((x1, y1, x2, y2, code, etf_list))
         if side == 'buy':
             self._chg_rects_buy  = rects_data
@@ -6411,24 +6811,30 @@ class StockApp(tk.Tk):
                 code = sel.split()[0]
         return code
 
-    def _draw_etf_map(self):
-        code = self._get_etf_code()
+    def _draw_etf_map(self, code: str = None,
+                      target_fig=None, target_canvas=None):
+        if code is None:
+            code = self._get_etf_code()
         if not code:
             self._etf_status.set('請選擇 ETF 或輸入代號')
             return
 
-        self._etf_status.set(f'載入 {code} 中…')
+        _fig    = target_fig    or self._etf_fig
+        _canvas = target_canvas or self._etf_canvas
+
+        if not target_fig:
+            self._etf_status.set(f'載入 {code} 中…')
         self._etf_rects = []
         self._hide_etf_tooltip()
-        self._etf_fig.clear()
-        self._etf_fig.patch.set_facecolor('#111111')
-        ax = self._etf_fig.add_axes([0, 0, 1, 1])
+        _fig.clear()
+        _fig.patch.set_facecolor('#111111')
+        ax = _fig.add_axes([0, 0, 1, 1])
         ax.set_facecolor('#111111')
         ax.axis('off')
         ax.text(0.5, 0.5, f'載入 {code} 成分股中，請稍候…',
                 ha='center', va='center', color='#888',
                 fontsize=13, fontfamily=CHART_FONT, transform=ax.transAxes)
-        self._etf_canvas.draw()
+        _canvas.draw()
 
         def _worker():
             try:
@@ -6441,35 +6847,49 @@ class StockApp(tk.Tk):
                     meta    = _f2.result()
                     ind_map = _f3.result()
                 self._ui_call(lambda: self._draw_etf_map_impl(
-                    code, etf_name, components, dbg, meta, ind_map))
+                    code, etf_name, components, dbg, meta, ind_map,
+                    target_fig=target_fig, target_canvas=target_canvas))
             except Exception as e:
                 _e = e
-                self._ui_call(lambda: self._etf_status.set(f'錯誤：{_e}'))
+                if not target_fig:
+                    self._ui_call(lambda: self._etf_status.set(f'錯誤：{_e}'))
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _draw_etf_map_impl(self, code: str, etf_name: str, components: list,
                            debug_msg: str = '', meta: dict = None,
-                           ind_map: dict = None):
+                           ind_map: dict = None,
+                           target_fig=None, target_canvas=None):
         if meta is None:
             meta = {}
-        TREE_BG = '#111111'
-        SEP_COL = '#111111'
-        is_partial = 'Yahoo topHoldings' in debug_msg  # only top-10
+        TREE_BG  = '#111111'
+        SEP_COL  = '#111111'
+        is_partial = 'Yahoo topHoldings' in debug_msg
 
-        self._etf_rects = []
-        self._hide_etf_tooltip()
-        self._etf_fig.clear()
-        self._etf_fig.patch.set_facecolor(TREE_BG)
+        _fig    = target_fig    or self._etf_fig
+        _canvas = target_canvas or self._etf_canvas
 
-        ax = self._etf_fig.add_axes([0, 0.04, 1, 0.96])
+        if target_fig:
+            self._aetf_hm_rects = []
+            self._hide_aetf_hm_tooltip()
+        else:
+            self._etf_rects = []
+            self._hide_etf_tooltip()
+
+        _fig.clear()
+        _fig.patch.set_facecolor(TREE_BG)
+
+        ax = _fig.add_axes([0, 0.04, 1, 0.96])
         ax.set_facecolor(TREE_BG)
         ax.set_xlim(0, 100)
         ax.set_ylim(0, 100)
         ax.axis('off')
-        self._etf_ax = ax
+        if target_fig:
+            self._aetf_hm_ax = ax
+        else:
+            self._etf_ax = ax
 
-        sax = self._etf_fig.add_axes([0, 0, 1, 0.04])
+        sax = _fig.add_axes([0, 0, 1, 0.04])
         sax.set_facecolor('#0d0d0d')
         sax.axis('off')
 
@@ -6478,61 +6898,60 @@ class StockApp(tk.Tk):
                     f'{code} 無法取得成分股資料\n（請查看下方狀態列的診斷訊息）',
                     ha='center', va='center', color='#888',
                     fontsize=12, fontfamily=CHART_FONT)
-            self._etf_canvas.draw()
-            self._etf_status.set(f'{code} 無法取得成分股資料（網路連線問題，請稍後再試）')
+            _canvas.draw()
+            if not target_fig:
+                self._etf_status.set(f'{code} 無法取得成分股資料（網路連線問題，請稍後再試）')
             return
 
-        # ── 更新摘要列 ────────────────────────────────────────────────────────
-        total_w = sum(c['weight'] for c in components) or 1.0
-        weighted_chg = sum(c['change_pct'] * c['weight'] for c in components) / total_w
-        top_stk = components[0]
-        chg_fg   = '#f07070' if weighted_chg >= 0 else '#4ec94e'
-        chg_sign = '+' if weighted_chg >= 0 else ''
-        short_name = etf_name[:18] if len(etf_name) > 18 else etf_name
-        self._etf_sv_name  .set(short_name)
-        # 請求3: 若資料不完整, 改顯示前N大占比而非成分股數
-        if is_partial:
-            top_cov = sum(c['weight'] for c in components)
-            self._etf_sv_count.set(f'前{len(components)}大  {top_cov:.1f}%')
-        else:
-            self._etf_sv_count.set(f'{len(components)} 檔')
-        self._etf_sv_top   .set(f'{top_stk["code"]}  {top_stk["weight"]:.2f}%')
-        self._etf_sv_change.set(f'{chg_sign}{weighted_chg:.2f}%')
-        self._etf_sl_change.config(fg=chg_fg)
-        # 規模 / 殖利率 / NAV / 配置
-        aum = meta.get('total_assets')
-        self._etf_sv_aum.set(
-            f'NT$ {aum/1e8:.0f} 億' if aum and aum > 1e8
-            else (f'US$ {aum/1e9:.2f} B' if aum else '—'))
-        yld = meta.get('yield_pct')
-        self._etf_sv_yield.set(f'{yld*100:.2f}%' if yld else '—')
-        nav = meta.get('nav')
-        self._etf_sv_nav.set(f'{nav:.2f}' if nav else '—')
-        # 折溢價：優先用 TWSE ETFortune 直接計算的 atmps，否則自行計算
-        atmps = meta.get('atmps')
-        if atmps is not None:
-            prem = atmps
-        else:
-            nav   = meta.get('nav')
-            price = meta.get('price') or meta.get('prev_close')
-            prem  = (price - nav) / nav * 100 if nav and price and nav > 0 else None
-        if prem is not None:
-            sign  = '+' if prem >= 0 else ''
-            label = '溢價' if prem >= 0 else '折價'
-            fg    = '#f07070' if prem >= 0 else '#4ec94e'
-            self._etf_sv_alloc.set(f'{sign}{prem:.3f}%（{label}）')
-            self._etf_sl_alloc.config(fg=fg)
-        else:
-            self._etf_sv_alloc.set('—')
+        # ── 更新摘要列（僅主 ETF tab 才更新卡片）────────────────────────────
+        if not target_fig:
+            total_w = sum(c['weight'] for c in components) or 1.0
+            weighted_chg = sum(c['change_pct'] * c['weight'] for c in components) / total_w
+            top_stk  = components[0]
+            chg_fg   = '#f07070' if weighted_chg >= 0 else '#4ec94e'
+            chg_sign = '+' if weighted_chg >= 0 else ''
+            short_name = etf_name[:18] if len(etf_name) > 18 else etf_name
+            self._etf_sv_name  .set(short_name)
+            if is_partial:
+                top_cov = sum(c['weight'] for c in components)
+                self._etf_sv_count.set(f'前{len(components)}大  {top_cov:.1f}%')
+            else:
+                self._etf_sv_count.set(f'{len(components)} 檔')
+            self._etf_sv_top   .set(f'{top_stk["code"]}  {top_stk["weight"]:.2f}%')
+            self._etf_sv_change.set(f'{chg_sign}{weighted_chg:.2f}%')
+            self._etf_sl_change.config(fg=chg_fg)
+            aum = meta.get('total_assets')
+            self._etf_sv_aum.set(
+                f'NT$ {aum/1e8:.0f} 億' if aum and aum > 1e8
+                else (f'US$ {aum/1e9:.2f} B' if aum else '—'))
+            yld = meta.get('yield_pct')
+            self._etf_sv_yield.set(f'{yld*100:.2f}%' if yld else '—')
+            nav = meta.get('nav')
+            self._etf_sv_nav.set(f'{nav:.2f}' if nav else '—')
+            atmps = meta.get('atmps')
+            if atmps is not None:
+                prem = atmps
+            else:
+                nav   = meta.get('nav')
+                price = meta.get('price') or meta.get('prev_close')
+                prem  = (price - nav) / nav * 100 if nav and price and nav > 0 else None
+            if prem is not None:
+                sign  = '+' if prem >= 0 else ''
+                label = '溢價' if prem >= 0 else '折價'
+                fg    = '#f07070' if prem >= 0 else '#4ec94e'
+                self._etf_sv_alloc.set(f'{sign}{prem:.3f}%（{label}）')
+                self._etf_sl_alloc.config(fg=fg)
+            else:
+                self._etf_sv_alloc.set('—')
 
         # ── 顏色基準 ──────────────────────────────────────────────────────────
         all_pcts = [c['change_pct'] for c in components]
         _max_abs = max((abs(p) for p in all_pcts), default=10.0) or 10.0
 
         # ── 計算繪圖轉換係數 ──────────────────────────────────────────────────
-        _dpi      = self._etf_fig.dpi
-        _fig_w_px = self._etf_fig.get_size_inches()[0] * _dpi
-        _fig_h_px = self._etf_fig.get_size_inches()[1] * _dpi
+        _dpi      = _fig.dpi
+        _fig_w_px = _fig.get_size_inches()[0] * _dpi
+        _fig_h_px = _fig.get_size_inches()[1] * _dpi
         _px_per_ux = _fig_w_px / 100
         _px_per_uy = _fig_h_px * 0.96 / 100
         _pt_per_px = 72 / _dpi
@@ -6558,14 +6977,18 @@ class StockApp(tk.Tk):
                 facecolor=pnl_color(comp['change_pct'], _max_abs),
                 edgecolor=SEP_COL, linewidth=0.4, zorder=1))
 
-            self._etf_rects.append({
+            _rect = {
                 'rx': rx, 'ry': ry, 'rw': rw, 'rh': rh,
                 'code':       comp['code'],
                 'name':       comp['name'],
                 'weight':     comp['weight'],
                 'price':      comp['price'],
                 'change_pct': comp['change_pct'],
-            })
+            }
+            if target_fig:
+                self._aetf_hm_rects.append(_rect)
+            else:
+                self._etf_rects.append(_rect)
 
             min_dim = min(rw, rh)
             if min_dim < 2:
@@ -6635,14 +7058,16 @@ class StockApp(tk.Tk):
         else:
             src_note = ''
         count_label = (f'前{len(components)}大' if is_partial else f'{len(components)} 檔')
-        self._etf_status.set(f'{code}  {etf_name}  ·  {count_label}  ·  '
-                              f'更新：{datetime.now().strftime("%H:%M:%S")}{src_note}')
-        self._etf_canvas.draw()
-        self._draw_etf_kline(code, etf_name)
-        self._draw_etf_info(components, meta, debug_msg, ind_map or {})
-        self._draw_etf_history(code, etf_name)
-        if not getattr(self, '_etf_show_history', True):
-            self._aetf_update_diff_ui(code)
+        if not target_fig:
+            self._etf_status.set(f'{code}  {etf_name}  ·  {count_label}  ·  '
+                                  f'更新：{datetime.now().strftime("%H:%M:%S")}{src_note}')
+        _canvas.draw()
+        if not target_fig:
+            self._draw_etf_kline(code, etf_name)
+            self._draw_etf_info(components, meta, debug_msg, ind_map or {})
+            self._draw_etf_history(code, etf_name)
+            if not getattr(self, '_etf_show_history', True):
+                self._aetf_update_diff_ui(code)
 
     # ── ETF 分析圖（互動式環形圖 × 2）────────────────────────────────────────
     def _draw_etf_info(self, components: list, meta: dict,
@@ -7577,6 +8002,14 @@ class StockApp(tk.Tk):
         increased_rows.sort(key=lambda r: -r['wchg'])
         decreased_rows.sort(key=lambda r:  r['wchg'])
 
+        for r in added_rows + increased_rows:
+            r['earn_pct']  = None
+            r['earn_label'] = '買入後漲跌'
+        for r in decreased_rows:
+            r['earn_pct']  = None
+            r['earn_label'] = '賣出後漲跌'
+
+        self._aetf_refresh_key = (base_d, comp_d)
         self._aetf_groups = [
             ('add', f'↑ 新增  {len(added_rows)} 檔',     added_rows),
             ('inc', f'↑ 加碼  {len(increased_rows)} 檔', increased_rows),
@@ -7587,6 +8020,54 @@ class StockApp(tk.Tk):
         self._aetf_badge_add.config(text=f'↑ 新增 {len(added_rows)} 檔'     if added_rows     else '')
         self._aetf_badge_inc.config(text=f'↑ 加碼 {len(increased_rows)} 檔' if increased_rows else '')
         self._aetf_badge_dec.config(text=f'↓ 減碼 {len(decreased_rows)} 檔' if decreased_rows else '')
+        self._aetf_redraw_heatmap()
+
+        _all_earn_rows = added_rows + increased_rows + decreased_rows
+        if _all_earn_rows:
+            _captured    = _all_earn_rows
+            _rows_by_tag = {'add': added_rows, 'inc': increased_rows, 'dec': decreased_rows}
+            _hist_ref    = hist
+            _key         = (base_d, comp_d)
+            def _bg_fetch():
+                em, ecm = _fetch_earn_pct(_hist_ref, _rows_by_tag, comp_d, base_d)
+                for r in _captured:
+                    r['earn_pct']     = em.get(r['code'])
+                    r['earn_changes'] = ecm.get(r['code'], [])
+                def _ui():
+                    if getattr(self, '_aetf_refresh_key', None) == _key:
+                        self._aetf_redraw_heatmap()
+                self.after(0, _ui)
+            threading.Thread(target=_bg_fetch, daemon=True).start()
+
+    def _aetf_redraw_heatmap(self):
+        """以目前 _aetf_groups 資料重繪嵌入式熱力圖。"""
+        fig    = getattr(self, '_aetf_hm_fig',    None)
+        canvas = getattr(self, '_aetf_hm_canvas', None)
+        if fig is None or canvas is None:
+            return
+
+        mode = getattr(self, '_aetf_hm_mode', 'wchg')
+
+        if mode == 'today':
+            code = getattr(self, '_aetf_diff_code', None)
+            if code:
+                self._draw_etf_map(code=code,
+                                   target_fig=fig, target_canvas=canvas)
+            return
+
+        groups   = getattr(self, '_aetf_groups', [])
+        all_rows = [r for _, _, rows in groups for r in rows]
+
+        code_label = getattr(self, '_aetf_diff_code', '') or ''
+        base = getattr(self, '_aetf_base_date', '') or ''
+        comp = getattr(self, '_aetf_comp_date', '') or ''
+        title_str = (f'{code_label}  ·  {base[:4]}/{base[4:6]}/{base[6:]} '
+                     f'vs {comp[:4]}/{comp[4:6]}/{comp[6:]}') if base and comp else code_label
+
+        self._aetf_hm_rects = []
+        ax = _draw_heatmap(fig, canvas, all_rows, groups, mode, title_str,
+                           rects_out=self._aetf_hm_rects)
+        self._aetf_hm_ax = ax
 
     def _aetf_populate_tv(self):
         """依 _aetf_sort_state 排序後填入 Treeview。"""
@@ -7650,6 +8131,135 @@ class StockApp(tk.Tk):
             self._aetf_tv.heading(cid, text=cname + ind)
 
         self._aetf_populate_tv()
+
+    # ── 主動型ETF 成分股熱力圖 ────────────────────────────────────────────────
+    # ── ETF 樹狀圖 hover ──────────────────────────────────────────────────────
+    # ── 嵌入式熱力圖 hover ──────────────────────────────────────────────────
+    def _on_aetf_hm_motion(self, event):
+        hm_ax = getattr(self, '_aetf_hm_ax', None)
+        if event.inaxes is None or hm_ax is None:
+            self._hide_aetf_hm_tooltip()
+            return
+        xd, yd = event.xdata, event.ydata
+        widget = self._aetf_hm_canvas.get_tk_widget()
+        sx = widget.winfo_rootx() + int(event.x)
+        sy = widget.winfo_rooty() + int(widget.winfo_height() - event.y)
+        for r in getattr(self, '_aetf_hm_rects', []):
+            if (r['rx'] <= xd <= r['rx'] + r['rw'] and
+                    r['ry'] <= yd <= r['ry'] + r['rh']):
+                self._show_aetf_hm_tooltip(sx, sy, r)
+                return
+        self._hide_aetf_hm_tooltip()
+
+    def _show_aetf_hm_tooltip(self, sx, sy, data):
+        tip = getattr(self, '_aetf_hm_tooltip', None)
+        if tip is None or not tip.winfo_exists():
+            tip = tk.Toplevel(self)
+            tip.overrideredirect(True)
+            tip.attributes('-topmost', True)
+            tip.configure(bg='#1e1e1e')
+            border = tk.Frame(tip, bg='#3e3e3e', padx=1, pady=1)
+            border.pack(fill='both', expand=True)
+            inner = tk.Frame(border, bg='#252526', padx=10, pady=8)
+            inner.pack(fill='both', expand=True)
+            self._aetf_hm_tip_widgets = {}
+            for key in ('title', 'weight', 'line3', 'line4', 'line5'):
+                lbl = tk.Label(inner, bg='#252526',
+                               font=('Microsoft JhengHei', 10), anchor='w')
+                lbl.pack(fill='x')
+                self._aetf_hm_tip_widgets[key] = lbl
+            hist_sep   = tk.Label(inner, bg='#252526', fg='#3a3a4a',
+                                  font=('Consolas', 8), anchor='w')
+            hist_sep.pack(fill='x')
+            hist_frame = tk.Frame(inner, bg='#252526')
+            hist_frame.pack(fill='x')
+            self._aetf_hm_tip_widgets['hist_sep']   = hist_sep
+            self._aetf_hm_tip_widgets['hist_frame'] = hist_frame
+            self._aetf_hm_tooltip = tip
+
+        w    = self._aetf_hm_tip_widgets
+        mode = data.get('mode', 'wchg')
+        w['title'].config(
+            text=f'{data["name"]}  {data["code"]}',
+            fg='#8ab4d4', font=('Microsoft JhengHei', 11, 'bold'))
+        w['weight'].config(
+            text=f'ETF 占比：{data["weight"]:.4f}%', fg='#cccccc')
+
+        earn_pct   = data.get('earn_pct')
+        earn_label = data.get('earn_label', '期間漲跌')
+
+        if mode == 'today':
+            pct  = data.get('change_pct', 0) or 0
+            fg   = '#f07070' if pct >= 0 else '#4ec94e'
+            sign = '+' if pct >= 0 else ''
+            price_txt = ('—' if data.get('price') is None
+                         else f'{data["price"]:,.2f} 元')
+            w['line3'].config(text=f'現價：{price_txt}', fg='#cccccc')
+            w['line4'].config(text=f'今日漲跌：{sign}{pct:.2f}%', fg=fg)
+            w['line5'].config(text='', fg='#aaaaaa')
+        elif mode == 'wchg':
+            wchg = data.get('wchg') or 0
+            fg   = '#f07070' if wchg >= 0 else '#4ec94e'
+            sign = '+' if wchg >= 0 else ''
+            w['line3'].config(text=f'比重變化：{sign}{wchg:.4f}%', fg=fg)
+            w['line4'].config(
+                text=(f'張數：{data["shares"]/1000:,.0f} 張'
+                      if data.get('shares') else ''), fg='#aaaaaa')
+            if earn_pct is not None:
+                efg = '#f07070' if earn_pct >= 0 else '#4ec94e'
+                w['line5'].config(text=f'{earn_label}：{earn_pct:+.2f}%', fg=efg)
+            else:
+                w['line5'].config(text='', fg='#aaaaaa')
+        else:  # pchg
+            pchg = data.get('pchg')
+            schg = data.get('schg') or 0
+            if data.get('is_new'):
+                w['line3'].config(text='新增成分股', fg='#70e070')
+                w['line4'].config(text='', fg='#aaaaaa')
+            else:
+                fg   = '#f07070' if schg >= 0 else '#4ec94e'
+                sign = '+' if schg >= 0 else ''
+                w['line3'].config(
+                    text=f'張數變化：{sign}{schg/1000:,.0f} 張', fg=fg)
+                w['line4'].config(
+                    text=(f'張數變化率：{pchg:+.1f}%' if pchg is not None else ''),
+                    fg=fg)
+            if earn_pct is not None:
+                efg = '#f07070' if earn_pct >= 0 else '#4ec94e'
+                w['line5'].config(text=f'{earn_label}：{earn_pct:+.2f}%', fg=efg)
+            else:
+                w['line5'].config(text='', fg='#aaaaaa')
+
+        # 動態歷史異動區塊
+        earn_changes = data.get('earn_changes', [])
+        hist_frame   = w.get('hist_frame')
+        hist_sep     = w.get('hist_sep')
+        if hist_frame:
+            for child in hist_frame.winfo_children():
+                child.destroy()
+            if earn_changes and mode != 'today':
+                earn_label_local = data.get('earn_label', '期間漲跌')
+                action_word = '買入' if '買' in earn_label_local else '賣出'
+                hist_sep.config(text='─' * 22)
+                for d, delta, price in earn_changes:
+                    date_fmt = f'{int(d[4:6])}/{int(d[6:])} {action_word}'
+                    shares_k = abs(delta) / 1000
+                    shares_s = (f'{shares_k:,.0f}張' if shares_k >= 1
+                                else f'{abs(delta):,}股')
+                    line_txt = f'{date_fmt}  {shares_s}  @{price:,.0f}元'
+                    fg_h = '#f07070' if delta > 0 else '#4ec94e'
+                    tk.Label(hist_frame, text=line_txt, bg='#252526', fg=fg_h,
+                             font=('Microsoft JhengHei', 9), anchor='w').pack(fill='x')
+            else:
+                hist_sep.config(text='')
+
+        self._place_tooltip(self._aetf_hm_tooltip, sx, sy)
+        self._aetf_hm_tooltip.deiconify()
+
+    def _hide_aetf_hm_tooltip(self):
+        tip = getattr(self, '_aetf_hm_tooltip', None)
+        if tip and tip.winfo_exists():
+            tip.withdraw()
 
     # ── ETF 樹狀圖 hover ──────────────────────────────────────────────────────
     def _on_etf_motion(self, event):
