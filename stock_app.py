@@ -2043,6 +2043,15 @@ def _fetch_earn_pct(hist: dict, rows_by_tag: dict, date_vs: str, date_sel: str) 
     return pct_result, chg_result
 
 
+def _fit_fig_to_canvas(fig, canvas):
+    """將 matplotlib Figure 尺寸調整為 TK 畫布的實際像素大小，解決視窗放大後圖表不更新的問題。"""
+    wk = canvas.get_tk_widget()
+    wk.update_idletasks()
+    pw, ph = wk.winfo_width(), wk.winfo_height()
+    if pw > 50 and ph > 50:
+        fig.set_size_inches(pw / fig.dpi, ph / fig.dpi)
+
+
 def _draw_heatmap(fig, canvas, all_rows: list, groups: list,
                   mode: str, title_str: str, rects_out: list = None):
     """繪製主動型ETF成分股 treemap 熱力圖。回傳 ax 供 hover 使用。"""
@@ -5061,19 +5070,25 @@ class StockApp(tk.Tk):
             # ── 日期列（上下兩排：基準日期 / 比較日期）─────────────────────
             date_bar = tk.Frame(diff_outer, bg=_BAR_BG)
             date_bar.pack(fill='x')
+            date_bar.bind('<MouseWheel>', _mw)
 
             _LBL_W = 4   # 左側標籤固定寬度（字元）
 
             # Row 1 — 基準日期
             row1 = tk.Frame(date_bar, bg=_BAR_BG, pady=4)
             row1.pack(fill='x')
-            tk.Label(row1, text='日期', bg=_BAR_BG, fg='#8899cc',
-                     font=('Microsoft JhengHei', 9, 'bold'),
-                     width=_LBL_W, anchor='e').pack(side='left', padx=(10, 6))
+            row1.bind('<MouseWheel>', _mw)
+            _lbl_date = tk.Label(row1, text='日期', bg=_BAR_BG, fg='#8899cc',
+                                 font=('Microsoft JhengHei', 9, 'bold'),
+                                 width=_LBL_W, anchor='e')
+            _lbl_date.pack(side='left', padx=(10, 6))
+            _lbl_date.bind('<MouseWheel>', _mw)
             self._aetf_date_canvas = tk.Canvas(row1, bg=_BAR_BG,
                                                height=28, highlightthickness=0)
             self._aetf_date_canvas.pack(side='left', fill='x', expand=True, padx=(0, 10))
+            self._aetf_date_canvas.bind('<MouseWheel>', _mw)
             self._aetf_dates_inner = tk.Frame(self._aetf_date_canvas, bg=_BAR_BG)
+            self._aetf_dates_inner.bind('<MouseWheel>', _mw)
             self._aetf_dates_win = self._aetf_date_canvas.create_window(
                 0, 0, anchor='nw', window=self._aetf_dates_inner)
 
@@ -5085,13 +5100,18 @@ class StockApp(tk.Tk):
             # Row 2 — 比較日期 (vs)
             row2 = tk.Frame(date_bar, bg=_BAR_BG, pady=4)
             row2.pack(fill='x')
-            tk.Label(row2, text='vs', bg=_BAR_BG, fg='#666688',
-                     font=('Microsoft JhengHei', 9, 'bold'),
-                     width=_LBL_W, anchor='e').pack(side='left', padx=(10, 6))
+            row2.bind('<MouseWheel>', _mw)
+            _lbl_vs = tk.Label(row2, text='vs', bg=_BAR_BG, fg='#666688',
+                               font=('Microsoft JhengHei', 9, 'bold'),
+                               width=_LBL_W, anchor='e')
+            _lbl_vs.pack(side='left', padx=(10, 6))
+            _lbl_vs.bind('<MouseWheel>', _mw)
             self._aetf_vs_canvas = tk.Canvas(row2, bg=_BAR_BG,
                                              height=28, highlightthickness=0)
             self._aetf_vs_canvas.pack(side='left', fill='x', expand=True, padx=(0, 10))
+            self._aetf_vs_canvas.bind('<MouseWheel>', _mw)
             self._aetf_vs_btns_frame = tk.Frame(self._aetf_vs_canvas, bg=_BAR_BG)
+            self._aetf_vs_btns_frame.bind('<MouseWheel>', _mw)
             self._aetf_vs_win = self._aetf_vs_canvas.create_window(
                 0, 0, anchor='nw', window=self._aetf_vs_btns_frame)
 
@@ -5099,6 +5119,8 @@ class StockApp(tk.Tk):
                 self._aetf_vs_canvas.configure(
                     scrollregion=self._aetf_vs_canvas.bbox('all'))
             self._aetf_vs_btns_frame.bind('<Configure>', _update_vs_scroll_region)
+
+            self._etf_mw = _mw   # 供後續動態建立的按鈕使用
 
             # 拖拉狀態 — 基準日期列
             _pan = {'x0': 0, 'win_x': 0, 'dragged': False}
@@ -5149,21 +5171,26 @@ class StockApp(tk.Tk):
             # 摘要 badges + 更新狀態
             badge_bar = tk.Frame(diff_outer, bg=_DIFF_BG)
             badge_bar.pack(fill='x', padx=4, pady=(4, 2))
+            badge_bar.bind('<MouseWheel>', _mw)
             self._aetf_badge_add = tk.Label(badge_bar, text='', bg='#0a2010', fg='#60e060',
                                             font=('Microsoft JhengHei', 9, 'bold'),
                                             padx=10, pady=3)
             self._aetf_badge_add.pack(side='left', padx=4)
+            self._aetf_badge_add.bind('<MouseWheel>', _mw)
             self._aetf_badge_inc = tk.Label(badge_bar, text='', bg='#2e0808', fg='#ff7070',
                                             font=('Microsoft JhengHei', 9, 'bold'),
                                             padx=10, pady=3)
             self._aetf_badge_inc.pack(side='left', padx=4)
+            self._aetf_badge_inc.bind('<MouseWheel>', _mw)
             self._aetf_badge_dec = tk.Label(badge_bar, text='', bg='#1a1a1a', fg='#909090',
                                             font=('Microsoft JhengHei', 9, 'bold'),
                                             padx=10, pady=3)
             self._aetf_badge_dec.pack(side='left', padx=4)
+            self._aetf_badge_dec.bind('<MouseWheel>', _mw)
             self._aetf_fetch_lbl = tk.Label(badge_bar, text='', bg=_DIFF_BG, fg='#555577',
                                             font=('Microsoft JhengHei', 8))
             self._aetf_fetch_lbl.pack(side='right', padx=8)
+            self._aetf_fetch_lbl.bind('<MouseWheel>', _mw)
 
             # ── 熱力圖模式切換列 ───────────────────────────────────────────
             _HM_SEL   = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', bd=0,
@@ -5177,8 +5204,11 @@ class StockApp(tk.Tk):
 
             hm_ctrl = tk.Frame(diff_outer, bg='#1a1a2e')
             hm_ctrl.pack(fill='x', pady=(2, 0))
-            tk.Label(hm_ctrl, text='熱力圖', bg='#1a1a2e', fg='#555577',
-                     font=('Microsoft JhengHei', 8)).pack(side='left', padx=8)
+            hm_ctrl.bind('<MouseWheel>', _mw)
+            _hm_lbl = tk.Label(hm_ctrl, text='熱力圖', bg='#1a1a2e', fg='#555577',
+                                font=('Microsoft JhengHei', 8))
+            _hm_lbl.pack(side='left', padx=8)
+            _hm_lbl.bind('<MouseWheel>', _mw)
 
             self._aetf_hm_mode    = 'wchg'
             self._aetf_hm_rects   = []
@@ -5219,6 +5249,9 @@ class StockApp(tk.Tk):
             self._aetf_hm_today_btn.pack(side='left', padx=2)
             self._aetf_hm_wchg_btn.pack(side='left', padx=2)
             self._aetf_hm_pchg_btn.pack(side='left', padx=0)
+            self._aetf_hm_today_btn.bind('<MouseWheel>', _mw)
+            self._aetf_hm_wchg_btn.bind('<MouseWheel>',  _mw)
+            self._aetf_hm_pchg_btn.bind('<MouseWheel>', _mw)
 
             # ── 嵌入式熱力圖畫布 ──────────────────────────────────────────
             self._aetf_hm_fig    = plt.Figure(figsize=(9.5, 4.5), dpi=100,
@@ -6876,6 +6909,7 @@ class StockApp(tk.Tk):
             self._etf_rects = []
             self._hide_etf_tooltip()
 
+        _fit_fig_to_canvas(_fig, _canvas)
         _fig.clear()
         _fig.patch.set_facecolor(TREE_BG)
 
@@ -7089,6 +7123,7 @@ class StockApp(tk.Tk):
             return out
 
         fig = self._etf_info_fig
+        _fit_fig_to_canvas(fig, self._etf_info_canvas)
         fig.clear()
         fig.patch.set_facecolor(INFO_BG)
 
@@ -7257,6 +7292,7 @@ class StockApp(tk.Tk):
         self._current_kline_name = etf_name
 
         fig = self._etf_kline_fig
+        _fit_fig_to_canvas(fig, self._etf_kline_canvas)
         fig.clear()
         fig.patch.set_facecolor(CHART_BG)
         self._kline_ax = None
@@ -7604,6 +7640,7 @@ class StockApp(tk.Tk):
         if not getattr(self, '_etf_show_history', True):
             return
         fig = self._etf_heatmap_fig
+        _fit_fig_to_canvas(fig, self._etf_heatmap_canvas)
         fig.clear()
         fig.patch.set_facecolor('#111111')
         _ax = fig.add_subplot(111, facecolor='#1a1a2e')
@@ -7890,6 +7927,7 @@ class StockApp(tk.Tk):
             btn.pack(side='left', padx=2)
             btn.bind('<ButtonPress-1>', self._aetf_pan_press)
             btn.bind('<B1-Motion>',     self._aetf_pan_move)
+            btn.bind('<MouseWheel>',    getattr(self, '_etf_mw', lambda e: None))
             self._aetf_date_btns[d] = btn
 
         self._aetf_select_base_date(dates[0], _init=True)
@@ -7935,6 +7973,7 @@ class StockApp(tk.Tk):
             btn.pack(side='left', padx=2)
             btn.bind('<ButtonPress-1>', self._aetf_vs_pan_press)
             btn.bind('<B1-Motion>',     self._aetf_vs_pan_move)
+            btn.bind('<MouseWheel>',    getattr(self, '_etf_mw', lambda e: None))
             self._aetf_vs_btns[x] = btn
 
         self._aetf_refresh_diff(hist, d, comp_d)
@@ -8046,6 +8085,7 @@ class StockApp(tk.Tk):
         if fig is None or canvas is None:
             return
 
+        _fit_fig_to_canvas(fig, canvas)
         mode = getattr(self, '_aetf_hm_mode', 'wchg')
 
         if mode == 'today':
