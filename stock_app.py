@@ -4581,9 +4581,15 @@ class StockApp(tk.Tk):
             try:
                 hidx = hist_close.index
                 if getattr(hidx, 'tz', None) is not None:
-                    hidx = hidx.tz_localize(None)
+                    hidx = hidx.tz_convert(None)
                 hx = mdates.date2num(pd.to_datetime(hidx))
                 hy = hist_close.values.astype(float)
+                # yfinance 快取可能落後最近交易日，用已抓到的現價補最後一點
+                if _cur_p and len(hx) > 0:
+                    _today_num = mdates.date2num(pd.Timestamp.today().normalize())
+                    if _today_num > hx[-1] + 0.5:
+                        hx = np.append(hx, _today_num)
+                        hy = np.append(hy, float(_cur_p))
                 ax1.plot(hx, hy, color='#b0bec5', linewidth=0.9,
                          linestyle='--', alpha=0.75, zorder=4, label='收盤價走勢')
                 hist_plotted = True
@@ -5556,9 +5562,33 @@ class StockApp(tk.Tk):
         self._chg_resize_after = None
         self._chg_metric       = tk.StringVar(value='weight')
 
+        # ── 分類快速切換列 ──────────────────────────────────────────────────
+        tier_bar = tk.Frame(f, bg=C_BG)
+        tier_bar.pack(fill='x', padx=10, pady=(8, 0))
+        tk.Label(tier_bar, text='快速切換：', bg=C_BG, fg=C_FG,
+                 font=('Microsoft JhengHei', 9)).pack(side='left', padx=(0, 4))
+
+        _TIER_ACT = dict(bg='#2a5c8f', fg='white', relief='flat', bd=0,
+                         font=('Microsoft JhengHei', 8, 'bold'), padx=9, pady=3,
+                         cursor='hand2', activebackground='#3a6caf')
+        _TIER_INS = dict(bg='#1e2030', fg='#6070a0', relief='flat', bd=0,
+                         font=('Microsoft JhengHei', 8), padx=9, pady=3,
+                         cursor='hand2', activebackground='#2a2a3e')
+        self._chg_tier_btns  = {}
+        self._chg_tier_styles = (_TIER_ACT, _TIER_INS)
+        for tier_key, tier_lbl in [('all', '全選'), ('high', '500 億以上'),
+                                    ('mid', '100～500 億'), ('low', '100 億以下'),
+                                    ('unk', '規模未知')]:
+            b = tk.Button(tier_bar, text=tier_lbl, **_TIER_INS,
+                          command=lambda k=tier_key: self._chg_select_tier(k))
+            b.pack(side='left', padx=2)
+            self._chg_tier_btns[tier_key] = b
+        # 初始全選狀態
+        self._chg_tier_btns['all'].config(**_TIER_ACT)
+
         # ── ETF 選擇列（單行橫向捲動）───────────────────────────────────────
         etf_bar = tk.Frame(f, bg=C_BG)
-        etf_bar.pack(fill='x', padx=10, pady=(8, 2))
+        etf_bar.pack(fill='x', padx=10, pady=(4, 2))
         tk.Label(etf_bar, text='主動型 ETF：', bg=C_BG, fg=C_FG,
                  font=('Microsoft JhengHei', 10)).pack(side='left', padx=(0, 6))
 
@@ -5592,18 +5622,46 @@ class StockApp(tk.Tk):
         _etf_inner.bind('<ButtonPress-1>',  _pan_press)
         _etf_inner.bind('<B1-Motion>',      _pan_move)
 
+        # 依規模分組，加分隔標籤
+        _TIER_ORDER     = ['high', 'mid', 'low', 'unk']
+        _TIER_DISP      = {'high': '500億↑', 'mid': '100~500億',
+                           'low': '100億↓', 'unk': '未知'}
+        _TIER_SEP_FG    = {'high': '#c8a800', 'mid': '#6080b0',
+                           'low': '#508050', 'unk': '#505060'}
+        _grps: dict[str, list] = {'high': [], 'mid': [], 'low': [], 'unk': []}
+        for code, name in ACTIVE_ETFS:
+            aum = _ETF_AUM_CACHE.get(code)
+            if aum is None:
+                _grps['unk'].append((code, name))
+            elif aum >= 500e8:
+                _grps['high'].append((code, name))
+            elif aum >= 100e8:
+                _grps['mid'].append((code, name))
+            else:
+                _grps['low'].append((code, name))
+
         self._chg_etf_btns = {}
-        for code, _lbl in ACTIVE_ETFS:
-            btn = tk.Label(_etf_inner, text=code, bg='#2a5c8f', fg='white',
-                           font=('Consolas', 9, 'bold'),
-                           padx=8, pady=4, cursor='hand2', bd=1, relief='solid')
-            btn.pack(side='left', padx=3, pady=2)
-            self._chg_etf_btns[code] = btn
-            btn.bind('<ButtonPress-1>',   _pan_press, add='+')
-            btn.bind('<B1-Motion>',        _pan_move,  add='+')
-            btn.bind('<ButtonRelease-1>',
-                     lambda e, cd=code: (None if _pan['dragged']
-                                         else self._chg_toggle_etf(cd)))
+        for tier_key in _TIER_ORDER:
+            codes_in_tier = _grps[tier_key]
+            if not codes_in_tier:
+                continue
+            sep = tk.Label(_etf_inner, text=_TIER_DISP[tier_key],
+                           bg=C_BG, fg=_TIER_SEP_FG[tier_key],
+                           font=('Microsoft JhengHei', 7), padx=3, pady=4)
+            sep.pack(side='left', padx=(6, 1))
+            sep.bind('<ButtonPress-1>', _pan_press)
+            sep.bind('<B1-Motion>',     _pan_move)
+            for code, _ in codes_in_tier:
+                btn = tk.Label(_etf_inner, text=code, bg='#2a5c8f', fg='white',
+                               font=('Consolas', 9, 'bold'),
+                               padx=8, pady=4, cursor='hand2', bd=1, relief='solid')
+                btn.pack(side='left', padx=3, pady=2)
+                self._chg_etf_btns[code] = btn
+                btn.bind('<ButtonPress-1>',   _pan_press, add='+')
+                btn.bind('<B1-Motion>',        _pan_move,  add='+')
+                btn.bind('<ButtonRelease-1>',
+                         lambda e, cd=code: (None if _pan['dragged']
+                                             else self._chg_toggle_etf(cd)))
 
         # ── 操作列 ────────────────────────────────────────────────────────────
         _SEL   = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', bd=0,
@@ -5724,6 +5782,55 @@ class StockApp(tk.Tk):
 
     # ── ETF 成分股變化 helpers ────────────────────────────────────────────────
 
+    def _chg_get_tier_groups(self) -> dict:
+        """回傳 {tier_key: [code, ...]}，依 AUM 快取分組。"""
+        g: dict[str, list] = {'high': [], 'mid': [], 'low': [], 'unk': []}
+        for code, _ in ACTIVE_ETFS:
+            aum = _ETF_AUM_CACHE.get(code)
+            if aum is None:
+                g['unk'].append(code)
+            elif aum >= 500e8:
+                g['high'].append(code)
+            elif aum >= 100e8:
+                g['mid'].append(code)
+            else:
+                g['low'].append(code)
+        return g
+
+    def _chg_select_tier(self, tier_key: str):
+        """快速選取某分類的全部 ETF（其餘取消選取）。"""
+        grps = self._chg_get_tier_groups()
+        if tier_key == 'all':
+            new_sel = {c for c, _ in ACTIVE_ETFS}
+        else:
+            new_sel = set(grps.get(tier_key, []))
+        self._chg_etf_selected = new_sel
+        for code, btn in self._chg_etf_btns.items():
+            sel = code in new_sel
+            btn.config(bg='#2a5c8f' if sel else '#2a3040',
+                       fg='white'   if sel else '#8090a0')
+        self._chg_update_tier_btn_states()
+
+    def _chg_update_tier_btn_states(self):
+        """依目前 _chg_etf_selected 同步分類按鈕高亮狀態。"""
+        btns = getattr(self, '_chg_tier_btns', {})
+        if not btns:
+            return
+        _ACT, _INS = getattr(self, '_chg_tier_styles',
+                             ({'bg': '#2a5c8f', 'fg': 'white'},
+                              {'bg': '#1e2030', 'fg': '#6070a0'}))
+        grps = self._chg_get_tier_groups()
+        all_codes = {c for c, _ in ACTIVE_ETFS}
+        is_all = self._chg_etf_selected == all_codes
+        if 'all' in btns:
+            btns['all'].config(**(_ACT if is_all else _INS))
+        for key in ('high', 'mid', 'low', 'unk'):
+            if key not in btns:
+                continue
+            codes = grps.get(key, [])
+            active = bool(codes) and all(c in self._chg_etf_selected for c in codes)
+            btns[key].config(**(_ACT if active else _INS))
+
     def _chg_toggle_etf(self, code: str):
         btn = self._chg_etf_btns[code]
         if code in self._chg_etf_selected:
@@ -5732,6 +5839,7 @@ class StockApp(tk.Tk):
         else:
             self._chg_etf_selected.add(code)
             btn.config(bg='#2a5c8f', fg='white')
+        self._chg_update_tier_btn_states()
 
     def _active_etf_fetch_snapshots(self):
         """切換到主動型ETF成分股分析時，靜默在背景更新全部主動型ETF快照。"""
@@ -5801,7 +5909,7 @@ class StockApp(tk.Tk):
             threading.Thread(target=_fetch_one, args=(code,), daemon=True).start()
 
     def _refresh_aetf_combo(self):
-        """更新 AUM 快取後，依規模重新分組排列主動型 ETF 下拉選單。"""
+        """更新 AUM 快取後，依規模重新分組排列主動型 ETF 下拉選單，並同步分類按鈕。"""
         combo = getattr(self, '_aetf_combo_ref', None)
         if combo is None or not combo.winfo_exists():
             return
@@ -5814,6 +5922,7 @@ class StockApp(tk.Tk):
         cur = self._etf_var.get()
         if cur and cur not in opts:
             self._etf_var.set('')
+        self._chg_update_tier_btn_states()
 
     def _chg_fetch_all(self):
         if self._chg_fetching:
