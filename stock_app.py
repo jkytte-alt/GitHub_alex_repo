@@ -1131,6 +1131,62 @@ _ETF_PCF_HIST_CACHE: dict[str, dict] = {}   # code → {date_str: [holdings]}
 # ── ETF 成分股歷史快照 ──────────────────────────────────────────────────────────
 _ETF_HOLDINGS_HIST_CACHE: dict[str, dict] = {}   # code → {YYYYMMDD: [{code,weight}]}
 
+# ── 主動型 ETF 規模快取 ──────────────────────────────────────────────────────────
+_ETF_AUM_CACHE: dict[str, float] = {}            # code → total_assets (元)
+_ETF_AUM_CACHE_PATH = os.path.join(BASE_DIR, '.etf_aum_cache.json')
+
+def _load_etf_aum_cache():
+    global _ETF_AUM_CACHE
+    try:
+        with open(_ETF_AUM_CACHE_PATH, 'r', encoding='utf-8') as _f:
+            _ETF_AUM_CACHE = _json.load(_f)
+    except Exception:
+        _ETF_AUM_CACHE = {}
+
+def _save_etf_aum_cache():
+    try:
+        with open(_ETF_AUM_CACHE_PATH, 'w', encoding='utf-8') as _f:
+            _json.dump(_ETF_AUM_CACHE, _f, ensure_ascii=False, separators=(',', ':'))
+    except Exception:
+        pass
+
+_load_etf_aum_cache()
+
+def _build_aetf_combo_options(held: set) -> list:
+    """依規模分三組建立 ACTIVE_ETFS 下拉選單選項（含分隔線）。"""
+    TIER1 = 500e8   # 500億
+    TIER2 = 100e8   # 100億
+    g_high, g_mid, g_low, g_unk = [], [], [], []
+    for code, name in ACTIVE_ETFS:
+        star  = '★' if code in held else ''
+        label = f'{code}  {star}{name}' if star else f'{code}  {name}'
+        aum   = _ETF_AUM_CACHE.get(code)
+        if aum is None:
+            g_unk.append((label, 0))
+        elif aum >= TIER1:
+            g_high.append((label, aum))
+        elif aum >= TIER2:
+            g_mid.append((label, aum))
+        else:
+            g_low.append((label, aum))
+    for g in (g_high, g_mid, g_low):
+        g.sort(key=lambda x: x[1], reverse=True)
+    result = []
+    if g_high:
+        result.append('── 500 億以上 ──')
+        result.extend(lbl for lbl, _ in g_high)
+    if g_mid:
+        result.append('── 100～500 億 ──')
+        result.extend(lbl for lbl, _ in g_mid)
+    if g_low:
+        result.append('── 100 億以下 ──')
+        result.extend(lbl for lbl, _ in g_low)
+    if g_unk:
+        if result:
+            result.append('── 規模未知 ──')
+        result.extend(lbl for lbl, _ in g_unk)
+    return result
+
 # ── 主動型 ETF 清單（台股全部主動型 ETF）────────────────────────────────────────
 ACTIVE_ETFS = [
     ('00400A', '主動國泰動能高息'), ('00401A', '主動摩根台灣鑫收'),
@@ -1226,8 +1282,10 @@ def _squarify_layout(items, x0, y0, w, h):
     return result
 
 
-def _fetch_moneydj_etf_snapshot(code: str) -> list[dict]:
-    """從 MoneyDJ Basic0007B 取得全部成分股，回傳 [{code, weight}, ...]。"""
+def _fetch_moneydj_etf_snapshot(code: str) -> tuple[list[dict], str]:
+    """從 MoneyDJ Basic0007B 取得全部成分股。
+    回傳 (holdings, data_date)，data_date 為 YYYYMMDD 字串（解析失敗則為空字串）。
+    """
     import re as _re
     _hdrs = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0',
@@ -1240,6 +1298,7 @@ def _fetch_moneydj_etf_snapshot(code: str) -> list[dict]:
     _pat_lite = _re.compile(
         r"etfid=(\d{4,6})\.TWO?[^'\"]*['\"][^>]*>[^<]*</a>"
         r"</td>\s*<td[^>]*>([\d.]+)</td>", _re.I)
+    _pat_date = _re.compile(r'資料日期[：:]\s*(\d{4})/(\d{2})/(\d{2})')
     for _sfx in ['.TW', '.TWO']:
         _url = (f'https://www.moneydj.com/ETF/X/Basic/Basic0007B.xdjhtm'
                 f'?etfid={code}{_sfx}')
@@ -1247,7 +1306,7 @@ def _fetch_moneydj_etf_snapshot(code: str) -> list[dict]:
             if _CFFI_OK:
                 _r = _cffi_req.get(_url, headers=_hdrs, timeout=10, verify=False,
                                    impersonate='chrome110')
-                _html = _r.content.decode('latin-1')
+                _raw = _r.content
             else:
                 import urllib.request as _ureq, ssl as _ssl
                 _ctx = _ssl.create_default_context()
@@ -1255,20 +1314,33 @@ def _fetch_moneydj_etf_snapshot(code: str) -> list[dict]:
                 _ctx.verify_mode = _ssl.CERT_NONE
                 with _ureq.urlopen(_ureq.Request(_url, headers=_hdrs),
                                    context=_ctx, timeout=10) as _resp:
-                    _html = _resp.read().decode('latin-1')
+                    _raw = _resp.read()
+
+            # 解析頁面上的「資料日期」，嘗試多種編碼
+            _data_date = ''
+            for _enc in ('utf-8', 'big5', 'cp950'):
+                try:
+                    _m = _pat_date.search(_raw.decode(_enc))
+                    if _m:
+                        _data_date = f'{_m.group(1)}{_m.group(2)}{_m.group(3)}'
+                        break
+                except Exception:
+                    continue
+
+            _html = _raw.decode('latin-1')
             _raw_full = _pat_full.findall(_html)
             if _raw_full:
                 _hits = [(c, float(w), int(s.replace(',', '')))
                          for c, w, s in _raw_full if 0 < float(w) <= 100]
                 if _hits:
-                    return [{'code': c, 'weight': w, 'shares': s} for c, w, s in _hits]
+                    return [{'code': c, 'weight': w, 'shares': s} for c, w, s in _hits], _data_date
             _hits = [(c, float(w)) for c, w in _pat_lite.findall(_html)
                      if 0 < float(w) <= 100]
             if _hits:
-                return [{'code': c, 'weight': w} for c, w in _hits]
+                return [{'code': c, 'weight': w} for c, w in _hits], _data_date
         except Exception:
             continue
-    return []
+    return [], ''
 
 
 def _load_etf_holdings_history(code: str) -> dict[str, list]:
@@ -1299,11 +1371,13 @@ def _last_weekday_str() -> str:
     return d.strftime('%Y%m%d')
 
 
-def _save_etf_holdings_snapshot(code: str, holdings: list[dict]) -> str:
-    """儲存一份帶日期的快照到磁碟；回傳日期字串 YYYYMMDD。
-    使用最近工作日（非週末）作為 key，內容不變則跳過儲存。
+def _save_etf_holdings_snapshot(code: str, holdings: list[dict],
+                                data_date: str = '') -> tuple[str, bool]:
+    """儲存一份帶日期的快照到磁碟；回傳 (日期字串 YYYYMMDD, 是否實際寫入)。
+    優先使用 data_date（來自資料來源頁面的實際日期），
+    若為空則回退到最近工作日（系統日期）。
     """
-    _ds   = _last_weekday_str()
+    _ds   = data_date if data_date else _last_weekday_str()
     _hist = _load_etf_holdings_history(code)
 
     def _sig(lst):
@@ -1311,23 +1385,9 @@ def _save_etf_holdings_snapshot(code: str, holdings: list[dict]) -> str:
                           round(h.get('weight', 0.0), 2),
                           h.get('shares', 0)) for h in lst)
 
-    # 若最新快照內容完全相同（無論日期是否不同），跳過
-    if _hist:
-        _latest_d = max(_hist.keys())
-        if _sig(holdings) == _sig(_hist[_latest_d]):
-            # 若 key 也相同直接返回；若 key 不同（舊日期→新工作日）仍更新 key
-            if _latest_d == _ds:
-                return _ds
-            # 把舊日期的快照重新掛到新工作日 key（補齊缺漏日期）
-            _hist[_ds] = _hist[_latest_d]
-            _ETF_HOLDINGS_HIST_CACHE[code] = _hist
-            _path = os.path.join(BASE_DIR, f'.etf_holdings_hist_{code}.json')
-            try:
-                with open(_path, 'w', encoding='utf-8') as _f:
-                    _json.dump(_hist, _f, ensure_ascii=False, separators=(',', ':'))
-            except Exception:
-                pass
-            return _ds
+    # 該日期已有完全相同的內容，跳過
+    if _ds in _hist and _sig(holdings) == _sig(_hist[_ds]):
+        return _ds, False
 
     _hist[_ds] = holdings
     _ETF_HOLDINGS_HIST_CACHE[code] = _hist
@@ -1337,7 +1397,7 @@ def _save_etf_holdings_snapshot(code: str, holdings: list[dict]) -> str:
             _json.dump(_hist, _f, ensure_ascii=False, separators=(',', ':'))
     except Exception:
         pass
-    return _ds
+    return _ds, True
 
 
 def _diff_etf_holdings(old: list[dict], new: list[dict]) -> dict:
@@ -4820,21 +4880,30 @@ class StockApp(tk.Tk):
 
         ttk.Label(ctrl, text='選擇 ETF：').pack(side='left', padx=(20, 4))
         self._etf_var = tk.StringVar()
-        # 持有中的 ETF 排在前面，加 ★ 標記
+        _is_active = (etf_list is not None and etf_list is ACTIVE_ETFS)
         try:
             _held = set(load_df()['股票代號'].dropna().astype(str).unique())
         except Exception:
             _held = set()
-        _held_opts  = [f'{c}  ★{n}' for c, n in etf_list if c in _held]
-        _other_opts = [f'{c}  {n}'  for c, n in etf_list if c not in _held]
-        etf_options = _held_opts + _other_opts
+        if _is_active:
+            etf_options = _build_aetf_combo_options(_held)
+        else:
+            _held_opts  = [f'{c}  ★{n}' for c, n in etf_list if c in _held]
+            _other_opts = [f'{c}  {n}'  for c, n in etf_list if c not in _held]
+            etf_options = _held_opts + _other_opts
         self._etf_combo = ttk.Combobox(ctrl, textvariable=self._etf_var,
                                         values=etf_options, state='normal', width=26)
         self._etf_combo.pack(side='left', padx=4)
+        if _is_active:
+            self._aetf_combo_ref = self._etf_combo
+            self._aetf_held_ref  = _held
+
         def _on_combo_select(_=None):
             sel = self._etf_var.get().strip()
-            if sel:
-                self._etf_code_var.set(sel.split()[0])
+            if not sel or sel.startswith('──'):
+                self._etf_var.set('')
+                return
+            self._etf_code_var.set(sel.split()[0])
             self._draw_etf_map()
 
         self._etf_combo.bind('<<ComboboxSelected>>', _on_combo_select)
@@ -5689,13 +5758,20 @@ class StockApp(tk.Tk):
             refreshed   = False
             got_new     = False
             try:
-                holdings = _fetch_moneydj_etf_snapshot(code)
+                holdings, data_date = _fetch_moneydj_etf_snapshot(code)
                 if holdings:
-                    saved_ds = _save_etf_holdings_snapshot(code, holdings)
-                    if saved_ds == _today_ds:
+                    saved_ds, did_write = _save_etf_holdings_snapshot(code, holdings, data_date)
+                    if did_write:
                         got_new = True
                         if getattr(self, '_aetf_diff_code', None) == code:
                             refreshed = True
+                # 順帶更新 AUM 快取
+                try:
+                    _aum_val = _fetch_etfortune_meta(code).get('total_assets')
+                    if _aum_val:
+                        _ETF_AUM_CACHE[code] = _aum_val
+                except Exception:
+                    pass
             except Exception:
                 pass
             with lock:
@@ -5708,6 +5784,7 @@ class StockApp(tk.Tk):
                         f'↻ 更新中 {_n}/{total}…', '#7799bb'))
                 else:
                     self._active_etf_fetching = False
+                    _save_etf_aum_cache()
                     _ts  = _dt_cls.now().strftime('%H:%M')
                     _cnt = saved[0]
                     if _cnt:
@@ -5716,11 +5793,27 @@ class StockApp(tk.Tk):
                     else:
                         self.after(0, lambda: _set_lbl(
                             f'✓ {_ts} 無新資料（已是最新）', '#556677'))
+                    self.after(0, self._refresh_aetf_combo)
             if refreshed:
                 self.after(0, lambda: self._aetf_update_diff_ui(code))
 
         for code in codes:
             threading.Thread(target=_fetch_one, args=(code,), daemon=True).start()
+
+    def _refresh_aetf_combo(self):
+        """更新 AUM 快取後，依規模重新分組排列主動型 ETF 下拉選單。"""
+        combo = getattr(self, '_aetf_combo_ref', None)
+        if combo is None or not combo.winfo_exists():
+            return
+        try:
+            _held = set(load_df()['股票代號'].dropna().astype(str).unique())
+        except Exception:
+            _held = getattr(self, '_aetf_held_ref', set())
+        opts = _build_aetf_combo_options(_held)
+        combo['values'] = opts
+        cur = self._etf_var.get()
+        if cur and cur not in opts:
+            self._etf_var.set('')
 
     def _chg_fetch_all(self):
         if self._chg_fetching:
@@ -5738,9 +5831,9 @@ class StockApp(tk.Tk):
         failed = []
 
         def _fetch_one(code):
-            holdings = _fetch_moneydj_etf_snapshot(code)
+            holdings, data_date = _fetch_moneydj_etf_snapshot(code)
             if holdings:
-                _save_etf_holdings_snapshot(code, holdings)
+                _save_etf_holdings_snapshot(code, holdings, data_date)
             else:
                 with lock:
                     failed.append(code)

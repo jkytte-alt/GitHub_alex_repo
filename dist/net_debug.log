@@ -137,3 +137,153 @@
 [09:06:09] get_price(6285.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
 [09:06:10] get_price(00631L.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
 [09:06:10] get_price(6206.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[09:09:37] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:09:38] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: Expecting value: line 1 column 1 (char 0)
+[09:09:39] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:09:40] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: Expecting value: line 1 column 1 (char 0)
+[09:11:36] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:11:37] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: Expecting value: line 1 column 1 (char 0)
+[09:11:39] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:11:42] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: Expecting value: line 1 column 1 (char 0)
+[09:12:11] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:12:12] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: Expecting value: line 1 column 1 (char 0)
+[09:27:36] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:27:37] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00994A&]: Expecting value: line 1 column 1 (char 0)
+[09:27:40] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:27:42] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00994A&]: Expecting value: line 1 column 1 (char 0)
+[09:29:39] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:29:40] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00991A&]: Expecting value: line 1 column 1 (char 0)
+[09:30:30] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:30:32] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00985A&]: Expecting value: line 1 column 1 (char 0)
+[09:30:34] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:30:36] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00985A&]: Expecting value: line 1 column 1 (char 0)
+[09:30:38] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:30:38] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00985A&]: Expecting value: line 1 column 1 (char 0)
+[09:31:04] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:31:05] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00986A&]: Expecting value: line 1 column 1 (char 0)
+[09:31:28] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:31:29] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00982A&]: Expecting value: line 1 column 1 (char 0)
+[09:31:32] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:31:33] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00982A&]: Expecting value: line 1 column 1 (char 0)
+[09:38:29] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[09:38:30] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00403A&]: Expecting value: line 1 column 1 (char 0)
+[11:44:47] curl_cffi text FAIL [https://www.twse.com.tw/zh/ETFortune/etfInfo/00981A]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:47] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:48] _fetch_etfortune_meta(00981A): <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:48] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:48] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:48] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:48] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:48] _ensure_twse_price_cache rwd fail: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:48] curl_cffi FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: Failed to perform, curl: (6) Could not resolve host: openapi.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:48] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:48] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:49] urllib FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:49] _ensure_twse_price_cache openapi fail: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:49] curl_cffi FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: Failed to perform, curl: (6) Could not resolve host: www.tpex.org.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:49] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:49] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:50] urllib FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:50] _ensure_twse_price_cache TPEX fail: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:50] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:50] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:50] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:50] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:51] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:51] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:51] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:51] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:52] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:52] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:52] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:52] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:53] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:53] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:53] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:53] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:54] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:54] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:54] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:54] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:55] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:55] curl_cffi text FAIL [https://www.twse.com.tw/zh/ETFortune/etfInfo/00981A]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:55] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:55] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:56] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:56] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:56] _fetch_etfortune_meta(00981A): <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:56] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:56] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:56] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:56] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:56] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:56] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:56] _ensure_twse_price_cache rwd fail: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:56] curl_cffi FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: Failed to perform, curl: (6) Could not resolve host: openapi.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:56] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:56] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:57] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:57] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:57] urllib FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:57] _ensure_twse_price_cache openapi fail: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:57] curl_cffi FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: Failed to perform, curl: (6) Could not resolve host: www.tpex.org.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:57] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:57] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:58] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:58] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:58] urllib FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:58] _ensure_twse_price_cache TPEX fail: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:58] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:58] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:58] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:58] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:59] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:59] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:59] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:59] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:44:59] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:44:59] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:00] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:00] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:00] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:00] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:00] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:00] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:00] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:00] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:01] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:01] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:01] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:01] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:01] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:01] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:02] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:02] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:02] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:02] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:02] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:02] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:03] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:03] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:03] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:03] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:03] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:03] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:04] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:04] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:04] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:04] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:04] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:05] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:05] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:05] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:05] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:06] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:06] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:07] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:07] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:08] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:08] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:09] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: <urlopen error [Errno 11001] getaddrinfo failed>
+[11:45:09] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[11:45:11] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00981A&]: Expecting value: line 1 column 1 (char 0)

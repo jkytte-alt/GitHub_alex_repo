@@ -1,0 +1,6 @@
+# 在你本機執行這段，找出正確的 API 端點
+import requests
+
+# 試試看 TWSE openapi 是否有主動式ETF持股端點
+r = requests.get("https://openapi.twse.com.tw/v1/ETF/getActiveETFPortfolio?stockNo=00981A")
+print(r.status_code, r.text[:500])
