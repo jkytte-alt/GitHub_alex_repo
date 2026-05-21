@@ -1844,9 +1844,47 @@ def fetch_etf_data(etf_code: str) -> tuple[str, list[dict], str]:
     return etf_name, components, debug_msg
 
 
+_MIS_ETF_CACHE: dict = {}
+_MIS_ETF_CACHE_TS: float = 0.0
+
+def _fetch_mis_all_etf() -> dict:
+    """Fetch TWSE MIS all_etf.txt → dict keyed by ETF code.
+    Fields per entry: e=市價, f=估計NAV, g=折溢價%, h=前日NAV.
+    Cached 60 seconds.
+    """
+    global _MIS_ETF_CACHE, _MIS_ETF_CACHE_TS
+    import time as _time
+    now = _time.time()
+    if _MIS_ETF_CACHE and now - _MIS_ETF_CACHE_TS < 60:
+        return _MIS_ETF_CACHE
+    try:
+        ts  = int(now * 1000)
+        url = f'https://mis.twse.com.tw/stock/data/all_etf.txt?_={ts}'
+        hdrs = {'User-Agent': 'Mozilla/5.0', 'Referer': 'https://mis.twse.com.tw/'}
+        if _CFFI_OK:
+            resp = _cffi_req.get(url, headers=hdrs, timeout=8, verify=False)
+            raw  = resp.text
+        else:
+            import urllib.request as _ur
+            req = _ur.Request(url, headers=hdrs)
+            raw = _ur.urlopen(req, timeout=8).read().decode()
+        data   = _json.loads(raw)
+        result = {}
+        for grp in data.get('a1', []):
+            for item in grp.get('msgArray', []):
+                c = item.get('a', '')
+                if c:
+                    result[c] = item
+        _MIS_ETF_CACHE    = result
+        _MIS_ETF_CACHE_TS = now
+    except Exception as _e:
+        _net_log(f'_fetch_mis_all_etf: {_e}')
+    return _MIS_ETF_CACHE
+
+
 def _fetch_etfortune_meta(code: str) -> dict:
-    """Scrape TWSE ETFortune page for AUM, NAV, closing price, and discount/premium.
-    Returns dict with keys: total_assets (元), nav, price, atmps (折溢價 %).
+    """Scrape TWSE ETFortune page for AUM only.
+    Returns dict with key: total_assets (元).
     """
     import re as _re
     meta: dict = {}
@@ -1855,25 +1893,9 @@ def _fetch_etfortune_meta(code: str) -> dict:
         html = _cffi_get_text(url)
         if not html or len(html) < 500:
             return meta
-
-        # AUM: first <span>NUMBER</span>&nbsp;<b>億元</b> on page
         m = _re.search(r'<span>([\d,\.]+)</span>&nbsp;<b>億元</b>', html)
         if m:
-            meta['total_assets'] = float(m.group(1).replace(',', '')) * 1e8  # 億元 → 元
-
-        # chartData JS variable: netPrice=NAV, close1=market price, atmps=折溢價%
-        idx = html.find('chartData = {')
-        if idx >= 0:
-            chart, _ = _json.JSONDecoder().raw_decode(html[idx + len('chartData = '):])
-            net = chart.get('netPrice', [])
-            if net:
-                meta['nav'] = float(net[-1]['count'])
-            close = chart.get('close1', [])
-            if close:
-                meta['price'] = float(close[-1]['count'])
-            atmps = chart.get('atmps', [])
-            if atmps:
-                meta['atmps'] = float(atmps[-1]['count'])
+            meta['total_assets'] = float(m.group(1).replace(',', '')) * 1e8
     except Exception as _e:
         _net_log(f'_fetch_etfortune_meta({code}): {_e}')
     return meta
@@ -1881,17 +1903,43 @@ def _fetch_etfortune_meta(code: str) -> dict:
 
 def fetch_etf_meta(etf_code: str) -> dict:
     """Fetch ETF AUM, yield, NAV, sector weights, asset allocation.
-    Source 1: TWSE ETFortune page (authoritative for TW ETFs: AUM, NAV, price, 折溢價)
-    Source 2: Yahoo Finance quoteSummary (yield_pct, sector_weights, asset_alloc)
+    Source 1: TWSE MIS all_etf.txt (nav, price, atmps, AUM estimate) — primary
+    Source 2: TWSE ETFortune page (AUM — more precise figure)
+    Source 3: Yahoo Finance quoteSummary (yield_pct, sector_weights, asset_alloc)
     Returns dict with keys: total_assets, yield_pct, nav, price, atmps, sector_weights, asset_alloc.
     """
     code = str(etf_code).strip()
     meta: dict = {}
 
-    # ── 方法1：TWSE ETFortune（AUM、NAV、市價、折溢價）────────────────────────
-    meta.update(_fetch_etfortune_meta(code))
+    # ── 方法1：TWSE MIS all_etf.txt（nav、price、atmps 的主要來源）───────────
+    try:
+        mis = _fetch_mis_all_etf().get(code, {})
+        if mis:
+            def _flt(k):
+                v = mis.get(k, '')
+                return float(v) if v and v != '-' else None
+            nav_v   = _flt('f')
+            price_v = _flt('e')
+            atmps_v = _flt('g')
+            units_v = _flt('c')
+            if nav_v   is not None: meta['nav']   = nav_v
+            if price_v is not None: meta['price'] = price_v
+            if atmps_v is not None: meta['atmps'] = atmps_v
+            # 估算 AUM = 受益權單位數 × 淨值
+            if nav_v and units_v:
+                meta['total_assets'] = units_v * nav_v
+    except Exception as _e:
+        _net_log(f'fetch_etf_meta MIS({code}): {_e}')
 
-    # ── 方法2：Yahoo Finance quoteSummary（補充 yield、sector、asset allocation）
+    # ── 方法2：TWSE ETFortune（AUM 更精確的數字，覆蓋 MIS 的估算值）──────────
+    try:
+        ef = _fetch_etfortune_meta(code)
+        if ef.get('total_assets'):
+            meta['total_assets'] = ef['total_assets']
+    except Exception:
+        pass
+
+    # ── 方法3：Yahoo Finance quoteSummary（yield、sector、asset allocation）──
     try:
         from yfinance.data import YfData as _YfData
         _yfdata = _YfData(session=None)
@@ -1907,18 +1955,13 @@ def fetch_etf_meta(etf_code: str) -> dict:
                 result  = payload.get('quoteSummary', {}).get('result', [{}])
                 if not result:
                     continue
-                res  = result[0]
-                sd   = res.get('summaryDetail', {})
-                for src_key, dst_key in [('totalAssets',  'total_assets'),
-                                          ('yield',        'yield_pct'),
-                                          ('navPrice',     'nav'),
-                                          ('regularMarketPrice', 'price'),
-                                          ('previousClose', 'prev_close')]:
-                    if not meta.get(dst_key):
-                        val = sd.get(src_key, {})
-                        v   = val.get('raw') if isinstance(val, dict) else (val or None)
-                        if v:
-                            meta[dst_key] = v
+                res = result[0]
+                sd  = res.get('summaryDetail', {})
+                # 只補充 yield；nav/price/totalAssets 以 MIS 為準，不使用 Yahoo
+                yld = sd.get('yield', {})
+                y   = yld.get('raw') if isinstance(yld, dict) else (yld or None)
+                if y and not meta.get('yield_pct'):
+                    meta['yield_pct'] = y
                 ep = res.get('etfProfile', {})
                 if not meta.get('sector_weights'):
                     meta['sector_weights'] = ep.get('sectorWeightings', [])
@@ -1931,7 +1974,7 @@ def fetch_etf_meta(etf_code: str) -> dict:
     except Exception:
         pass
 
-    # ── 方法3：TWSE 收盤價快取（ETFortune 和 Yahoo 都無法提供市價時）──────────
+    # ── 方法4：TWSE 收盤價快取（MIS 也無法提供市價時）────────────────────────
     if not meta.get('price') and not meta.get('prev_close'):
         try:
             price_cache = _ensure_twse_price_cache()
@@ -5873,9 +5916,14 @@ class StockApp(tk.Tk):
                         got_new = True
                         if getattr(self, '_aetf_diff_code', None) == code:
                             refreshed = True
-                # 順帶更新 AUM 快取
+                # 順帶更新 AUM 快取（優先用 MIS c×f，備用 ETFortune）
                 try:
-                    _aum_val = _fetch_etfortune_meta(code).get('total_assets')
+                    _mis = _fetch_mis_all_etf().get(code, {})
+                    _c, _f = _mis.get('c', ''), _mis.get('f', '')
+                    if _c and _f and _c != '-' and _f != '-':
+                        _aum_val = float(_c) * float(_f)
+                    else:
+                        _aum_val = _fetch_etfortune_meta(code).get('total_assets')
                     if _aum_val:
                         _ETF_AUM_CACHE[code] = _aum_val
                 except Exception:
