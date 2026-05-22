@@ -58,6 +58,14 @@ try:
 except ImportError:
     _CFFI_OK = False
 
+_USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.3; rv:109.0) Gecko/20100101 Firefox/122.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0'
+]
+
 def _net_log(msg: str):
     """寫入網路除錯日誌（僅在 PyInstaller 打包環境下）。"""
     try:
@@ -72,8 +80,10 @@ def _net_log(msg: str):
 
 def _cffi_get_json(url, params=None, headers=None, timeout=15):
     """curl_cffi-based JSON GET that handles corporate DNS/firewall issues."""
+    import random as _rand
     _hdrs = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0',
+        'User-Agent': _rand.choice(_USER_AGENTS),
         'Accept': 'application/json',
     }
     if headers:
@@ -101,8 +111,10 @@ def _cffi_get_json(url, params=None, headers=None, timeout=15):
 
 def _cffi_get_text(url: str, headers: dict | None = None, timeout: int = 15) -> str:
     """curl_cffi-based HTML GET returning raw UTF-8 text."""
+    import random as _rand
     _hdrs = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36',
+        'User-Agent': _rand.choice(_USER_AGENTS),
         **(headers or {}),
     }
     if _CFFI_OK:
@@ -1291,13 +1303,14 @@ def _fetch_moneydj_etf_snapshot(code: str) -> tuple[list[dict], str]:
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0',
         'Referer': 'https://www.moneydj.com/',
     }
+    _inner = r"[^<]*(?:<[^/][^>]*>[^<]*</[^>]+>)*[^<]*"  # 允許最多一層內層標籤
     _pat_full = _re.compile(
-        r"etfid=(\d{4,6})\.TWO?[^'\"]*['\"][^>]*>[^<]*</a>"
-        r"</td>\s*<td[^>]*>([\d.]+)</td>"
-        r"\s*<td[^>]*>([\d,]+)</td>", _re.I)
+        r"etfid=(\d{4,6})\.TWO?[^'\"]*['\"][^>]*>" + _inner + r"</a>"
+        r"\s*</td>\s*<td[^>]*>\s*([\d.]+)\s*%?\s*</td>"
+        r"\s*<td[^>]*>\s*([\d,]+)\s*</td>", _re.I)
     _pat_lite = _re.compile(
-        r"etfid=(\d{4,6})\.TWO?[^'\"]*['\"][^>]*>[^<]*</a>"
-        r"</td>\s*<td[^>]*>([\d.]+)</td>", _re.I)
+        r"etfid=(\d{4,6})\.TWO?[^'\"]*['\"][^>]*>" + _inner + r"</a>"
+        r"\s*</td>\s*<td[^>]*>\s*([\d.]+)\s*%?\s*</td>", _re.I)
     _pat_date = _re.compile(r'資料日期[：:]\s*(\d{4})/(\d{2})/(\d{2})')
     for _sfx in ['.TW', '.TWO']:
         _url = (f'https://www.moneydj.com/ETF/X/Basic/Basic0007B.xdjhtm'
@@ -1331,11 +1344,11 @@ def _fetch_moneydj_etf_snapshot(code: str) -> tuple[list[dict], str]:
             _raw_full = _pat_full.findall(_html)
             if _raw_full:
                 _hits = [(c, float(w), int(s.replace(',', '')))
-                         for c, w, s in _raw_full if 0 < float(w) <= 100]
+                         for c, w, s in _raw_full if 0 < float(w) <= 100 and c != code]
                 if _hits:
                     return [{'code': c, 'weight': w, 'shares': s} for c, w, s in _hits], _data_date
             _hits = [(c, float(w)) for c, w in _pat_lite.findall(_html)
-                     if 0 < float(w) <= 100]
+                     if 0 < float(w) <= 100 and c != code]
             if _hits:
                 return [{'code': c, 'weight': w} for c, w in _hits], _data_date
         except Exception:
@@ -1437,6 +1450,7 @@ def _fetch_etf_pcf_history(code: str, months: int = 6,
     """
     from datetime import datetime as _dt, timedelta as _td
     import time as _t
+    import random as _rand
 
     cache_path = os.path.join(BASE_DIR, f'.etf_pcf_history_{code}.json')
 
@@ -1531,12 +1545,14 @@ def _fetch_etf_pcf_history(code: str, months: int = 6,
                 except Exception:
                     pass
                 _t.sleep(0.05)
+                _t.sleep(_rand.uniform(0.1, 0.4))  # 加入隨機抖動
 
         # 抓不到不快取（保留 None，下次重試）——不存 [] 避免永久遮蔽
         done += 1
         if progress_cb:
             progress_cb(done, total)
         _t.sleep(0.2)
+        _t.sleep(_rand.uniform(0.5, 1.5))  # 加入隨機抖動，避免被短時間內頻繁請求封鎖
 
     # 寫回磁碟快取（只寫有資料的日期）
     save_data = {d: v for d, v in existing.items() if v}
@@ -1567,6 +1583,7 @@ def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
         'Accept-Language':  'zh-TW,zh;q=0.9',
         'X-Requested-With': 'XMLHttpRequest',
         'Referer': f'https://www.twse.com.tw/zh/ETF/fund/{code}',
+        'User-Agent':       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     }
     _twse_api_dead = False  # 偵測 API 已改版回 HTML，避免重複嘗試
     for q_type in ('DAILY', 'MONTHLY'):
@@ -1575,14 +1592,28 @@ def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
         for days_back in range(1, 15):  # 往前找14天，涵蓋連假期間
             date = (datetime.now() - timedelta(days=days_back)).strftime('%Y%m%d')
             try:
-                data = _cffi_get_json(
-                    'https://www.twse.com.tw/fund/etfFundHoldingData',
-                    params={'fund': code, 'type': q_type, 'date': date},
-                    headers=twse_hdr, timeout=5)
-                if not isinstance(data, dict):
-                    # API 回傳 HTML 或其他非 JSON：整個 TWSE 方法已失效，直接放棄
+                import urllib.parse as _up
+                _twse_url = ('https://www.twse.com.tw/fund/etfFundHoldingData?'
+                             + _up.urlencode({'fund': code, 'type': q_type, 'date': date}))
+                if _CFFI_OK:
+                    _tr = _cffi_req.get(_twse_url, headers=twse_hdr,
+                                        impersonate='chrome110', timeout=8, verify=False)
+                    raw_text = _tr.text
+                else:
+                    import urllib.request as _ur, ssl as _ssl
+                    _ctx2 = _ssl.create_default_context()
+                    _ctx2.check_hostname = False; _ctx2.verify_mode = _ssl.CERT_NONE
+                    _req2 = _ur.Request(_twse_url, headers=twse_hdr)
+                    with _ur.urlopen(_req2, context=_ctx2, timeout=8) as _rsp:
+                        raw_text = _rsp.read().decode('utf-8')
+                if not raw_text.strip().startswith('{'):
                     _twse_api_dead = True
                     debug.append('TWSE API 已改版（非JSON）')
+                    break
+                data = _json.loads(raw_text)
+                if not isinstance(data, dict):
+                    _twse_api_dead = True
+                    debug.append('TWSE API 非dict')
                     break
                 stat = data.get('stat', '?')
                 if stat != 'OK':
@@ -1614,7 +1645,6 @@ def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
                     debug.append(f'TWSE OK: {len(holdings)} 檔')
                     return holdings, ' | '.join(debug)
             except _json.JSONDecodeError:
-                # 第一次 JSONDecodeError 就代表 API 回傳 HTML，不必繼續嘗試
                 _twse_api_dead = True
                 debug.append('TWSE API 已改版（JSONDecodeError）')
                 break
@@ -1638,7 +1668,8 @@ def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
                        f'?etfid={code}{_sfx}')
             try:
                 if _CFFI_OK:
-                    _r = _cffi_req.get(_mj_url, headers=_mj_hdrs, timeout=8, verify=False)
+                    _r = _cffi_req.get(_mj_url, headers=_mj_hdrs, timeout=8, verify=False,
+                                       impersonate='chrome110')
                     _html = _r.content.decode('latin-1')
                 else:
                     import urllib.request as _ureq, ssl as _ssl
@@ -1649,14 +1680,14 @@ def _fetch_twse_etf_holdings(etf_code: str) -> tuple[list[dict], str]:
                         _html = _resp.read().decode('latin-1')
 
                 _pat = _re.compile(
-                    r"etfid=(\d{4,6})\.TWO?[^'\"]*['\"][^>]*>[^<]*</a>"
-                    r"</td>\s*<td[^>]*>([\d.]+)</td>",
+                    r"etfid=(\d{4,6})\.TWO?[^'\"]*['\"][^>]*>[^<]*(?:<[^/][^>]*>[^<]*</[^>]+>)*[^<]*</a>"
+                    r"\s*</td>\s*<td[^>]*>\s*([\d.]+)\s*%?\s*</td>",
                     _re.I)
                 _seen: set = set()
                 _tmp = []
                 for _m in _pat.finditer(_html):
                     _sc = _m.group(1).strip()
-                    if _sc in _seen:
+                    if _sc in _seen or _sc == code:  # 排除ETF本身
                         continue
                     try:
                         _w = float(_m.group(2))
@@ -1750,6 +1781,11 @@ def fetch_etf_data(etf_code: str) -> tuple[str, list[dict], str]:
     raw_holdings, debug_msg = _fetch_twse_etf_holdings(code)
     print(f'[ETF DEBUG] {code}: {debug_msg}')
 
+    if not raw_holdings:
+        return etf_name, [], debug_msg
+
+    # 防護：排除 ETF 自身代號（MoneyDJ 頁面導覽列可能被誤抓）
+    raw_holdings = [h for h in raw_holdings if h.get('code') != code]
     if not raw_holdings:
         return etf_name, [], debug_msg
 
@@ -2044,9 +2080,9 @@ def pnl_color_us(pct: float, max_abs: float = 10.0) -> str:
     return f'#{r:02x}{g:02x}{b:02x}'
 
 
-def _fetch_earn_pct(hist: dict, rows_by_tag: dict, date_vs: str, date_sel: str) -> dict:
+def _fetch_earn_pct(hist: dict, rows_by_tag: dict, date_vs: str, date_sel: str) -> tuple[dict, dict]:
     """
-    逐日追蹤快照持股異動，計算加權平均買入/賣出價，回傳 {code: earn_pct}。
+    逐日追蹤快照持股異動，計算加權平均買入/賣出價，回傳 ({code: earn_pct}, {code: changes})。
     rows_by_tag: {'add': [...], 'inc': [...], 'dec': [...]}
     date_vs/date_sel: YYYYMMDD，date_vs 為舊（比較）日，date_sel 為新（選擇）日。
     加碼/新增 → 加權平均買入價 vs date_sel 收盤；減碼 → 加權平均賣出價 vs date_sel 收盤。
@@ -2058,12 +2094,12 @@ def _fetch_earn_pct(hist: dict, rows_by_tag: dict, date_vs: str, date_sel: str) 
             code_to_tag[r['code']] = tag
             all_codes.add(r['code'])
     if not all_codes:
-        return {}
+        return {}, {}
 
     # 找出兩日期之間所有已快取的快照日期（含兩端）
     snap_dates = sorted(d for d in hist.keys() if date_vs <= d <= date_sel)
     if len(snap_dates) < 2:
-        return {}
+        return {}, {}
 
     # 逐日計算持股變化量 (delta > 0 = 買入, delta < 0 = 賣出)
     code_changes: dict[str, list] = {c: [] for c in all_codes}
@@ -2092,7 +2128,7 @@ def _fetch_earn_pct(hist: dict, rows_by_tag: dict, date_vs: str, date_sel: str) 
         df = yf.download(tickers, start=d_start_s, end=d_end_s,
                          auto_adjust=True, progress=False, threads=True)
         if df.empty:
-            return {}
+            return {}, {}
         if isinstance(df.columns, pd.MultiIndex):
             close = df['Close']
         else:
@@ -2105,7 +2141,7 @@ def _fetch_earn_pct(hist: dict, rows_by_tag: dict, date_vs: str, date_sel: str) 
                 if not col.empty:
                     price_series[code] = col
     except Exception:
-        return {}
+        return {}, {}
 
     def _get_price(code, date_str):
         col = price_series.get(code)
@@ -5144,24 +5180,13 @@ class StockApp(tk.Tk):
             w2.pack(fill='x', padx=8, pady=(2, 8))
             w2.bind('<MouseWheel>', _mw)
 
-        # ── 歷史熱力圖畫布 ─────────────────────────────────────────────────
-        self._etf_heatmap_fig = plt.Figure(figsize=(9.5, 5.5), dpi=100,
-                                            facecolor='#111111')
+        # 歷史熱力圖和成分股變化列表已移除
+        self._etf_heatmap_fig    = plt.Figure(figsize=(9.5, 5.5), dpi=100,
+                                              facecolor='#111111')
         self._etf_heatmap_canvas = FigureCanvasTkAgg(
             self._etf_heatmap_fig, master=self._etf_inner)
-        w3 = self._etf_heatmap_canvas.get_tk_widget()
-        w3.configure(bg='#111111')
-        if show_history:
-            w3.pack(fill='x', padx=8, pady=(2, 2))
-            w3.bind('<MouseWheel>', _mw)
-
-        # ── 成分股變化列表 ──────────────────────────────────────────────
-        self._etf_change_outer = tk.Frame(self._etf_inner, bg='#111111')
-        if show_history:
-            self._etf_change_outer.pack(fill='x', padx=8, pady=(2, 8))
-            self._etf_change_outer.bind('<MouseWheel>', _mw)
-
-        self._etf_show_history  = show_history
+        self._etf_change_outer   = tk.Frame(self._etf_inner, bg='#111111')
+        self._etf_show_history   = show_history
 
         # ── 主動型ETF 成分股比對區（僅 show_history=False 的分頁使用）──────────
         if not show_history:
@@ -5328,48 +5353,82 @@ class StockApp(tk.Tk):
             _hm_lbl.pack(side='left', padx=8)
             _hm_lbl.bind('<MouseWheel>', _mw)
 
-            self._aetf_hm_mode    = 'wchg'
-            self._aetf_hm_rects   = []
-            self._aetf_hm_ax      = None
-            self._aetf_hm_tooltip = None
+            self._aetf_hm_mode      = 'wchg'  # 色彩資料：'today'|'wchg'|'pchg'
+            self._aetf_hm_layout    = 'flat'  # 排列方式：'flat'|'sector'
+            self._aetf_sector_drill = None    # drill-down 類股名稱（None=總覽）
+            self._aetf_sector_rects = []      # 類股標題列可點擊區域
+            self._aetf_hm_rects     = []
+            self._aetf_hm_ax        = None
+            self._aetf_hm_tooltip   = None
 
-            self._aetf_hm_today_btn = tk.Button(hm_ctrl, text='今日漲跌', **_HM_UNSEL)
-            self._aetf_hm_wchg_btn  = tk.Button(hm_ctrl, text='比重變化',  **_HM_SEL)
-            self._aetf_hm_pchg_btn  = tk.Button(hm_ctrl, text='張數變化率', **_HM_UNSEL)
+            # ── 色彩/資料模式 ────────────────────────────────────────────
+            self._aetf_hm_today_btn = tk.Button(hm_ctrl, text='今日成分股', **_HM_UNSEL)
+            self._aetf_hm_wchg_btn  = tk.Button(hm_ctrl, text='比重變化',   **_HM_SEL)
+            self._aetf_hm_pchg_btn  = tk.Button(hm_ctrl, text='今日漲跌',   **_HM_UNSEL)
 
-            def _hm_all_unsel():
+            # ── 排列方式 ─────────────────────────────────────────────────
+            self._aetf_hm_flat_btn   = tk.Button(hm_ctrl, text='依占比', **_HM_SEL)
+            self._aetf_hm_sector_btn = tk.Button(hm_ctrl, text='依類股', **_HM_UNSEL)
+
+            def _hm_color_unsel():
                 self._aetf_hm_today_btn.config(**_HM_UNSEL)
-                self._aetf_hm_wchg_btn.config(**_HM_UNSEL)
-                self._aetf_hm_pchg_btn.config(**_HM_UNSEL)
+                self._aetf_hm_wchg_btn .config(**_HM_UNSEL)
+                self._aetf_hm_pchg_btn .config(**_HM_UNSEL)
+
+            def _hm_layout_unsel():
+                self._aetf_hm_flat_btn  .config(**_HM_UNSEL)
+                self._aetf_hm_sector_btn.config(**_HM_UNSEL)
 
             def _hm_set_today():
                 self._aetf_hm_mode = 'today'
-                _hm_all_unsel()
+                _hm_color_unsel()
                 self._aetf_hm_today_btn.config(**_HM_SEL)
                 self._aetf_hm_rects = []
                 self._aetf_redraw_heatmap()
 
             def _hm_set_wchg():
                 self._aetf_hm_mode = 'wchg'
-                _hm_all_unsel()
+                _hm_color_unsel()
                 self._aetf_hm_wchg_btn.config(**_HM_SEL)
                 self._aetf_redraw_heatmap()
 
             def _hm_set_pchg():
                 self._aetf_hm_mode = 'pchg'
-                _hm_all_unsel()
+                _hm_color_unsel()
                 self._aetf_hm_pchg_btn.config(**_HM_SEL)
                 self._aetf_redraw_heatmap()
 
-            self._aetf_hm_today_btn.config(command=_hm_set_today)
-            self._aetf_hm_wchg_btn.config(command=_hm_set_wchg)
-            self._aetf_hm_pchg_btn.config(command=_hm_set_pchg)
+            def _hm_set_flat():
+                self._aetf_hm_layout    = 'flat'
+                self._aetf_sector_drill = None
+                _hm_layout_unsel()
+                self._aetf_hm_flat_btn.config(**_HM_SEL)
+                self._aetf_redraw_heatmap()
+
+            def _hm_set_sector_layout():
+                self._aetf_hm_layout    = 'sector'
+                self._aetf_sector_drill = None
+                _hm_layout_unsel()
+                self._aetf_hm_sector_btn.config(**_HM_SEL)
+                self._aetf_redraw_heatmap()
+
+            self._aetf_hm_today_btn .config(command=_hm_set_today)
+            self._aetf_hm_wchg_btn  .config(command=_hm_set_wchg)
+            self._aetf_hm_pchg_btn  .config(command=_hm_set_pchg)
+            self._aetf_hm_flat_btn  .config(command=_hm_set_flat)
+            self._aetf_hm_sector_btn.config(command=_hm_set_sector_layout)
+
             self._aetf_hm_today_btn.pack(side='left', padx=2)
-            self._aetf_hm_wchg_btn.pack(side='left', padx=2)
-            self._aetf_hm_pchg_btn.pack(side='left', padx=0)
-            self._aetf_hm_today_btn.bind('<MouseWheel>', _mw)
-            self._aetf_hm_wchg_btn.bind('<MouseWheel>',  _mw)
-            self._aetf_hm_pchg_btn.bind('<MouseWheel>', _mw)
+            self._aetf_hm_wchg_btn .pack(side='left', padx=2)
+            self._aetf_hm_pchg_btn .pack(side='left', padx=2)
+            tk.Frame(hm_ctrl, bg='#333355', width=1, height=16).pack(side='left', padx=6)
+            tk.Label(hm_ctrl, text='分組', bg='#1a1a2e', fg='#666680',
+                     font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 2))
+            self._aetf_hm_flat_btn  .pack(side='left', padx=2)
+            self._aetf_hm_sector_btn.pack(side='left', padx=2)
+            for _b in [self._aetf_hm_today_btn, self._aetf_hm_wchg_btn, self._aetf_hm_pchg_btn,
+                       self._aetf_hm_flat_btn, self._aetf_hm_sector_btn]:
+                _b.bind('<MouseWheel>', _mw)
 
             # ── 嵌入式熱力圖畫布 ──────────────────────────────────────────
             self._aetf_hm_fig    = plt.Figure(figsize=(9.5, 4.5), dpi=100,
@@ -5385,6 +5444,8 @@ class StockApp(tk.Tk):
             self._aetf_hm_canvas.mpl_connect(
                 'figure_leave_event',
                 lambda _e: self._hide_aetf_hm_tooltip())
+            self._aetf_hm_canvas.mpl_connect(
+                'button_press_event', self._on_aetf_hm_click)
 
             # Treeview 比對表格（含欄位排序）
             tv_fr = tk.Frame(diff_outer, bg=_DIFF_BG)
@@ -7332,9 +7393,11 @@ class StockApp(tk.Tk):
                  ha='center', va='center', color='#666',
                  fontsize=8, fontfamily=CHART_FONT, transform=sax.transAxes)
 
+        import re as _re_src
+        _mj_cnt = _re_src.search(r'MoneyDJ:\s*(\d+)\s*檔', debug_msg)
         if 'TWSE OK' in debug_msg:
             src_note = '  ✓ 資料來源：證交所'
-        elif 'MoneyDJ' in debug_msg:
+        elif _mj_cnt and int(_mj_cnt.group(1)) > 0:
             src_note = '  ✓ 資料來源：MoneyDJ（完整成分股）'
         elif is_partial:
             top_cov = sum(c['weight'] for c in components)
@@ -7349,7 +7412,6 @@ class StockApp(tk.Tk):
         if not target_fig:
             self._draw_etf_kline(code, etf_name)
             self._draw_etf_info(components, meta, debug_msg, ind_map or {})
-            self._draw_etf_history(code, etf_name)
             if not getattr(self, '_etf_show_history', True):
                 self._aetf_update_diff_ui(code)
 
@@ -8336,13 +8398,18 @@ class StockApp(tk.Tk):
             return
 
         _fit_fig_to_canvas(fig, canvas)
-        mode = getattr(self, '_aetf_hm_mode', 'wchg')
+        mode   = getattr(self, '_aetf_hm_mode',   'wchg')
+        layout = getattr(self, '_aetf_hm_layout', 'flat')
 
         if mode == 'today':
             code = getattr(self, '_aetf_diff_code', None)
             if code:
                 self._draw_etf_map(code=code,
                                    target_fig=fig, target_canvas=canvas)
+            return
+
+        if layout == 'sector':
+            self._draw_aetf_sector_heatmap()
             return
 
         groups   = getattr(self, '_aetf_groups', [])
@@ -8358,6 +8425,267 @@ class StockApp(tk.Tk):
         ax = _draw_heatmap(fig, canvas, all_rows, groups, mode, title_str,
                            rects_out=self._aetf_hm_rects)
         self._aetf_hm_ax = ax
+
+    def _draw_aetf_sector_heatmap(self):
+        """依細分類分組繪製 ETF 持股熱力圖（支援色彩模式切換與 drill-down 展開）。"""
+        fig    = getattr(self, '_aetf_hm_fig',    None)
+        canvas = getattr(self, '_aetf_hm_canvas', None)
+        if fig is None or canvas is None:
+            return
+
+        _fit_fig_to_canvas(fig, canvas)
+
+        color_mode = getattr(self, '_aetf_hm_mode',   'wchg')  # 'wchg'|'pchg'
+        drill      = getattr(self, '_aetf_sector_drill', None)
+
+        groups   = getattr(self, '_aetf_groups', [])
+        all_rows = [r for _, _, rows in groups for r in rows
+                    if (r.get('weight') or 0) > 0]
+
+        fig.clear()
+        fig.patch.set_facecolor('#111111')
+
+        if not all_rows:
+            ax0 = fig.add_axes([0, 0, 1, 1])
+            ax0.set_facecolor('#111111'); ax0.axis('off')
+            ax0.text(0.5, 0.5, '無成分股資料', ha='center', va='center',
+                     color='#888', fontsize=14, fontfamily=CHART_FONT,
+                     transform=ax0.transAxes)
+            canvas.draw()
+            return
+
+        # ── 類股對照 ──────────────────────────────────────────────────────
+        elec_assign: dict[str, str] = {}
+        for subcat, codes in _MKT_ELEC_GROUPS.items():
+            for c in codes:
+                if c not in elec_assign:
+                    elec_assign[c] = subcat
+        try:
+            tse_ind = _fetch_twse_industry_map()
+        except Exception:
+            tse_ind = {}
+        try:
+            tpex_ind = _fetch_tpex_industry_map()
+        except Exception:
+            tpex_ind = {}
+
+        def _sector(code: str) -> str:
+            return (elec_assign.get(code) or tse_ind.get(code)
+                    or tpex_ind.get(code) or '其他')
+
+        # ── 分組 ──────────────────────────────────────────────────────────
+        sectors: dict[str, list] = {}
+        for row in all_rows:
+            sectors.setdefault(_sector(row['code']), []).append(row)
+
+        sec_wts     = {s: sum(r['weight'] for r in rows) for s, rows in sectors.items()}
+        sorted_secs = sorted(sectors.keys(), key=lambda s: -sec_wts[s])
+
+        # ── 顏色尺度（依當前色彩模式）────────────────────────────────────
+        def _val(r): return r.get(color_mode) or 0.0
+        abs_vals = [abs(_val(r)) for r in all_rows if r.get(color_mode) is not None]
+        max_abs  = max(abs_vals, default=5.0) or 5.0
+
+        color_lbl = {'wchg': '比重變化', 'pchg': '今日漲跌'}.get(color_mode, color_mode)
+        code_label = getattr(self, '_aetf_diff_code', '') or ''
+
+        # ── 公用：繪製個股方塊 ────────────────────────────────────────────
+        dpi       = fig.dpi
+        fig_w_px  = fig.get_size_inches()[0] * dpi
+        fig_h_px  = fig.get_size_inches()[1] * dpi * 0.96
+        px_per_ux = fig_w_px / 100
+        px_per_uy = fig_h_px / 100
+        pt_per_px = 72 / dpi
+        INNER_GAP = 0.28
+
+        def _draw_stocks(ax, rows_in, sq_stks):
+            for row, sq_s in zip(rows_in, sq_stks):
+                rx = sq_s['x'] + INNER_GAP / 2
+                ry = (100 - sq_s['y'] - sq_s['dy']) + INNER_GAP / 2
+                rw = sq_s['dx'] - INNER_GAP
+                rh = sq_s['dy'] - INNER_GAP
+                if rw <= 0 or rh <= 0:
+                    continue
+                val = _val(row)
+                ax.add_patch(plt.Rectangle((rx, ry), rw, rh,
+                    facecolor=pnl_color(val, max_abs), edgecolor='#222233',
+                    linewidth=0.35, zorder=3))
+                self._aetf_hm_rects.append({
+                    'rx': rx, 'ry': ry, 'rw': rw, 'rh': rh,
+                    'code': row['code'], 'name': row['name'],
+                    'weight': row['weight'], 'wchg': row.get('wchg'),
+                    'pchg': row.get('pchg'), 'shares': row.get('shares'),
+                    'schg': row.get('schg'), 'earn_pct': row.get('earn_pct'),
+                    'earn_label': row.get('earn_label', '期間漲跌'),
+                    'earn_changes': row.get('earn_changes', []),
+                    'is_new': False, 'mode': color_mode,
+                })
+                min_dim = min(rw, rh)
+                if min_dim < 1.5:
+                    continue
+                rw_px = rw * px_per_ux; rh_px = rh * px_per_uy
+                name_d = row['name'][:6] if len(row['name']) > 6 else row['name']
+                chg_s  = (f"{val:+.1f}%" if row.get(color_mode) is not None else '--')
+                chars  = max(len(name_d), 4)
+                fs_n   = max(min(0.55*rw_px*pt_per_px/(chars*0.60),
+                                 0.60*rh_px*pt_per_px/3.0, 28), 5.0)
+                fs_p   = max(fs_n * 0.75, 4.5)
+                cx_t   = rx + rw / 2; mid_y = ry + rh * 0.50
+                if min_dim >= 6:
+                    gap = fs_n / pt_per_px / px_per_uy * 1.05
+                    ax.text(cx_t, mid_y+gap*0.55, name_d,
+                            ha='center', va='center', color='white',
+                            fontsize=fs_n, fontweight='bold',
+                            fontfamily=CHART_FONT, clip_on=True, zorder=4)
+                    ax.text(cx_t, mid_y-gap*0.55, chg_s,
+                            ha='center', va='center', color='white',
+                            fontsize=fs_p, fontfamily=CHART_FONT,
+                            clip_on=True, zorder=4)
+                elif min_dim >= 3:
+                    ax.text(cx_t, mid_y, name_d, ha='center', va='center',
+                            color='white', fontsize=fs_n, fontweight='bold',
+                            fontfamily=CHART_FONT, clip_on=True, zorder=4)
+
+        self._aetf_hm_rects  = []
+        self._aetf_sector_rects = []
+
+        # ══════════════════════════════════════════════════════════════════
+        # DRILL-DOWN 模式：只顯示單一類股
+        # ══════════════════════════════════════════════════════════════════
+        if drill and drill in sectors:
+            rows_in   = sorted(sectors[drill], key=lambda r: -r['weight'])
+            total_sw  = sec_wts[drill]
+            valid     = [(r.get(color_mode) or 0, r['weight']) for r in rows_in
+                         if r.get(color_mode) is not None]
+            sec_val   = (sum(v*w for v,w in valid)/sum(w for _,w in valid)
+                         if valid else 0.0)
+
+            sax = fig.add_axes([0, 0.965, 1, 0.035])
+            sax.set_facecolor('#1a1a2e'); sax.axis('off')
+            sax.text(0.5, 0.5,
+                     f'← {drill}  ·  {total_sw:.1f}%  ·  {sec_val:+.2f}%  '
+                     f'（{color_lbl}）  ·  點擊空白處返回總覽',
+                     ha='center', va='center', color='#f0c060',
+                     fontsize=9, fontfamily=CHART_FONT, transform=sax.transAxes)
+
+            ax = fig.add_axes([0, 0, 1, 0.96])
+            ax.set_facecolor('#111111')
+            ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.axis('off')
+
+            norm_stks = squarify.normalize_sizes(
+                [r['weight'] for r in rows_in], 100, 100)
+            sq_stks   = squarify.squarify(norm_stks, 0, 0, 100, 100)
+            _draw_stocks(ax, rows_in, sq_stks)
+            canvas.draw()
+            self._aetf_hm_ax = ax
+            return
+
+        # ══════════════════════════════════════════════════════════════════
+        # 總覽模式：巢狀 treemap
+        # ══════════════════════════════════════════════════════════════════
+        OUTER_GAP = 0.7
+        HDR_MIN   = 5.5
+        HDR_MAX   = 11.0
+        HDR_RATIO = 0.22
+
+        sax = fig.add_axes([0, 0.965, 1, 0.035])
+        sax.set_facecolor('#1a1a2e'); sax.axis('off')
+        sax.text(0.5, 0.5,
+                 f'{code_label}  ·  依類股  ·  {len(sectors)} 類  {len(all_rows)} 檔'
+                 f'  ·  {color_lbl}  ·  點擊類股標題展開',
+                 ha='center', va='center', color='#9090cc',
+                 fontsize=9, fontfamily=CHART_FONT, transform=sax.transAxes)
+
+        ax = fig.add_axes([0, 0, 1, 0.96])
+        ax.set_facecolor('#111111')
+        ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.axis('off')
+
+        norm_secs = squarify.normalize_sizes(
+            [sec_wts[s] for s in sorted_secs], 100, 100)
+        sq_secs = squarify.squarify(norm_secs, 0, 0, 100, 100)
+
+        for s_name, sq_r in zip(sorted_secs, sq_secs):
+            sx  = sq_r['x'] + OUTER_GAP / 2
+            sy  = (100 - sq_r['y'] - sq_r['dy']) + OUTER_GAP / 2
+            sdx = sq_r['dx'] - OUTER_GAP
+            sdy = sq_r['dy'] - OUTER_GAP
+            if sdx <= 0 or sdy <= 0:
+                continue
+
+            total_sw = sec_wts[s_name]
+            rows_in  = sorted(sectors[s_name], key=lambda r: -r['weight'])
+            valid    = [(r.get(color_mode) or 0, r['weight']) for r in rows_in
+                        if r.get(color_mode) is not None]
+            sec_val  = (sum(v*w for v,w in valid)/sum(w for _,w in valid)
+                        if valid else 0.0)
+            sec_fc   = pnl_color(sec_val, max_abs)
+
+            # 類股外框（半透明底色）
+            ax.add_patch(plt.Rectangle((sx, sy), sdx, sdy,
+                facecolor=sec_fc, edgecolor='#556677',
+                linewidth=0.9, zorder=1, alpha=0.22))
+
+            # 標題列（可點擊展開）
+            hdr_h = max(HDR_MIN, min(HDR_MAX, sdy * HDR_RATIO))
+            hdr_y = sy + sdy - hdr_h
+            ax.add_patch(plt.Rectangle((sx, hdr_y), sdx, hdr_h,
+                facecolor='#1e2040', edgecolor='#445566',
+                linewidth=0.6, zorder=2))
+
+            hdr_px = hdr_h * px_per_uy
+            hdr_fs = max(7.5, min(13.0, hdr_px * pt_per_px * 0.54))
+            chg_s  = f'{sec_val:+.2f}%' if valid else ''
+            # 欄寬太窄時截短名稱
+            max_chars = max(4, int(sdx / 3.8))
+            s_disp = s_name if len(s_name) <= max_chars else s_name[:max_chars - 1] + '…'
+            ax.text(sx + sdx/2, hdr_y + hdr_h/2,
+                    f'{s_disp}  {total_sw:.1f}%  {chg_s}',
+                    ha='center', va='center', color='#c8d8f0',
+                    fontsize=hdr_fs, fontweight='bold', fontfamily=CHART_FONT,
+                    clip_on=True, zorder=5)
+
+            # 儲存標題列 rect 供 click / hover 使用
+            self._aetf_sector_rects.append({
+                'x': sx, 'y': hdr_y, 'w': sdx, 'h': hdr_h,
+                'sector': s_name, 'total_sw': total_sw,
+                'sec_val': sec_val, 'count': len(rows_in),
+                'top_rows': rows_in[:7], 'color_mode': color_mode,
+            })
+
+            # 內層個股
+            inner_h = sdy - hdr_h - 0.25
+            if inner_h <= 0:
+                continue
+            sq_inner_y = 100 - sy - inner_h
+            norm_stks  = squarify.normalize_sizes(
+                [r['weight'] for r in rows_in], sdx, inner_h)
+            sq_stks = squarify.squarify(norm_stks, sx, sq_inner_y, sdx, inner_h)
+            _draw_stocks(ax, rows_in, sq_stks)
+
+        canvas.draw()
+        self._aetf_hm_ax = ax
+
+    def _on_aetf_hm_click(self, event):
+        """Matplotlib click → drill-down 類股展開 / 返回總覽。"""
+        if getattr(self, '_aetf_hm_layout', 'flat') != 'sector':
+            return
+        if event.inaxes is None or event.xdata is None:
+            return
+        x, y = event.xdata, event.ydata
+
+        # 已展開 → 任意點擊返回
+        if getattr(self, '_aetf_sector_drill', None):
+            self._aetf_sector_drill = None
+            self._aetf_redraw_heatmap()
+            return
+
+        # 未展開 → 檢查是否點到類股標題列
+        for rect in getattr(self, '_aetf_sector_rects', []):
+            if (rect['x'] <= x <= rect['x'] + rect['w']
+                    and rect['y'] <= y <= rect['y'] + rect['h']):
+                self._aetf_sector_drill = rect['sector']
+                self._aetf_redraw_heatmap()
+                return
 
     def _aetf_populate_tv(self):
         """依 _aetf_sort_state 排序後填入 Treeview。"""
@@ -8439,6 +8767,13 @@ class StockApp(tk.Tk):
                     r['ry'] <= yd <= r['ry'] + r['rh']):
                 self._show_aetf_hm_tooltip(sx, sy, r)
                 return
+        # 依類股模式：懸停類股標題顯示類股摘要
+        if getattr(self, '_aetf_hm_layout', 'flat') == 'sector':
+            for r in getattr(self, '_aetf_sector_rects', []):
+                if (r['x'] <= xd <= r['x'] + r['w'] and
+                        r['y'] <= yd <= r['y'] + r['h']):
+                    self._show_aetf_sector_tooltip(sx, sy, r)
+                    return
         self._hide_aetf_hm_tooltip()
 
     def _show_aetf_hm_tooltip(self, sx, sy, data):
@@ -8550,6 +8885,65 @@ class StockApp(tk.Tk):
         tip = getattr(self, '_aetf_hm_tooltip', None)
         if tip and tip.winfo_exists():
             tip.withdraw()
+        sec_tip = getattr(self, '_aetf_sector_tooltip', None)
+        if sec_tip and sec_tip.winfo_exists():
+            sec_tip.withdraw()
+
+    def _show_aetf_sector_tooltip(self, sx, sy, data):
+        # 隱藏個股 tooltip
+        tip0 = getattr(self, '_aetf_hm_tooltip', None)
+        if tip0 and tip0.winfo_exists():
+            tip0.withdraw()
+
+        tip = getattr(self, '_aetf_sector_tooltip', None)
+        if tip is None or not tip.winfo_exists():
+            tip = tk.Toplevel(self)
+            tip.overrideredirect(True)
+            tip.attributes('-topmost', True)
+            tip.configure(bg='#1e1e1e')
+            border = tk.Frame(tip, bg='#3e3e3e', padx=1, pady=1)
+            border.pack(fill='both', expand=True)
+            inner = tk.Frame(border, bg='#1c1c2c', padx=10, pady=8)
+            inner.pack(fill='both', expand=True)
+            self._aetf_sec_tip_w = {}
+            for key in ('title', 'weight', 'change', 'count', 'sep'):
+                lbl = tk.Label(inner, bg='#1c1c2c',
+                               font=('Microsoft JhengHei', 10), anchor='w')
+                lbl.pack(fill='x')
+                self._aetf_sec_tip_w[key] = lbl
+            sf = tk.Frame(inner, bg='#1c1c2c')
+            sf.pack(fill='x')
+            self._aetf_sec_tip_w['stocks_frame'] = sf
+            self._aetf_sector_tooltip = tip
+
+        w          = self._aetf_sec_tip_w
+        color_mode = data.get('color_mode', 'wchg')
+        color_lbl  = {'wchg': '比重變化', 'pchg': '今日漲跌'}.get(color_mode, color_mode)
+        sec_val    = data.get('sec_val', 0)
+        fg_val     = '#f07070' if sec_val >= 0 else '#4ec94e'
+
+        w['title'].config(text=data['sector'],
+                          fg='#f0c060', font=('Microsoft JhengHei', 12, 'bold'))
+        w['weight'].config(text=f'類股比重：{data["total_sw"]:.2f}%', fg='#cccccc')
+        w['change'].config(text=f'{color_lbl}（加權平均）：{sec_val:+.2f}%', fg=fg_val)
+        w['count'].config(
+            text=f'成分股：{data["count"]} 檔   ·   點擊展開詳細', fg='#7080a0')
+        w['sep'].config(text='─' * 24, fg='#2a2a3a',
+                        font=('Consolas', 8))
+
+        sf = w['stocks_frame']
+        for child in sf.winfo_children():
+            child.destroy()
+        for row in data.get('top_rows', []):
+            val  = row.get(color_mode) or 0
+            fg_s = '#f07070' if val >= 0 else '#4ec94e'
+            tk.Label(sf, bg='#1c1c2c', fg=fg_s, anchor='w',
+                     font=('Microsoft JhengHei', 9),
+                     text=f'  {row["name"]}  {row["weight"]:.2f}%  {val:+.1f}%'
+                     ).pack(fill='x')
+
+        self._place_tooltip(tip, sx, sy)
+        tip.deiconify()
 
     # ── ETF 樹狀圖 hover ──────────────────────────────────────────────────────
     def _on_etf_motion(self, event):

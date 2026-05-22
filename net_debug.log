@@ -1,0 +1,481 @@
+[16:13:38] get_price(00757.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[16:13:38] get_price(00981A.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[16:13:38] get_price(009816.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[16:13:38] get_price(00713.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[16:13:38] get_price(00878.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[16:13:54] get_price(00878.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[16:14:07] get_price(00981A.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[16:22:36] curl_cffi FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: Failed to perform, curl: (92) HTTP/2 stream 1 was not closed cleanly: INTERNAL_ERROR (err 2). See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[16:22:38] urllib FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: IncompleteRead(769641 bytes read, 3267203 more expected)
+[16:22:38] _ensure_twse_price_cache TPEX fail: IncompleteRead(769641 bytes read, 3267203 more expected)
+[16:26:52] get_price(4966.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[16:40:22] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 162 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[16:40:24] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:24] _ensure_twse_price_cache rwd fail: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:25] curl_cffi FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: Failed to perform, curl: (7) Failed to connect to openapi.twse.com.tw port 443 after 1058 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[16:40:25] curl_cffi FAIL [https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse]: Failed to perform, curl: (7) Failed to connect to mis.twse.com.tw port 443 after 1175 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[16:40:25] urllib FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:25] _ensure_twse_price_cache openapi fail: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:26] curl_cffi FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: Failed to perform, curl: (7) Failed to connect to www.tpex.org.tw port 443 after 125 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[16:40:26] urllib FAIL [https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:26] MIS batch fail: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:26] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 3 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[16:40:27] urllib FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:27] _ensure_twse_price_cache TPEX fail: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:27] 使用離線價格快取（20260519），網路連線異常
+[16:40:27] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:27] _ensure_twse_price_cache rwd fail: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:27] curl_cffi FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: Failed to perform, curl: (7) Failed to connect to openapi.twse.com.tw port 443 after 2 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[16:40:28] urllib FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:28] _ensure_twse_price_cache openapi fail: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:28] curl_cffi FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: Failed to perform, curl: (7) Failed to connect to www.tpex.org.tw port 443 after 2 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[16:40:29] urllib FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:29] _ensure_twse_price_cache TPEX fail: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:46] curl_cffi FAIL [https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse]: Failed to perform, curl: (7) Failed to connect to mis.twse.com.tw port 443 after 165 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[16:40:47] urllib FAIL [https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[16:40:47] MIS batch fail: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[17:17:15] curl_cffi FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: Failed to perform, curl: (56) Connection closed abruptly. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[17:35:18] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[17:35:19] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00400A&]: Expecting value: line 1 column 1 (char 0)
+[17:35:20] curl_cffi FAIL [https://www.twse.com.tw/fund/etfFundHoldingData]: Expecting value: line 1 column 1 (char 0)
+[17:35:21] urllib FAIL [https://www.twse.com.tw/fund/etfFundHoldingData?fund=00400A&]: Expecting value: line 1 column 1 (char 0)
+[17:35:41] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:41] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:42] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:43] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:43] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:44] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:44] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:44] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:44] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:45] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:45] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:47] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:47] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:48] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:48] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:49] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:49] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:50] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:50] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:51] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:52] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:52] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:52] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:53] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:53] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:54] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:54] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:55] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:35:55] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:35:56] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:36:22] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:36:23] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:36:24] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:36:25] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:36:25] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:36:26] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:36:27] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:36:28] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:36:28] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:36:29] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:36:29] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:36:30] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:36:30] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:36:31] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:36:31] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:36:32] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:36:32] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:36:33] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:36:33] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:36:34] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:36:34] curl_cffi FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[17:36:35] urllib FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[17:37:00] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:01] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:01] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:02] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:03] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:04] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:04] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:05] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:05] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:06] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:06] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:07] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:07] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:07] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:08] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:08] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:08] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:09] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:09] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:10] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:11] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:12] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:12] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:12] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:13] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:13] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:14] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:14] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:15] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:15] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:15] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:16] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:16] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:17] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:17] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:18] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:18] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:19] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:19] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:20] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:20] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:21] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:21] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:22] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[17:37:22] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[17:37:28] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: Expecting value: line 1 column 1 (char 0)
+[17:37:29] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: HTTP Error 307: Temporary Redirect
+[17:37:29] _ensure_twse_price_cache rwd fail: HTTP Error 307: Temporary Redirect
+[18:04:00] curl_cffi FAIL [https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse]: Failed to perform, curl: (35) TLS connect error: error:00000000:invalid library (0):OPENSSL_internal:invalid library (0). See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[18:04:01] urllib FAIL [https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse]: <urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)>
+[18:04:01] MIS batch fail: <urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)>
+[18:04:01] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: Expecting value: line 1 column 1 (char 0)
+[18:04:02] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: HTTP Error 307: Temporary Redirect
+[18:04:02] _ensure_twse_price_cache rwd fail: HTTP Error 307: Temporary Redirect
+[18:04:02] curl_cffi FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: Failed to perform, curl: (35) TLS connect error: error:00000000:invalid library (0):OPENSSL_internal:invalid library (0). See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[18:04:03] urllib FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: <urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)>
+[18:04:03] _ensure_twse_price_cache openapi fail: <urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)>
+[18:04:04] get_price(00878.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[18:04:04] get_price(00713.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[18:04:04] get_price(00757.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[18:04:05] get_price(00713.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[18:04:05] get_price(6285.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[18:04:05] get_price(6282.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[18:04:05] get_price(009816.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[18:04:06] get_price(00981A.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[18:04:06] get_price(00631L.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[18:04:07] get_price(3481.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[18:26:01] curl_cffi FAIL [https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse]: Failed to perform, curl: (6) Could not resolve host: mis.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[18:26:03] urllib FAIL [https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse]: <urlopen error [Errno 11001] getaddrinfo failed>
+[18:26:03] MIS batch fail: <urlopen error [Errno 11001] getaddrinfo failed>
+[18:26:03] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[18:26:07] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: <urlopen error [Errno 11001] getaddrinfo failed>
+[18:26:07] _ensure_twse_price_cache rwd fail: <urlopen error [Errno 11001] getaddrinfo failed>
+[18:26:07] curl_cffi FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: Failed to perform, curl: (6) Could not resolve host: openapi.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[18:26:09] urllib FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: <urlopen error [Errno 11001] getaddrinfo failed>
+[18:26:09] _ensure_twse_price_cache openapi fail: <urlopen error [Errno 11001] getaddrinfo failed>
+[18:26:09] curl_cffi FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: Failed to perform, curl: (6) Could not resolve host: www.tpex.org.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[18:26:10] urllib FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: <urlopen error [Errno 11001] getaddrinfo failed>
+[18:26:10] _ensure_twse_price_cache TPEX fail: <urlopen error [Errno 11001] getaddrinfo failed>
+[18:26:10] get_price(00878.TW) FAIL: TypeError: 'NoneType' object is not subscriptable
+[18:26:10] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[18:26:12] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: [WinError 10054] 遠端主機已強制關閉一個現存的連線。
+[18:26:12] _ensure_twse_price_cache rwd fail: [WinError 10054] 遠端主機已強制關閉一個現存的連線。
+[18:26:12] curl_cffi FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: Failed to perform, curl: (7) Failed to connect to openapi.twse.com.tw port 443 after 68 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[18:28:05] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:06] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:06] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:07] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:07] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:08] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:08] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:09] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:10] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:11] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:11] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:12] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:12] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:13] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:13] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:14] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:14] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:15] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:15] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:16] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:16] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:17] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:17] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:19] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:19] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:21] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:21] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:22] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:22] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:23] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:23] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:24] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:24] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:25] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:25] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:26] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:26] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:27] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:28] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:29] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:29] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:31] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:31] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:32] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:32] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:33] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:33] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:34] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:34] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:35] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:35] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:36] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:37] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:38] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:38] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:40] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:40] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:41] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:41] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:42] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:42] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:44] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:44] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:45] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:45] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:46] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:46] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:47] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:48] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:49] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:49] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:51] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:51] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:52] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:52] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:53] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:53] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:54] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:55] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:56] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:56] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:28:58] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:28:58] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:00] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:00] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:02] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:02] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:03] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:03] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:04] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:04] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:05] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:05] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:06] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:06] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:08] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:08] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:09] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:09] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:11] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:11] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:12] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:12] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:13] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:13] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:14] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:14] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:15] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:15] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[18:29:17] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[18:29:19] curl_cffi FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[18:29:20] urllib FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[19:01:26] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:26] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:27] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:29] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:29] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:30] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:30] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:31] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:31] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:32] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:32] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:33] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:34] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:35] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:35] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:36] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:36] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:37] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:37] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:38] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:38] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:39] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:39] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:40] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:40] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:41] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:41] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:01:42] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:01:59] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:02:00] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:02:00] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:02:01] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:02:01] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:02:03] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:02:03] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:02:04] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:02:04] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:02:05] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:02:05] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:02:06] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:02:06] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:02:07] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:02:08] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:02:09] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:02:09] curl_cffi FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[19:02:10] urllib FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[19:08:56] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: Expecting value: line 1 column 1 (char 0)
+[19:08:57] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: HTTP Error 307: Temporary Redirect
+[19:08:57] _ensure_twse_price_cache rwd fail: HTTP Error 307: Temporary Redirect
+[19:15:52] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: Expecting value: line 1 column 1 (char 0)
+[19:15:53] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: HTTP Error 307: Temporary Redirect
+[19:15:53] _ensure_twse_price_cache rwd fail: HTTP Error 307: Temporary Redirect
+[19:15:58] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:15:59] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:15:59] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:00] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:01] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:01] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:02] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:03] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:04] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:05] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:05] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:07] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:07] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:08] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:08] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:10] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:11] curl_cffi FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[19:16:12] urllib FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[19:16:30] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:31] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:31] curl_cffi FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[19:16:32] urllib FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[19:16:40] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:40] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:41] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:41] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:41] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:42] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:42] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:43] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:43] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:44] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:44] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:45] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:45] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:46] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:47] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:48] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:49] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:50] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:50] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:51] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:51] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:52] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:52] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:53] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:53] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:55] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:55] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:56] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:56] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:57] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:57] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:16:58] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:16:59] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:17:00] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:17:00] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:17:01] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:17:01] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:17:02] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:17:02] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:17:03] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:17:03] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:17:04] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:17:04] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:17:06] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: [WinError 10054] 遠端主機已強制關閉一個現存的連線。
+[19:17:06] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (6) Could not resolve host: www.twse.com.tw. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:09] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[19:17:09] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 7 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:11] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[19:17:11] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 8 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:13] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[19:17:13] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 7 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:15] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[19:17:15] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 6 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:17] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[19:17:18] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 10 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:20] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[19:17:20] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 7 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:22] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[19:17:22] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 6 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:24] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[19:17:24] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 21 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:26] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[19:17:26] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 8 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:27] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[19:17:27] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 4 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:28] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[19:17:28] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 4 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:31] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[19:17:31] curl_cffi FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Failed to perform, curl: (7) Failed to connect to www.tpex.org.tw port 443 after 41 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[19:17:33] urllib FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[19:23:08] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: Expecting value: line 1 column 1 (char 0)
+[19:23:09] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: HTTP Error 307: Temporary Redirect
+[19:23:09] _ensure_twse_price_cache rwd fail: HTTP Error 307: Temporary Redirect
+[19:27:51] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:27:52] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:27:52] curl_cffi FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[19:27:54] urllib FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[19:28:05] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:28:07] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:28:08] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:28:08] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:28:09] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:28:10] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:28:10] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Expecting value: line 1 column 1 (char 0)
+[19:28:11] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: HTTP Error 307: Temporary Redirect
+[19:28:11] curl_cffi FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[19:28:13] urllib FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Expecting value: line 1 column 1 (char 0)
+[20:14:38] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 165 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:14:39] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?re]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:39] _ensure_twse_price_cache rwd fail: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:39] curl_cffi FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: Failed to perform, curl: (7) Failed to connect to openapi.twse.com.tw port 443 after 78 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:14:41] urllib FAIL [https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:41] _ensure_twse_price_cache openapi fail: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:41] curl_cffi FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: Failed to perform, curl: (7) Failed to connect to www.tpex.org.tw port 443 after 49 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:14:42] urllib FAIL [https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_clos]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:42] _ensure_twse_price_cache TPEX fail: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:42] 使用離線價格快取（20260519），網路連線異常
+[20:14:42] curl_cffi FAIL [https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse]: Failed to perform, curl: (7) Failed to connect to mis.twse.com.tw port 443 after 80 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:14:43] urllib FAIL [https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:43] MIS batch fail: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:51] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 4 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:14:52] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:53] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 67 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:14:54] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:54] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 125 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:14:55] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:55] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 67 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:14:57] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:57] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 62 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:14:58] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:58] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 30 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:14:59] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:14:59] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 46 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:15:00] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:15:00] curl_cffi FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: Failed to perform, curl: (7) Failed to connect to www.twse.com.tw port 443 after 5 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:15:02] urllib FAIL [https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?stockN]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
+[20:15:02] curl_cffi FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: Failed to perform, curl: (7) Failed to connect to www.tpex.org.tw port 443 after 23 ms: Could not connect to server. See https://curl.se/libcurl/c/libcurl-errors.html first for more details.
+[20:15:03] urllib FAIL [https://www.tpex.org.tw/web/stock/aftertrading/daily_trading]: <urlopen error [WinError 10013] 嘗試存取通訊端被拒絕，因為存取權限不足。>
