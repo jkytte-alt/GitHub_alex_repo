@@ -1388,9 +1388,11 @@ def _save_etf_holdings_snapshot(code: str, holdings: list[dict],
                                 data_date: str = '') -> tuple[str, bool]:
     """儲存一份帶日期的快照到磁碟；回傳 (日期字串 YYYYMMDD, 是否實際寫入)。
     優先使用 data_date（來自資料來源頁面的實際日期），
-    若為空則回退到最近工作日（系統日期）。
+    若為空或為未來日期（MoneyDJ 預公布下一交易日）則回退到最近工作日。
     """
-    _ds   = data_date if data_date else _last_weekday_str()
+    from datetime import date as _d
+    _today = _d.today().strftime('%Y%m%d')
+    _ds = data_date if (data_date and data_date <= _today) else _last_weekday_str()
     _hist = _load_etf_holdings_history(code)
 
     def _sig(lst):
@@ -8218,10 +8220,12 @@ class StockApp(tk.Tk):
         self._aetf_sort_state = {'col': None, 'asc': True}
 
         hist = _load_etf_holdings_history(code)
-        # 過濾週末及無資料日期
+        # 過濾週末、無資料日期及未來日期（MoneyDJ 會預先公布下一交易日資料）
+        _today_str = datetime.today().strftime('%Y%m%d')
         dates = sorted(
             [d for d in hist if hist[d] and
-             datetime.strptime(d, '%Y%m%d').weekday() < 5],
+             datetime.strptime(d, '%Y%m%d').weekday() < 5 and
+             d <= _today_str],
             reverse=True
         )
         if not dates:

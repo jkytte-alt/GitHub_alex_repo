@@ -135,7 +135,8 @@
       "Bash(curl -s \"https://finmind.github.io/quickstart/\")",
       "Bash(curl -s -H \"User-Agent: Mozilla/5.0\" -H \"Referer: https://www.fundclear.com.tw/\" \"https://www.fundclear.com.tw/api/etf/holdings/00981A\")",
       "Bash(python3 -c \"import sys, json; data=json.load\\(sys.stdin\\); print\\(json.dumps\\(data, indent=2, ensure_ascii=False\\)\\)\")",
-      "Bash(curl -s -i -H \"User-Agent: Mozilla/5.0\" \"https://www.fundclear.com.tw/api/etf/holdings/00981A\")"
+      "Bash(curl -s -i -H \"User-Agent: Mozilla/5.0\" \"https://www.fundclear.com.tw/api/etf/holdings/00981A\")",
+      "Bash(python -c \"import json; d=json.load\\(open\\('.etf_holdings_hist_00994A.json'\\)\\); keys=sorted\\(d.keys\\(\\),reverse=True\\)[:10]; print\\('\\\\n'.join\\(keys\\)\\)\")"
     ]
   }
 }
