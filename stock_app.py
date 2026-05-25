@@ -11534,6 +11534,7 @@ class StockApp(tk.Tk):
         import numpy as np
 
         close = ohlcv['Close'].values.astype(float)
+        open_ = ohlcv.get('Open', ohlcv['Close']).values.astype(float)
         high  = ohlcv.get('High', ohlcv['Close']).values.astype(float)
         low   = ohlcv.get('Low',  ohlcv['Close']).values.astype(float)
         n     = len(close)
@@ -11551,22 +11552,29 @@ class StockApp(tk.Tk):
                 return float(y1)
             return float(y1 + (y2 - y1) * (xi - x1) / (x2 - x1))
 
+        def _is_confirm_candle(bi, direction):
+            """突破K棒需為實體紅K（買入）或實體黑K（賣出）。"""
+            if direction == 'up':
+                return close[bi] > open_[bi]   # 實體紅K
+            else:
+                return close[bi] < open_[bi]   # 實體黑K
+
         def find_break(start, threshold, direction):
-            """找第一根收盤突破 threshold 的 K 棒（固定水平線）。"""
+            """找第一根收盤突破 threshold 且符合實體K條件的 K 棒（固定水平線）。"""
             for bi in range(max(start + 1, 0), n):
-                if direction == 'up'   and close[bi] >= threshold:
+                if direction == 'up' and close[bi] >= threshold and _is_confirm_candle(bi, 'up'):
                     return bi
-                if direction == 'down' and close[bi] <= threshold:
+                if direction == 'down' and close[bi] <= threshold and _is_confirm_candle(bi, 'down'):
                     return bi
             return None
 
         def find_break_trend(start, poly, direction):
-            """找第一根收盤突破斜線（三角形）的 K 棒。"""
+            """找第一根收盤突破斜線（三角形）且符合實體K條件的 K 棒。"""
             for bi in range(max(start + 1, 0), n):
                 th = float(np.polyval(poly, bi))
-                if direction == 'up'   and close[bi] >= th:
+                if direction == 'up' and close[bi] >= th and _is_confirm_candle(bi, 'up'):
                     return bi
-                if direction == 'down' and close[bi] <= th:
+                if direction == 'down' and close[bi] <= th and _is_confirm_candle(bi, 'down'):
                     return bi
             return None
 
@@ -11603,9 +11611,9 @@ class StockApp(tk.Tk):
             ip = [(zz[i+k][0], zz[i+k][1]) for k in range(3)]
 
             if t == ['L', 'H', 'L'] and pct_diff(ip[0][1], ip[2][1]) <= TOL:
-                done   = last_c >= ip[1][1]
+                sb     = find_break(ip[2][0], ip[1][1], 'up')
+                done   = sb is not None
                 signal = '買入' if done else '等待'
-                sb = find_break(ip[2][0], ip[1][1], 'up') if done else None
                 raw.append(make_pat('W底', signal, ' ✓' if done else '（形成中）',
                     done, ip,
                     ((ip[1][0], ip[1][1]), (n-1, ip[1][1])),
@@ -11613,9 +11621,9 @@ class StockApp(tk.Tk):
                     signal_bar=sb))
 
             elif t == ['H', 'L', 'H'] and pct_diff(ip[0][1], ip[2][1]) <= TOL:
-                done   = last_c <= ip[1][1]
+                sb     = find_break(ip[2][0], ip[1][1], 'down')
+                done   = sb is not None
                 signal = '賣出' if done else '等待'
-                sb = find_break(ip[2][0], ip[1][1], 'down') if done else None
                 raw.append(make_pat('M頭', signal, ' ✓' if done else '（形成中）',
                     done, ip,
                     ((ip[1][0], ip[1][1]), (n-1, ip[1][1])),
@@ -11631,8 +11639,8 @@ class StockApp(tk.Tk):
             if t == ['L', 'H', 'L', 'H', 'L']:
                 if hd[1] < ls[1] and hd[1] < rs[1] and pct_diff(ls[1], rs[1]) <= TOL:
                     ny   = neck_y(ln[0], ln[1], rn[0], rn[1], n - 1)
-                    done = last_c >= ny
-                    sb = find_break(rs[0], ny, 'up') if done else None
+                    sb   = find_break(rs[0], ny, 'up')
+                    done = sb is not None
                     raw.append(make_pat('頭肩底', '買入' if done else '等待',
                         ' ✓' if done else '（形成中）', done, ip,
                         ((ln[0], ln[1]), (n-1, ny)),
@@ -11642,8 +11650,8 @@ class StockApp(tk.Tk):
             if t == ['H', 'L', 'H', 'L', 'H']:
                 if hd[1] > ls[1] and hd[1] > rs[1] and pct_diff(ls[1], rs[1]) <= TOL:
                     ny   = neck_y(ln[0], ln[1], rn[0], rn[1], n - 1)
-                    done = last_c <= ny
-                    sb = find_break(rs[0], ny, 'down') if done else None
+                    sb   = find_break(rs[0], ny, 'down')
+                    done = sb is not None
                     raw.append(make_pat('頭肩頂', '賣出' if done else '等待',
                         ' ✓' if done else '（形成中）', done, ip,
                         ((ln[0], ln[1]), (n-1, ny)),
@@ -11675,12 +11683,12 @@ class StockApp(tk.Tk):
                 sx  = int(min(hs_r[0][0], ls_r[0][0]))
                 h_y0, h_yn = float(np.polyval(hp, sx)), float(np.polyval(hp, n - 1))
                 l_y0, l_yn = float(np.polyval(lp, sx)), float(np.polyval(lp, n - 1))
-                if last_c > h_yn:
-                    signal, suffix, done = '買入', ' 上突破 ✓', True
-                    sb = find_break_trend(sx, hp, 'up')
-                elif last_c < l_yn:
-                    signal, suffix, done = '賣出', ' 下突破 ✓', True
-                    sb = find_break_trend(sx, lp, 'down')
+                sb_up   = find_break_trend(sx, hp, 'up')
+                sb_down = find_break_trend(sx, lp, 'down')
+                if sb_up is not None:
+                    signal, suffix, done, sb = '買入', ' 上突破 ✓', True, sb_up
+                elif sb_down is not None:
+                    signal, suffix, done, sb = '賣出', ' 下突破 ✓', True, sb_down
                 elif tri_name == '上升△':
                     signal, suffix, done, sb = '等待', '（形成中·偏多）', False, None
                 elif tri_name == '下降△':
@@ -11699,12 +11707,12 @@ class StockApp(tk.Tk):
             if (h_rng / max(h_mean, 1e-6) <= TOL and l_rng / max(l_mean, 1e-6) <= TOL
                     and (h_mean - l_mean) / max(h_mean, 1e-6) > 0.02):
                 sx = int(min(min(p[0] for p in hs_r), min(p[0] for p in ls_r)))
-                if last_c > h_mean:
-                    signal, suffix, done = '買入', ' 上突破 ✓', True
-                    sb = find_break(sx, h_mean, 'up')
-                elif last_c < l_mean:
-                    signal, suffix, done = '賣出', ' 下突破 ✓', True
-                    sb = find_break(sx, l_mean, 'down')
+                sb_up   = find_break(sx, h_mean, 'up')
+                sb_down = find_break(sx, l_mean, 'down')
+                if sb_up is not None:
+                    signal, suffix, done, sb = '買入', ' 上突破 ✓', True, sb_up
+                elif sb_down is not None:
+                    signal, suffix, done, sb = '賣出', ' 下突破 ✓', True, sb_down
                 else:
                     signal, suffix, done, sb = '等待', '（盤整中）', False, None
                 tls = [([sx, n-1], [h_mean, h_mean]), ([sx, n-1], [l_mean, l_mean])]
@@ -11727,14 +11735,18 @@ class StockApp(tk.Tk):
                     is_bull = p_move > 0
                     flag_nm = '上升旗形' if is_bull else '下跌旗形'
                     sx = n - 12
-                    if is_bull and last_c > f_hi:
-                        signal, suffix, done = '買入', ' ✓', True
+                    if is_bull:
                         sb = find_break(sx, f_hi, 'up')
-                    elif not is_bull and last_c < f_lo:
-                        signal, suffix, done = '賣出', ' ✓', True
-                        sb = find_break(sx, f_lo, 'down')
+                        if sb is not None:
+                            signal, suffix, done = '買入', ' ✓', True
+                        else:
+                            signal, suffix, done, sb = '等待', '（形成中）', False, None
                     else:
-                        signal, suffix, done, sb = '等待', '（形成中）', False, None
+                        sb = find_break(sx, f_lo, 'down')
+                        if sb is not None:
+                            signal, suffix, done = '賣出', ' ✓', True
+                        else:
+                            signal, suffix, done, sb = '等待', '（形成中）', False, None
                     tls = [([sx, n-1], [f_hi, f_hi]), ([sx, n-1], [f_lo, f_lo])]
                     raw.append(make_pat('旗形', signal, suffix, done, [], None,
                         n-1, n-1, (f_hi + f_lo) / 2, 'center', tls, signal_bar=sb))
