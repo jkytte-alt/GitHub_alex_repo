@@ -11042,6 +11042,18 @@ class StockApp(tk.Tk):
 
         tk.Label(kctrl, text='│', bg=_CTRL_BG, fg='#333355').pack(side='left', padx=6)
 
+        # 縮放按鈕
+        tk.Label(kctrl, text='縮放:', bg=_CTRL_BG, fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 4))
+        tk.Button(kctrl, text='＋', **_BTN_OFF,
+                  command=lambda: self._stk_zoom(0.6)).pack(side='left', padx=2)
+        tk.Button(kctrl, text='－', **_BTN_OFF,
+                  command=lambda: self._stk_zoom(1.6)).pack(side='left', padx=2)
+        tk.Button(kctrl, text='全覽', **_BTN_OFF,
+                  command=self._stk_zoom_reset).pack(side='left', padx=2)
+
+        tk.Label(kctrl, text='│', bg=_CTRL_BG, fg='#333355').pack(side='left', padx=6)
+
         # 指標
         self._stk_ind_state: dict[str, bool] = {
             'MA': True, 'BB': False, 'VOL': True,
@@ -11087,6 +11099,9 @@ class StockApp(tk.Tk):
             _w = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#cccccc', font=_FI)
             _w.pack(side='left', padx=(0, 4))
             setattr(self, _attr, _w)
+        self._stk_info_sig = tk.Label(info_bar, text='', bg='#0d0f17',
+                                       fg='#00e5ff', font=('Microsoft JhengHei', 9, 'bold'))
+        self._stk_info_sig.pack(side='left', padx=(12, 4))
 
         # ── 繪線工具列 ───────────────────────────────────────────────────
         draw_bar = tk.Frame(f, bg='#1c1c28', pady=3)
@@ -11208,6 +11223,21 @@ class StockApp(tk.Tk):
         tk.Label(zhujia_bar, text='x', bg='#1c1c28', fg='#6677aa',
                  font=('Microsoft JhengHei', 8)).pack(side='left', padx=(1, 0))
 
+        tk.Label(zhujia_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=6)
+
+        self._stk_kbar_on = False
+
+        def _toggle_kbar():
+            self._stk_kbar_on = not self._stk_kbar_on
+            self._stk_kbar_btn.config(
+                **(_DB_ON if self._stk_kbar_on else _DB_OFF),
+                text='K棒組合 ON' if self._stk_kbar_on else 'K棒組合 OFF')
+            self._redraw_stk_kline()
+
+        self._stk_kbar_btn = tk.Button(
+            zhujia_bar, text='K棒組合 OFF', **_DB_OFF, command=_toggle_kbar)
+        self._stk_kbar_btn.pack(side='left', padx=2)
+
         # ── 型態分析工具列 ───────────────────────────────────────────────
         pat_bar = tk.Frame(f, bg='#1c1c28', pady=3)
         pat_bar.pack(fill='x', padx=8, pady=(2, 0))
@@ -11291,8 +11321,12 @@ class StockApp(tk.Tk):
         wk = self._stk_canvas.get_tk_widget()
         wk.configure(bg=CHART_BG)
         wk.pack(fill='x', pady=(0, 2))
-        wk.bind('<MouseWheel>', _wheel)
+        wk.bind('<MouseWheel>', _wheel)   # 滾輪還原為捲動頁面
+        self._stk_canvas.mpl_connect('button_press_event',  self._on_stk_btn_press)
+        self._stk_canvas.mpl_connect('button_release_event', self._on_stk_btn_release)
+        self._stk_canvas.mpl_connect('motion_notify_event', self._on_stk_pan_move)
         self._stk_canvas.mpl_connect('motion_notify_event', self._on_stk_hover)
+        self._stk_pan_start = None
 
         # ── 財報狀態列 + 財報 matplotlib 圖（下方，連續） ──────────────
         fin_status_bar = tk.Frame(scroll_inner, bg='#1c1c28', pady=3)
@@ -11854,7 +11888,89 @@ class StockApp(tk.Tk):
             if close[i - 1] >= ma5[i - 1] and close[i] < ma5[i]:
                 exits.append(i)
 
-        return zz, ph, pl, trend, ma_bull, entries, exits
+        # ── K棒組合變盤訊號（朱家泓）────────────────────────────────────
+        # 高低檔由ZigZag波段結構判斷；週K由日K重採樣取得
+        def _area(i):
+            """回傳 'high' / 'low' / 'mid'（依最近波峰波谷位置）"""
+            ph_b = [p for p in ph if p[0] <= i]
+            pl_b = [p for p in pl if p[0] <= i]
+            if not ph_b or not pl_b:
+                return 'mid'
+            rec_h = ph_b[-1][1]
+            rec_l = pl_b[-1][1]
+            rng   = rec_h - rec_l
+            if rng < 1e-6:
+                return 'mid'
+            pct_from_high = (rec_h - close[i]) / rng
+            pct_from_low  = (close[i] - rec_l) / rng
+            if pct_from_high <= 0.30:
+                return 'high'
+            if pct_from_low  <= 0.30:
+                return 'low'
+            return 'mid'
+
+        try:
+            _wk      = ohlcv.resample('W').agg({'Open': 'first', 'Close': 'last'})
+            _wk_bull = (_wk['Close'] > _wk['Open']).values
+            _wk_idx  = _wk.index
+            def _weekly_bull(i):
+                bd   = ohlcv.index[i]
+                wi   = _wk_idx.searchsorted(bd, side='right') - 1
+                return bool(_wk_bull[wi]) if 0 <= wi < len(_wk_bull) else True
+        except Exception:
+            def _weekly_bull(i): return True  # noqa: E731
+
+        reversals = []
+        for i in range(1, n):
+            b   = abs(close[i]   - open_[i])
+            r   = high[i]        - low[i]
+            us  = high[i]        - max(open_[i],   close[i])
+            ls  = min(open_[i],    close[i])   - low[i]
+            pb  = abs(close[i-1] - open_[i-1])
+            pr  = high[i-1]      - low[i-1]
+            pus = high[i-1]      - max(open_[i-1], close[i-1])
+            pls = min(open_[i-1],  close[i-1]) - low[i-1]
+
+            pdoji       = pr > 0 and pb <= pr * 0.15 and pus > 0 and pls > 0
+            plong_upper = pb > 1e-6 and pus >= pb * 2
+            plong_lower = pb > 1e-6 and pls >= pb * 2
+
+            area      = _area(i)
+            prev_area = _area(i - 1)
+            wk_b      = _weekly_bull(i)
+            vol_ok    = vol5[i] > 0 and vol[i] >= vol5[i]
+
+            # 變盤確認：前日為變盤線或長影線，今日開盤確認方向
+            if (pdoji or plong_lower) and prev_area == 'low' and open_[i] > close[i-1]:
+                reversals.append({'idx': i, 'type': 'bull_reversal',
+                                  'price': float(close[i]),
+                                  'desc': '低檔變盤確認（止跌）',
+                                  'weekly_protected': False})
+            if (pdoji or plong_upper) and prev_area == 'high' and open_[i] < close[i-1]:
+                reversals.append({'idx': i, 'type': 'bear_reversal',
+                                  'price': float(close[i]),
+                                  'desc': '高檔變盤確認（見頂）' + ('，週K多頭保護' if wk_b else ''),
+                                  'weekly_protected': wk_b})
+
+            # 吞噬型態：今日實體完整包覆前日實體，且位於高低檔
+            if (prev_area == 'low'
+                    and close[i-1] < open_[i-1]
+                    and close[i]   > open_[i]
+                    and b > pb):
+                reversals.append({'idx': i, 'type': 'bull_engulf',
+                                  'price': float(close[i]),
+                                  'desc': '低檔長紅吞噬' + ('（量放大）' if vol_ok else ''),
+                                  'weekly_protected': False})
+            if (prev_area == 'high'
+                    and close[i-1] > open_[i-1]
+                    and close[i]   < open_[i]
+                    and b > pb):
+                reversals.append({'idx': i, 'type': 'bear_engulf',
+                                  'price': float(close[i]),
+                                  'desc': '高檔長黑吞噬' + ('（量放大高見頂率）' if vol_ok else ''),
+                                  'weekly_protected': wk_b})
+
+        return zz, ph, pl, trend, ma_bull, entries, exits, reversals
 
     def _draw_stk_kline(self, code: str, name: str):
         """繪製個股 K 線圖（邏輯與 ETF K 線完全相同）。"""
@@ -12060,7 +12176,7 @@ class StockApp(tk.Tk):
                 ohlcv['MA20'] = _c.rolling(20, min_periods=1).mean()
                 ohlcv['MA60'] = _c.rolling(60, min_periods=1).mean()
 
-            zz, ph, pl, trend, ma_bull, entries, exits = self._calc_zhujia_signals(
+            zz, ph, pl, trend, ma_bull, entries, exits, reversals = self._calc_zhujia_signals(
                 ohlcv,
                 redk_enabled = getattr(self, '_stk_zhujia_redk', False),
                 redk_ratio   = _redk_ratio,
@@ -12089,13 +12205,15 @@ class StockApp(tk.Tk):
                 y_entry = float(ohlcv['Low'].iloc[idx]) * 0.997
                 ax_price.scatter(idx, y_entry, color='#00e676', s=80,
                                  marker='^', zorder=7, linewidths=0)
-                ax_price.text(idx + 0.8, y_entry, '進場',
-                              ha='left', va='center',
-                              fontsize=7.5, fontfamily=CHART_FONT,
-                              color='#ffffff', zorder=8,
-                              bbox=dict(boxstyle='round,pad=0.25',
-                                        facecolor='#00a854',
-                                        edgecolor='none', alpha=0.92))
+                ax_price.annotate('進場',
+                                  xy=(idx, y_entry),
+                                  xytext=(0, -18), textcoords='offset points',
+                                  ha='center', va='top',
+                                  fontsize=10, fontfamily=CHART_FONT,
+                                  color='#ffffff', zorder=8,
+                                  bbox=dict(boxstyle='round,pad=0.30',
+                                            facecolor='#00a854',
+                                            edgecolor='none', alpha=0.92))
 
                 next_exit = next((e for e in exits if e > idx), None)
                 if next_exit is not None:
@@ -12124,6 +12242,39 @@ class StockApp(tk.Tk):
                 y_exit = float(ohlcv['High'].iloc[idx]) * 1.003
                 ax_price.scatter(idx, y_exit, color='#ffa726', s=80,
                                  marker='v', zorder=7, linewidths=0)
+
+            # K棒組合變盤訊號
+            self._stk_reversals = reversals   # 供 hover 查詢
+            if getattr(self, '_stk_kbar_on', False) and reversals:
+                from matplotlib.transforms import blended_transform_factory
+                _strip_trans = blended_transform_factory(
+                    ax_price.transData, ax_price.transAxes)
+                _rev_colors = {
+                    'bull_reversal': '#00e5ff',
+                    'bull_engulf':   '#00ff88',
+                    'bear_reversal': '#ff6644',
+                    'bear_engulf':   '#ff3333',
+                }
+                # C：K棒背景高亮（半透明，不擋K棒）
+                for _rv in reversals:
+                    _ri  = _rv['idx']
+                    _clr = _rev_colors.get(_rv['type'], '#888888')
+                    ax_price.axvspan(_ri - 0.45, _ri + 0.45,
+                                     color=_clr, alpha=0.10, zorder=1)
+                # A：底部訊號條（blended transform：x=資料座標、y=軸比例）
+                # 空出 y=0~0.08 做訊號條，分兩層：bull y=0.022、bear y=0.048
+                _strip_y = {'bull': 0.022, 'bear': 0.048}
+                for _rv in reversals:
+                    _ri   = _rv['idx']
+                    _rtp  = _rv['type']
+                    _clr  = _rev_colors.get(_rtp, '#888888')
+                    _is_b = _rtp.startswith('bear')
+                    _sy   = _strip_y['bear' if _is_b else 'bull']
+                    ax_price.scatter(
+                        _ri, _sy, color=_clr, s=70,
+                        marker='v' if _is_b else '^',
+                        transform=_strip_trans,
+                        zorder=8, linewidths=0, clip_on=False)
 
             # 狀態文字框：錨定在最近進場 K 棒（無進場則最後一根），不遮擋 K 線
             trend_now   = bool(trend[-1])   if n > 0 else False
@@ -12173,7 +12324,7 @@ class StockApp(tk.Tk):
                 ohlcv['MA10'] = _c2.rolling(10, min_periods=1).mean()
                 ohlcv['MA20'] = _c2.rolling(20, min_periods=1).mean()
                 ohlcv['MA60'] = _c2.rolling(60, min_periods=1).mean()
-            _pzz, _pph, _ppl, _, _, _, _ = self._calc_zhujia_signals(
+            _pzz, _pph, _ppl, _, _, _, _, _ = self._calc_zhujia_signals(
                 ohlcv, False, 0.4, False, 1.0)
             _pat_pats = self._calc_patterns(ohlcv, _pzz, _pph, _ppl)
             self._stk_refresh_pat_btns({p['name'] for p in _pat_pats})
@@ -12354,6 +12505,121 @@ class StockApp(tk.Tk):
         self._stk_info_l.config(text=f'{float(last_row.get("Low",  last_close)):.2f}')
         self._stk_info_v.config(text=f'{int(last_row.get("Volume", 0)):,}')
 
+    # ── K線圖縮放 / 平移 ──────────────────────────────────────────────────────
+    def _stk_autoscale_y(self, i0: int, i1: int):
+        """依可見 bar 範圍自動調整主圖 Y 軸。"""
+        ohlcv = getattr(self, '_stk_ohlcv', None)
+        if ohlcv is None or self._stk_ax is None:
+            return
+        i0 = max(0, i0)
+        i1 = min(len(ohlcv) - 1, i1)
+        if i0 >= i1:
+            return
+        sub    = ohlcv.iloc[i0: i1 + 1]
+        ylo    = float(sub['Low'].min())
+        yhi    = float(sub['High'].max())
+        mg     = (yhi - ylo) * 0.06 or yhi * 0.02
+        # K棒組合開啟時底部多留 12% 給訊號條
+        bot_mg = mg * 3 if getattr(self, '_stk_kbar_on', False) else mg
+        self._stk_ax.set_ylim(ylo - bot_mg, yhi + mg * 5)
+
+    def _stk_zoom(self, factor: float):
+        """縮放 K 線圖 X 軸；factor<1=放大（顯示更少bar），factor>1=縮小。"""
+        if self._stk_ax is None or not hasattr(self, '_stk_n'):
+            return
+        n    = self._stk_n
+        axes = getattr(self, '_stk_all_axes', [self._stk_ax])
+        xl, xr   = self._stk_ax.get_xlim()
+        span     = xr - xl
+        cx       = (xl + xr) / 2
+        new_span = max(10, min(n + 1, span * factor))
+        new_xl   = cx - new_span / 2
+        new_xr   = cx + new_span / 2
+        if new_xl < -0.5:
+            new_xl = -0.5;  new_xr = new_xl + new_span
+        if new_xr > n - 0.5:
+            new_xr = n - 0.5;  new_xl = new_xr - new_span
+        for ax in axes:
+            ax.set_xlim(new_xl, new_xr)
+        self._stk_autoscale_y(int(new_xl), int(new_xr))
+        self._stk_canvas.draw_idle()
+
+    def _stk_zoom_reset(self):
+        """重置為全覽（顯示全部資料）。"""
+        if self._stk_ax is None or not hasattr(self, '_stk_n'):
+            return
+        n    = self._stk_n
+        axes = getattr(self, '_stk_all_axes', [self._stk_ax])
+        for ax in axes:
+            ax.set_xlim(-0.5, n - 0.5)
+        ohlcv = getattr(self, '_stk_ohlcv', None)
+        if ohlcv is not None:
+            ylo = float(ohlcv['Low'].min())
+            yhi = float(ohlcv['High'].max())
+            mg  = (yhi - ylo) * 0.06
+            bot = mg * 3 if getattr(self, '_stk_kbar_on', False) else mg
+            self._stk_ax.set_ylim(ylo - bot, yhi + mg * 5)
+        self._stk_canvas.draw_idle()
+
+    def _on_stk_scroll(self, event):
+        """滑鼠滾輪 → 以游標位置為中心縮放 X 軸。"""
+        if self._stk_ax is None or not hasattr(self, '_stk_n'):
+            return
+        n    = self._stk_n
+        axes = getattr(self, '_stk_all_axes', [self._stk_ax])
+        xl, xr = self._stk_ax.get_xlim()
+        span   = xr - xl
+        cx     = event.xdata if event.xdata is not None else (xl + xr) / 2
+        factor = 0.80 if event.button == 'up' else 1.25
+        new_span = max(10, min(n + 1, span * factor))
+        ratio    = (cx - xl) / span if span > 0 else 0.5
+        new_xl   = cx - ratio * new_span
+        new_xr   = new_xl + new_span
+        if new_xl < -0.5:
+            new_xl = -0.5;  new_xr = new_xl + new_span
+        if new_xr > n - 0.5:
+            new_xr = n - 0.5;  new_xl = new_xr - new_span
+        for ax in axes:
+            ax.set_xlim(new_xl, new_xr)
+        self._stk_autoscale_y(int(new_xl), int(new_xr))
+        self._stk_canvas.draw_idle()
+
+    def _on_stk_btn_press(self, event):
+        """右鍵按下開始平移；左鍵雙擊重置縮放。"""
+        if event.button == 3 and self._stk_ax:
+            self._stk_pan_start = (event.x, self._stk_ax.get_xlim())
+        elif event.button == 1 and getattr(event, 'dblclick', False):
+            self._stk_zoom_reset()
+
+    def _on_stk_btn_release(self, event):
+        """右鍵釋放結束平移。"""
+        if event.button == 3:
+            self._stk_pan_start = None
+
+    def _on_stk_pan_move(self, event):
+        """右鍵拖曳平移 K 線圖。"""
+        if not self._stk_pan_start or self._stk_ax is None:
+            return
+        px, (xl, xr) = self._stk_pan_start
+        n    = getattr(self, '_stk_n', 1)
+        axes = getattr(self, '_stk_all_axes', [self._stk_ax])
+        fig  = self._stk_fig
+        pos  = self._stk_ax.get_position()
+        fig_w_px = fig.get_size_inches()[0] * fig.dpi
+        ax_w_px  = (pos.x1 - pos.x0) * fig_w_px
+        span     = xr - xl
+        dx_bars  = -(event.x - px) * span / ax_w_px if ax_w_px > 0 else 0
+        new_xl   = xl + dx_bars
+        new_xr   = xr + dx_bars
+        if new_xl < -0.5:
+            new_xl = -0.5;  new_xr = new_xl + span
+        if new_xr > n - 0.5:
+            new_xr = n - 0.5;  new_xl = new_xr - span
+        for ax in axes:
+            ax.set_xlim(new_xl, new_xr)
+        self._stk_autoscale_y(int(new_xl), int(new_xr))
+        self._stk_canvas.draw_idle()
+
     def _on_stk_hover(self, event):
         """個股 K 線 hover：更新資訊列、十字游標（延伸至副圖）、右側價格標籤。"""
         if self._stk_ax is None or self._stk_ohlcv is None:
@@ -12390,6 +12656,23 @@ class StockApp(tk.Tk):
         self._stk_info_h.config(text=f'{h_:.2f}')
         self._stk_info_l.config(text=f'{l_:.2f}')
         self._stk_info_v.config(text=f'{vol:,}')
+        # 訊號欄：顯示該 bar 上的 K棒組合訊號
+        _rev_label_map = {
+            'bull_reversal': '止跌變盤', 'bull_engulf': '長紅吞噬',
+            'bear_reversal': '見頂變盤', 'bear_engulf': '長黑吞噬',
+        }
+        _rev_fg_map = {
+            'bull_reversal': '#00e5ff', 'bull_engulf': '#00ff88',
+            'bear_reversal': '#ff6644', 'bear_engulf': '#ff3333',
+        }
+        _bar_sigs = [r for r in getattr(self, '_stk_reversals', []) if r['idx'] == xi]
+        if _bar_sigs:
+            _sig_parts = [_rev_label_map.get(r['type'], r['type']) for r in _bar_sigs]
+            _sig_fg    = _rev_fg_map.get(_bar_sigs[0]['type'], '#00e5ff')
+            _sig_extra = '＊' if any('量' in r.get('desc', '') for r in _bar_sigs) else ''
+            self._stk_info_sig.config(text='  '.join(_sig_parts) + _sig_extra, fg=_sig_fg)
+        else:
+            self._stk_info_sig.config(text='')
 
         # 主圖游標線
         if self._stk_vline is not None:
