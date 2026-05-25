@@ -143,8 +143,10 @@ if getattr(_sys, 'frozen', False):
     BASE_DIR = os.path.dirname(_sys.executable)  # 執行檔所在目錄
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-EXCEL_PATH = os.path.join(BASE_DIR, '股票紀錄.xlsx')
-SHEET_NAME = '交易記錄'
+EXCEL_PATH        = os.path.join(BASE_DIR, '股票紀錄.xlsx')
+SHEET_NAME        = '交易記錄'
+_STK_RECENT_PATH  = os.path.join(BASE_DIR, '.stk_recent.json')
+_STK_GROUPS_PATH  = os.path.join(BASE_DIR, '.stk_groups.json')
 
 COLUMNS = ['日期', '股票代號', '股票名稱', '分類', '買賣',
            '數量(股)', '價格(元)', '手續費(元)', '交易稅(元)', '淨金額(元)']
@@ -10930,6 +10932,66 @@ class StockApp(tk.Tk):
         ttk.Button(ctrl, text='📈  查詢', style='Nav.TButton',
                    command=self._load_stk_chart).pack(side='left', padx=(6, 0))
 
+        # ── 快速選股列（ctrl 正下方）────────────────────────────────────
+        _CTRL_BG2 = '#1c1c28'
+        _QB = dict(bg='#2a2a3e', fg='#8899cc', font=('Microsoft JhengHei', 8),
+                   relief='flat', padx=7, pady=2, cursor='hand2',
+                   highlightthickness=0, activebackground='#3a3a5e',
+                   activeforeground='#aaaaee')
+        qpick_bar = tk.Frame(f, bg=_CTRL_BG2, pady=3)
+        qpick_bar.pack(fill='x', padx=8, pady=(2, 0))
+        tk.Label(qpick_bar, text='快速選股：', bg=_CTRL_BG2, fg='#7fb3d3',
+                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(8, 6))
+
+        tk.Label(qpick_bar, text='最近：', bg=_CTRL_BG2, fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 2))
+        self._stk_recent_var = tk.StringVar()
+        self._stk_recent_cb  = ttk.Combobox(qpick_bar, textvariable=self._stk_recent_var,
+                                             width=16, state='readonly',
+                                             font=('Microsoft JhengHei', 8))
+        self._stk_recent_cb.pack(side='left', padx=(0, 4))
+        self._stk_recent_cb.bind('<<ComboboxSelected>>', self._on_stk_recent_select)
+
+        tk.Label(qpick_bar, text='│', bg=_CTRL_BG2, fg='#333355').pack(side='left', padx=4)
+
+        tk.Label(qpick_bar, text='庫存：', bg=_CTRL_BG2, fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 2))
+        self._stk_holding_var = tk.StringVar()
+        self._stk_holding_cb  = ttk.Combobox(qpick_bar, textvariable=self._stk_holding_var,
+                                              width=16, state='readonly',
+                                              font=('Microsoft JhengHei', 8))
+        self._stk_holding_cb.pack(side='left', padx=(0, 4))
+        self._stk_holding_cb.bind('<<ComboboxSelected>>', self._on_stk_holding_select)
+
+        tk.Label(qpick_bar, text='│', bg=_CTRL_BG2, fg='#333355').pack(side='left', padx=4)
+
+        tk.Label(qpick_bar, text='群組：', bg=_CTRL_BG2, fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 2))
+        self._stk_group_name_var = tk.StringVar()
+        self._stk_group_name_cb  = ttk.Combobox(qpick_bar, textvariable=self._stk_group_name_var,
+                                                 width=10, state='readonly',
+                                                 font=('Microsoft JhengHei', 8))
+        self._stk_group_name_cb.pack(side='left', padx=(0, 2))
+        self._stk_group_name_cb.bind('<<ComboboxSelected>>', self._on_stk_group_name_select)
+
+        self._stk_group_stock_var = tk.StringVar()
+        self._stk_group_stock_cb  = ttk.Combobox(qpick_bar, textvariable=self._stk_group_stock_var,
+                                                  width=16, state='readonly',
+                                                  font=('Microsoft JhengHei', 8))
+        self._stk_group_stock_cb.pack(side='left', padx=(0, 4))
+        self._stk_group_stock_cb.bind('<<ComboboxSelected>>', self._on_stk_group_stock_select)
+
+        tk.Button(qpick_bar, text='+建立群組', **_QB,
+                  command=self._stk_create_group).pack(side='left', padx=2)
+        tk.Button(qpick_bar, text='+加入', **_QB,
+                  command=self._stk_add_to_group).pack(side='left', padx=2)
+        tk.Button(qpick_bar, text='－移除', **_QB,
+                  command=self._stk_remove_from_group).pack(side='left', padx=2)
+
+        self.after(100, self._stk_refresh_recent_cb)
+        self.after(100, self._stk_refresh_holding_cb)
+        self.after(100, self._stk_refresh_group_cbs)
+
         self._stk_status = tk.StringVar(value='請輸入股票代號後點擊查詢')
         status_bar = tk.Frame(f, bg=C_BG)
         status_bar.pack(fill='x', padx=14, pady=(0, 2))
@@ -11077,6 +11139,123 @@ class StockApp(tk.Tk):
             self._stk_color_btns[_clr] = _cb
         self._set_draw_color('#f0c060')   # 初始選中黃色
 
+        # ── 朱家泓老師技術分析工具列 ─────────────────────────────────────
+        zhujia_bar = tk.Frame(f, bg='#1c1c28', pady=3)
+        zhujia_bar.pack(fill='x', padx=8, pady=(2, 0))
+        tk.Label(zhujia_bar, text='朱家泓老師技術分析：', bg='#1c1c28', fg='#d4af37',
+                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(8, 6))
+
+        self._stk_zhujia_on         = False
+        self._stk_zhujia_redk       = False
+        self._stk_zhujia_vol        = False
+        self._stk_zhujia_redk_var   = tk.StringVar(value='40')
+        self._stk_zhujia_vol_var    = tk.StringVar(value='1.0')
+
+        def _toggle_zhujia():
+            self._stk_zhujia_on = not self._stk_zhujia_on
+            self._stk_zhujia_main_btn.config(
+                **((_DB_ON  if self._stk_zhujia_on else _DB_OFF)),
+                text=('訊號 ON' if self._stk_zhujia_on else '訊號 OFF'))
+            self._redraw_stk_kline()
+
+        self._stk_zhujia_main_btn = tk.Button(
+            zhujia_bar, text='訊號 OFF', **_DB_OFF, command=_toggle_zhujia)
+        self._stk_zhujia_main_btn.pack(side='left', padx=2)
+
+        tk.Label(zhujia_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=6)
+        tk.Label(zhujia_bar, text='選項：', bg='#1c1c28', fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 4))
+
+        def _toggle_zhujia_redk():
+            self._stk_zhujia_redk = not self._stk_zhujia_redk
+            self._stk_zhujia_redk_btn.config(
+                **(_DB_ON if self._stk_zhujia_redk else _DB_OFF))
+            self._redraw_stk_kline()
+
+        self._stk_zhujia_redk_btn = tk.Button(
+            zhujia_bar, text='實體紅K', **_DB_OFF, command=_toggle_zhujia_redk)
+        self._stk_zhujia_redk_btn.pack(side='left', padx=2)
+
+        _redk_sb = tk.Spinbox(
+            zhujia_bar, from_=0, to=80, increment=5, width=4,
+            textvariable=self._stk_zhujia_redk_var,
+            bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
+            buttonbackground='#2a2a3e', relief='flat',
+            font=('Microsoft JhengHei', 8),
+            command=self._redraw_stk_kline)
+        _redk_sb.pack(side='left', padx=(1, 0))
+        tk.Label(zhujia_bar, text='%', bg='#1c1c28', fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(1, 8))
+
+        def _toggle_zhujia_vol():
+            self._stk_zhujia_vol = not self._stk_zhujia_vol
+            self._stk_zhujia_vol_btn.config(
+                **(_DB_ON if self._stk_zhujia_vol else _DB_OFF))
+            self._redraw_stk_kline()
+
+        self._stk_zhujia_vol_btn = tk.Button(
+            zhujia_bar, text='量增', **_DB_OFF, command=_toggle_zhujia_vol)
+        self._stk_zhujia_vol_btn.pack(side='left', padx=2)
+
+        _vol_sb = tk.Spinbox(
+            zhujia_bar, from_=0.5, to=3.0, increment=0.1, width=4,
+            textvariable=self._stk_zhujia_vol_var,
+            bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
+            buttonbackground='#2a2a3e', relief='flat',
+            font=('Microsoft JhengHei', 8),
+            command=self._redraw_stk_kline)
+        _vol_sb.pack(side='left', padx=(1, 0))
+        tk.Label(zhujia_bar, text='x', bg='#1c1c28', fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(1, 0))
+
+        # ── 型態分析工具列 ───────────────────────────────────────────────
+        pat_bar = tk.Frame(f, bg='#1c1c28', pady=3)
+        pat_bar.pack(fill='x', padx=8, pady=(2, 0))
+        tk.Label(pat_bar, text='型態分析：', bg='#1c1c28', fg='#b8a0e8',
+                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(8, 6))
+
+        self._stk_pattern_on    = True   # 預設開啟偵測（按鈕高亮），但個別型態預設不顯示
+        self._stk_pattern_state = {
+            'W底': False, 'M頭': False, '頭肩底': False, '頭肩頂': False,
+            '對稱△': False, '上升△': False, '下降△': False, '旗形': False, '箱型': False,
+        }
+        self._stk_pattern_btns: dict = {}
+
+        def _toggle_pat_main():
+            self._stk_pattern_on = not self._stk_pattern_on
+            self._stk_pat_main_btn.config(
+                **(_DB_ON if self._stk_pattern_on else _DB_OFF),
+                text='型態 ON' if self._stk_pattern_on else '型態 OFF')
+            self._redraw_stk_kline()
+
+        self._stk_pat_main_btn = tk.Button(
+            pat_bar, text='型態 ON', **_DB_ON, command=_toggle_pat_main)
+        self._stk_pat_main_btn.pack(side='left', padx=2)
+
+        tk.Label(pat_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=4)
+        tk.Label(pat_bar, text='反轉：', bg='#1c1c28', fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 2))
+
+        def _toggle_pat(key):
+            self._stk_pattern_state[key] = not self._stk_pattern_state[key]
+            self._redraw_stk_kline()  # 重繪會自動更新按鈕顏色（含黃色高亮）
+
+        for _pk in ['W底', 'M頭', '頭肩底', '頭肩頂']:
+            _b = tk.Button(pat_bar, text=_pk, **_DB_OFF,
+                           command=lambda k=_pk: _toggle_pat(k))
+            _b.pack(side='left', padx=2)
+            self._stk_pattern_btns[_pk] = _b
+
+        tk.Label(pat_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=4)
+        tk.Label(pat_bar, text='整理/突破：', bg='#1c1c28', fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 2))
+
+        for _pk in ['對稱△', '上升△', '下降△', '旗形', '箱型']:
+            _b = tk.Button(pat_bar, text=_pk, **_DB_OFF,
+                           command=lambda k=_pk: _toggle_pat(k))
+            _b.pack(side='left', padx=2)
+            self._stk_pattern_btns[_pk] = _b
+
         # ── 共用捲動區域（K線 + 財報連續） ──────────────────────────────
         scroll_outer = tk.Frame(f, bg=CHART_BG)
         scroll_outer.pack(fill='both', expand=True, padx=8, pady=(0, 8))
@@ -11157,6 +11336,161 @@ class StockApp(tk.Tk):
 
     # ── 個股分析（Tab 6）─────────────────────────────────────────────────────
 
+    def _stk_refresh_pat_btns(self, detected: set):
+        """根據偵測到的型態更新按鈕顏色：黃=有偵測到，藍/灰=無。"""
+        _btns  = getattr(self, '_stk_pattern_btns', {})
+        _state = getattr(self, '_stk_pattern_state', {})
+        _YON  = dict(bg='#b8860b', fg='#fffde7', font=('Microsoft JhengHei', 9),
+                     relief='flat', padx=8, pady=2, cursor='hand2',
+                     highlightthickness=0, activebackground='#d4a000',
+                     activeforeground='#fffde7')
+        _YOFF = dict(bg='#2a2400', fg='#c8a000', font=('Microsoft JhengHei', 9),
+                     relief='flat', padx=8, pady=2, cursor='hand2',
+                     highlightthickness=0, activebackground='#3a3400',
+                     activeforeground='#e0bc00')
+        _on_sty  = getattr(self, '_stk_db_on',  {})
+        _off_sty = getattr(self, '_stk_db_off', {})
+        for nm, btn in _btns.items():
+            is_on = _state.get(nm, True)
+            if nm in detected:
+                btn.config(**(_YON if is_on else _YOFF))
+            else:
+                btn.config(**(_on_sty if is_on else _off_sty))
+
+    # ── 快速選股：最近查詢 ─────────────────────────────────────────────────
+
+    def _stk_load_recent(self) -> list:
+        try:
+            if os.path.exists(_STK_RECENT_PATH):
+                with open(_STK_RECENT_PATH, 'r', encoding='utf-8') as fh:
+                    return _json.load(fh)
+        except Exception:
+            pass
+        return []
+
+    def _stk_save_recent(self, code: str, name: str):
+        recent = [r for r in self._stk_load_recent() if r['code'] != code]
+        recent.insert(0, {'code': code, 'name': name})
+        recent = recent[:10]
+        try:
+            with open(_STK_RECENT_PATH, 'w', encoding='utf-8') as fh:
+                _json.dump(recent, fh, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        self._stk_refresh_recent_cb()
+
+    def _stk_refresh_recent_cb(self):
+        recent = self._stk_load_recent()
+        self._stk_recent_cb['values'] = [f"{r['code']}  {r['name']}" for r in recent]
+
+    def _on_stk_recent_select(self, _e=None):
+        val = self._stk_recent_var.get()
+        if val:
+            self._stk_code.set(val.split()[0])
+            self._load_stk_chart()
+
+    # ── 快速選股：庫存 ─────────────────────────────────────────────────────
+
+    def _stk_refresh_holding_cb(self):
+        try:
+            df = load_df()
+            holdings = calc_holdings(df) if not df.empty else {}
+            opts = [f"{k[0]}  {v['name']}" for k, v in holdings.items() if v['qty'] > 0]
+            self._stk_holding_cb['values'] = opts
+        except Exception:
+            pass
+
+    def _on_stk_holding_select(self, _e=None):
+        val = self._stk_holding_var.get()
+        if val:
+            self._stk_code.set(val.split()[0])
+            self._load_stk_chart()
+
+    # ── 快速選股：自選群組 ─────────────────────────────────────────────────
+
+    def _stk_load_groups(self) -> dict:
+        try:
+            if os.path.exists(_STK_GROUPS_PATH):
+                with open(_STK_GROUPS_PATH, 'r', encoding='utf-8') as fh:
+                    return _json.load(fh)
+        except Exception:
+            pass
+        return {}
+
+    def _stk_save_groups(self, groups: dict):
+        try:
+            with open(_STK_GROUPS_PATH, 'w', encoding='utf-8') as fh:
+                _json.dump(groups, fh, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _stk_refresh_group_cbs(self):
+        groups = self._stk_load_groups()
+        names  = list(groups.keys())
+        self._stk_group_name_cb['values'] = names
+        cur = self._stk_group_name_var.get()
+        if cur in groups:
+            self._stk_group_stock_cb['values'] = [
+                f"{s['code']}  {s['name']}" for s in groups[cur]]
+        else:
+            self._stk_group_stock_cb['values'] = []
+
+    def _on_stk_group_name_select(self, _e=None):
+        self._stk_group_stock_var.set('')
+        self._stk_refresh_group_cbs()
+
+    def _on_stk_group_stock_select(self, _e=None):
+        val = self._stk_group_stock_var.get()
+        if val:
+            self._stk_code.set(val.split()[0])
+            self._load_stk_chart()
+
+    def _stk_create_group(self):
+        from tkinter import simpledialog
+        name = simpledialog.askstring('建立群組', '請輸入群組名稱：', parent=self)
+        if not name or not name.strip():
+            return
+        name = name.strip()
+        groups = self._stk_load_groups()
+        if name not in groups:
+            groups[name] = []
+            self._stk_save_groups(groups)
+        self._stk_refresh_group_cbs()
+        self._stk_group_name_var.set(name)
+        self._on_stk_group_name_select()
+
+    def _stk_add_to_group(self):
+        code  = self._stk_current_code
+        name  = self._stk_current_name
+        group = self._stk_group_name_var.get()
+        if not code or not group:
+            messagebox.showwarning('提示', '請先查詢股票，並選擇目標群組', parent=self)
+            return
+        groups = self._stk_load_groups()
+        if group not in groups:
+            messagebox.showwarning('提示', f'群組「{group}」不存在', parent=self)
+            return
+        if any(s['code'] == code for s in groups[group]):
+            messagebox.showinfo('提示', f'{code} 已在群組「{group}」中', parent=self)
+            return
+        groups[group].append({'code': code, 'name': name})
+        self._stk_save_groups(groups)
+        self._stk_refresh_group_cbs()
+
+    def _stk_remove_from_group(self):
+        val   = self._stk_group_stock_var.get()
+        group = self._stk_group_name_var.get()
+        if not val or not group:
+            return
+        code   = val.split()[0]
+        groups = self._stk_load_groups()
+        if group not in groups:
+            return
+        groups[group] = [s for s in groups[group] if s['code'] != code]
+        self._stk_save_groups(groups)
+        self._stk_group_stock_var.set('')
+        self._stk_refresh_group_cbs()
+
     def _open_inventory_analysis(self, code: str):
         """從庫存樹狀圖右鍵：切換到庫存個股分析並繪圖。"""
         self._stock_var.set(code)
@@ -11194,6 +11528,321 @@ class StockApp(tk.Tk):
         code = self._stk_current_code
         if code:
             webbrowser.open(f'https://www.wantgoo.com/stock/{code}')
+
+    def _calc_patterns(self, ohlcv, zz: list, ph: list, pl: list) -> list:
+        """從 ZigZag 波段點偵測反轉 / 整理 / 突破型態，每個型態輸出買入/賣出/等待訊號。"""
+        import numpy as np
+
+        close = ohlcv['Close'].values.astype(float)
+        high  = ohlcv.get('High', ohlcv['Close']).values.astype(float)
+        low   = ohlcv.get('Low',  ohlcv['Close']).values.astype(float)
+        n     = len(close)
+        if n < 10 or len(zz) < 3:
+            return []
+
+        TOL    = 0.05
+        last_c = close[-1]
+
+        def pct_diff(a, b):
+            return abs(a - b) / max(abs(a), abs(b), 1e-10)
+
+        def neck_y(x1, y1, x2, y2, xi):
+            if x2 == x1:
+                return float(y1)
+            return float(y1 + (y2 - y1) * (xi - x1) / (x2 - x1))
+
+        def find_break(start, threshold, direction):
+            """找第一根收盤突破 threshold 的 K 棒（固定水平線）。"""
+            for bi in range(max(start + 1, 0), n):
+                if direction == 'up'   and close[bi] >= threshold:
+                    return bi
+                if direction == 'down' and close[bi] <= threshold:
+                    return bi
+            return None
+
+        def find_break_trend(start, poly, direction):
+            """找第一根收盤突破斜線（三角形）的 K 棒。"""
+            for bi in range(max(start + 1, 0), n):
+                th = float(np.polyval(poly, bi))
+                if direction == 'up'   and close[bi] >= th:
+                    return bi
+                if direction == 'down' and close[bi] <= th:
+                    return bi
+            return None
+
+        # 訊號顏色：買入=綠, 賣出=紅, 等待=灰
+        SIG_CLR = {'買入': '#00e676', '賣出': '#ff5252', '等待': '#9e9e9e'}
+        SIG_BG  = {'買入': '#082015', '賣出': '#200808', '等待': '#1a1a28'}
+        SIG_ICN = {'買入': '▲ 買入', '賣出': '▼ 賣出', '等待': '◆ 等待'}
+
+        def make_pat(name, signal, suffix, done, pts, neck, anchor,
+                     lx, ly, lva, trend_lines=None, signal_bar=None):
+            clr = SIG_CLR[signal]
+            lbl = f'{SIG_ICN[signal]}  {name}{suffix}'
+            # 確認訊號：標籤移到突破K棒旁
+            if signal_bar is not None and done:
+                lx = signal_bar
+                ly = (low[signal_bar]  * 0.990 if signal == '買入'
+                      else high[signal_bar] * 1.010)
+                lva = 'top' if signal == '買入' else 'bottom'
+            return {
+                'name': name, 'signal': signal,
+                'label': lbl, 'color': clr, 'sig_bg': SIG_BG[signal],
+                'alpha': 0.92 if done else 0.60,
+                'points': pts, 'trend_lines': trend_lines or [],
+                'neck_pts': neck, 'anchor': anchor,
+                'label_pos': (lx, ly), 'label_va': lva,
+                'signal_bar': signal_bar if done else None,
+            }
+
+        raw: list = []
+
+        # ── W底 / M頭（3個 ZigZag 點）─────────────────────────────────
+        for i in range(len(zz) - 2):
+            t  = [zz[i+k][2] for k in range(3)]
+            ip = [(zz[i+k][0], zz[i+k][1]) for k in range(3)]
+
+            if t == ['L', 'H', 'L'] and pct_diff(ip[0][1], ip[2][1]) <= TOL:
+                done   = last_c >= ip[1][1]
+                signal = '買入' if done else '等待'
+                sb = find_break(ip[2][0], ip[1][1], 'up') if done else None
+                raw.append(make_pat('W底', signal, ' ✓' if done else '（形成中）',
+                    done, ip,
+                    ((ip[1][0], ip[1][1]), (n-1, ip[1][1])),
+                    ip[2][0], ip[2][0], low[ip[2][0]] * 0.993, 'top',
+                    signal_bar=sb))
+
+            elif t == ['H', 'L', 'H'] and pct_diff(ip[0][1], ip[2][1]) <= TOL:
+                done   = last_c <= ip[1][1]
+                signal = '賣出' if done else '等待'
+                sb = find_break(ip[2][0], ip[1][1], 'down') if done else None
+                raw.append(make_pat('M頭', signal, ' ✓' if done else '（形成中）',
+                    done, ip,
+                    ((ip[1][0], ip[1][1]), (n-1, ip[1][1])),
+                    ip[2][0], ip[2][0], high[ip[2][0]] * 1.007, 'bottom',
+                    signal_bar=sb))
+
+        # ── 頭肩底 / 頭肩頂（5個 ZigZag 點）──────────────────────────
+        for i in range(len(zz) - 4):
+            t   = [zz[i+k][2] for k in range(5)]
+            ip  = [(zz[i+k][0], zz[i+k][1]) for k in range(5)]
+            ls, ln, hd, rn, rs = ip
+
+            if t == ['L', 'H', 'L', 'H', 'L']:
+                if hd[1] < ls[1] and hd[1] < rs[1] and pct_diff(ls[1], rs[1]) <= TOL:
+                    ny   = neck_y(ln[0], ln[1], rn[0], rn[1], n - 1)
+                    done = last_c >= ny
+                    sb = find_break(rs[0], ny, 'up') if done else None
+                    raw.append(make_pat('頭肩底', '買入' if done else '等待',
+                        ' ✓' if done else '（形成中）', done, ip,
+                        ((ln[0], ln[1]), (n-1, ny)),
+                        rs[0], rs[0], low[rs[0]] * 0.993, 'top',
+                        signal_bar=sb))
+
+            if t == ['H', 'L', 'H', 'L', 'H']:
+                if hd[1] > ls[1] and hd[1] > rs[1] and pct_diff(ls[1], rs[1]) <= TOL:
+                    ny   = neck_y(ln[0], ln[1], rn[0], rn[1], n - 1)
+                    done = last_c <= ny
+                    sb = find_break(rs[0], ny, 'down') if done else None
+                    raw.append(make_pat('頭肩頂', '賣出' if done else '等待',
+                        ' ✓' if done else '（形成中）', done, ip,
+                        ((ln[0], ln[1]), (n-1, ny)),
+                        rs[0], rs[0], high[rs[0]] * 1.007, 'bottom',
+                        signal_bar=sb))
+
+        # ── 三角形 / 矩形（近期 ZigZag，最多取14個點）────────────────
+        zz_r = zz[-14:] if len(zz) >= 14 else zz
+        hs_r = [(p[0], p[1]) for p in zz_r if p[2] == 'H']
+        ls_r = [(p[0], p[1]) for p in zz_r if p[2] == 'L']
+
+        if len(hs_r) >= 2 and len(ls_r) >= 2:
+            hx = np.array([p[0] for p in hs_r], dtype=float)
+            hy = np.array([p[1] for p in hs_r], dtype=float)
+            lx = np.array([p[0] for p in ls_r], dtype=float)
+            ly = np.array([p[1] for p in ls_r], dtype=float)
+            hp = np.polyfit(hx, hy, 1)
+            lp = np.polyfit(lx, ly, 1)
+            hs_n = hp[0] / max(hy.mean(), 1e-6)
+            ls_n = lp[0] / max(ly.mean(), 1e-6)
+            FLAT = 0.0015
+
+            tri_name = None
+            if   hs_n < -FLAT and ls_n > FLAT:       tri_name = '對稱△'
+            elif abs(hs_n) <= FLAT and ls_n > FLAT:  tri_name = '上升△'
+            elif hs_n < -FLAT and abs(ls_n) <= FLAT: tri_name = '下降△'
+
+            if tri_name:
+                sx  = int(min(hs_r[0][0], ls_r[0][0]))
+                h_y0, h_yn = float(np.polyval(hp, sx)), float(np.polyval(hp, n - 1))
+                l_y0, l_yn = float(np.polyval(lp, sx)), float(np.polyval(lp, n - 1))
+                if last_c > h_yn:
+                    signal, suffix, done = '買入', ' 上突破 ✓', True
+                    sb = find_break_trend(sx, hp, 'up')
+                elif last_c < l_yn:
+                    signal, suffix, done = '賣出', ' 下突破 ✓', True
+                    sb = find_break_trend(sx, lp, 'down')
+                elif tri_name == '上升△':
+                    signal, suffix, done, sb = '等待', '（形成中·偏多）', False, None
+                elif tri_name == '下降△':
+                    signal, suffix, done, sb = '等待', '（形成中·偏空）', False, None
+                else:
+                    signal, suffix, done, sb = '等待', '（形成中）', False, None
+                tls = [([sx, n-1], [h_y0, h_yn]), ([sx, n-1], [l_y0, l_yn])]
+                raw.append(make_pat(tri_name, signal, suffix, done, [], None,
+                    n-1, n-1, (h_yn + l_yn) / 2, 'center', tls, signal_bar=sb))
+
+            # 矩形箱型
+            h_rng  = float(hy.max() - hy.min())
+            l_rng  = float(ly.max() - ly.min())
+            h_mean = float(hy.mean())
+            l_mean = float(ly.mean())
+            if (h_rng / max(h_mean, 1e-6) <= TOL and l_rng / max(l_mean, 1e-6) <= TOL
+                    and (h_mean - l_mean) / max(h_mean, 1e-6) > 0.02):
+                sx = int(min(min(p[0] for p in hs_r), min(p[0] for p in ls_r)))
+                if last_c > h_mean:
+                    signal, suffix, done = '買入', ' 上突破 ✓', True
+                    sb = find_break(sx, h_mean, 'up')
+                elif last_c < l_mean:
+                    signal, suffix, done = '賣出', ' 下突破 ✓', True
+                    sb = find_break(sx, l_mean, 'down')
+                else:
+                    signal, suffix, done, sb = '等待', '（盤整中）', False, None
+                tls = [([sx, n-1], [h_mean, h_mean]), ([sx, n-1], [l_mean, l_mean])]
+                raw.append(make_pat('箱型', signal, suffix, done, [], None,
+                    n-1, n-1, (h_mean + l_mean) / 2, 'center', tls, signal_bar=sb))
+
+        # ── 旗形（近 25 根 K 棒）──────────────────────────────────────
+        if n >= 25:
+            flag_bars = ohlcv.iloc[-12:]
+            f_hi  = float(flag_bars['High'].max())
+            f_lo  = float(flag_bars['Low'].min())
+            f_rng = f_hi - f_lo
+            full_rng  = float(ohlcv['High'].max()) - float(ohlcv['Low'].min())
+            pole_bars = ohlcv.iloc[-25:-12]
+            if not pole_bars.empty and f_rng / max(full_rng, 1e-6) < 0.30:
+                p_start = float(pole_bars['Close'].iloc[0])
+                p_end   = float(pole_bars['Close'].iloc[-1])
+                p_move  = (p_end - p_start) / max(abs(p_start), 1e-6)
+                if abs(p_move) >= 0.04:
+                    is_bull = p_move > 0
+                    flag_nm = '上升旗形' if is_bull else '下跌旗形'
+                    sx = n - 12
+                    if is_bull and last_c > f_hi:
+                        signal, suffix, done = '買入', ' ✓', True
+                        sb = find_break(sx, f_hi, 'up')
+                    elif not is_bull and last_c < f_lo:
+                        signal, suffix, done = '賣出', ' ✓', True
+                        sb = find_break(sx, f_lo, 'down')
+                    else:
+                        signal, suffix, done, sb = '等待', '（形成中）', False, None
+                    tls = [([sx, n-1], [f_hi, f_hi]), ([sx, n-1], [f_lo, f_lo])]
+                    raw.append(make_pat('旗形', signal, suffix, done, [], None,
+                        n-1, n-1, (f_hi + f_lo) / 2, 'center', tls, signal_bar=sb))
+
+        # 去重：每個型態保留錨點最新的一個
+        best: dict = {}
+        for pat in raw:
+            nm = pat['name']
+            if nm not in best or pat['anchor'] > best[nm]['anchor']:
+                best[nm] = pat
+        return list(best.values())
+
+    def _calc_zhujia_signals(self, ohlcv, redk_enabled, redk_ratio, vol_enabled, vol_mult):
+        """計算朱家泓多頭進出場訊號（ZigZag + 頭頭高底底高 + MA 排列）。"""
+        import numpy as np
+
+        close = ohlcv['Close'].values.astype(float)
+        high  = ohlcv.get('High',   ohlcv['Close']).values.astype(float)
+        low   = ohlcv.get('Low',    ohlcv['Close']).values.astype(float)
+        open_ = ohlcv.get('Open',   ohlcv['Close']).values.astype(float)
+        vol   = ohlcv.get('Volume', pd.Series(np.zeros(len(ohlcv)))).values.astype(float)
+        n     = len(close)
+
+        def _rolling_mean(arr, w):
+            return pd.Series(arr).rolling(w, min_periods=1).mean().values
+
+        ma5  = ohlcv['MA5'].values  if 'MA5'  in ohlcv.columns else _rolling_mean(close,  5)
+        ma10 = ohlcv['MA10'].values if 'MA10' in ohlcv.columns else _rolling_mean(close, 10)
+        ma20 = ohlcv['MA20'].values if 'MA20' in ohlcv.columns else _rolling_mean(close, 20)
+        ma60 = ohlcv['MA60'].values if 'MA60' in ohlcv.columns else _rolling_mean(close, 60)
+
+        # ── ZigZag：動態視窗，資料越多窗口越大避免過度碎形 ──────────────
+        zz_n = max(3, min(8, n // 40))
+        raw_ph, raw_pl = [], []
+        for i in range(zz_n, n - zz_n):
+            win_h = high[i - zz_n: i + zz_n + 1]
+            win_l = low [i - zz_n: i + zz_n + 1]
+            if high[i] >= win_h.max():
+                raw_ph.append((i, high[i]))
+            if low[i]  <= win_l.min():
+                raw_pl.append((i, low[i]))
+
+        # 合併並強制交替（確保 H→L→H→L，保留最極值）
+        all_pts = sorted([(i, p, 'H') for i, p in raw_ph] +
+                         [(i, p, 'L') for i, p in raw_pl], key=lambda x: x[0])
+        zz: list = []
+        for pt in all_pts:
+            if not zz:
+                zz.append(pt)
+            elif pt[2] == zz[-1][2]:
+                if (pt[2] == 'H' and pt[1] > zz[-1][1]) or \
+                   (pt[2] == 'L' and pt[1] < zz[-1][1]):
+                    zz[-1] = pt
+            else:
+                zz.append(pt)
+
+        ph = [(i, p) for i, p, t in zz if t == 'H']
+        pl = [(i, p) for i, p, t in zz if t == 'L']
+
+        # ── 頭頭高底底高（每根 bar 動態判斷）────────────────────────────
+        trend = np.zeros(n, dtype=bool)
+        for i in range(zz_n * 2, n):
+            hs = [p for p in ph if p[0] <= i]
+            ls = [p for p in pl if p[0] <= i]
+            if len(hs) >= 2 and len(ls) >= 2:
+                trend[i] = (hs[-1][1] > hs[-2][1]) and (ls[-1][1] > ls[-2][1])
+
+        # ── 均線多頭排列（MA5 > MA10 > MA20 > MA60）──────────────────────
+        ma_bull = np.array([
+            not (np.isnan(ma5[i]) or np.isnan(ma60[i])) and
+            ma5[i] > ma10[i] > ma20[i] > ma60[i]
+            for i in range(n)
+        ])
+
+        # ── 5 日均量基準 ──────────────────────────────────────────────────
+        vol5 = np.array([
+            np.mean(vol[max(0, i - 5):i]) if i > 0 else vol[i]
+            for i in range(n)
+        ])
+
+        # ── 進場訊號 ─────────────────────────────────────────────────────
+        entries = []   # (idx, stop_loss_price)
+        for i in range(1, n):
+            if not trend[i] or not ma_bull[i]:
+                continue
+            if not (close[i - 1] <= ma5[i - 1] and close[i] > ma5[i]):
+                continue
+            if redk_enabled:
+                if close[i] <= open_[i]:
+                    continue
+                body = close[i] - open_[i]
+                full = high[i] - low[i] + 1e-10
+                if body / full < redk_ratio:
+                    continue
+            if vol_enabled and vol5[i] > 0:
+                if vol[i] < vol5[i] * vol_mult:
+                    continue
+            entries.append((i, low[i]))
+
+        # ── 出場訊號（收盤跌破 MA5）──────────────────────────────────────
+        exits = []   # idx
+        for i in range(1, n):
+            if np.isnan(ma5[i - 1]) or np.isnan(ma5[i]):
+                continue
+            if close[i - 1] >= ma5[i - 1] and close[i] < ma5[i]:
+                exits.append(i)
+
+        return zz, ph, pl, trend, ma_bull, entries, exits
 
     def _draw_stk_kline(self, code: str, name: str):
         """繪製個股 K 線圖（邏輯與 ETF K 線完全相同）。"""
@@ -11380,6 +12029,199 @@ class StockApp(tk.Tk):
             ax_price.fill_between(xs, ohlcv['BB_U'].values, ohlcv['BB_L'].values,
                                   color='#4a9cf0', alpha=0.06, zorder=1)
 
+        # ── 朱家泓老師技術分析訊號疊加 ────────────────────────────────────
+        if getattr(self, '_stk_zhujia_on', False):
+            try:
+                _redk_ratio = int(self._stk_zhujia_redk_var.get()) / 100
+            except (ValueError, AttributeError):
+                _redk_ratio = 0.4
+            try:
+                _vol_mult = float(self._stk_zhujia_vol_var.get())
+            except (ValueError, AttributeError):
+                _vol_mult = 1.0
+
+            # 確保 MA 存在（即使指標列 MA 為 OFF）
+            if 'MA5' not in ohlcv.columns:
+                _c = ohlcv['Close']
+                ohlcv['MA5']  = _c.rolling(5,  min_periods=1).mean()
+                ohlcv['MA10'] = _c.rolling(10, min_periods=1).mean()
+                ohlcv['MA20'] = _c.rolling(20, min_periods=1).mean()
+                ohlcv['MA60'] = _c.rolling(60, min_periods=1).mean()
+
+            zz, ph, pl, trend, ma_bull, entries, exits = self._calc_zhujia_signals(
+                ohlcv,
+                redk_enabled = getattr(self, '_stk_zhujia_redk', False),
+                redk_ratio   = _redk_ratio,
+                vol_enabled  = getattr(self, '_stk_zhujia_vol',  False),
+                vol_mult     = _vol_mult)
+
+            # ZigZag 折線（螢光青綠色虛線）
+            if len(zz) >= 2:
+                zz_xs = [p[0] for p in zz]
+                zz_ys = [p[1] for p in zz]
+                ax_price.plot(zz_xs, zz_ys, color='#00ffcc', linewidth=1.1,
+                              linestyle='--', alpha=0.75, zorder=3)
+                # 波段高點（紅色小三角）
+                if ph:
+                    ax_price.scatter([p[0] for p in ph], [p[1] for p in ph],
+                                     color='#ff7070', s=18, marker='^',
+                                     zorder=5, linewidths=0)
+                # 波段低點（青色小倒三角）
+                if pl:
+                    ax_price.scatter([p[0] for p in pl], [p[1] for p in pl],
+                                     color='#40c8c0', s=18, marker='v',
+                                     zorder=5, linewidths=0)
+
+            # 進場訊號：綠色 ▲ + 帶背景色「進場」標籤（三角形右側） + 停損線
+            for idx, sl in entries:
+                y_entry = float(ohlcv['Low'].iloc[idx]) * 0.997
+                ax_price.scatter(idx, y_entry, color='#00e676', s=80,
+                                 marker='^', zorder=7, linewidths=0)
+                ax_price.text(idx + 0.8, y_entry, '進場',
+                              ha='left', va='center',
+                              fontsize=7.5, fontfamily=CHART_FONT,
+                              color='#ffffff', zorder=8,
+                              bbox=dict(boxstyle='round,pad=0.25',
+                                        facecolor='#00a854',
+                                        edgecolor='none', alpha=0.92))
+
+                next_exit = next((e for e in exits if e > idx), None)
+                if next_exit is not None:
+                    # 已出場：停損線畫到出場那根 K 棒
+                    ax_price.hlines(sl, idx, next_exit,
+                                    colors='#ff5555', linewidth=1.8,
+                                    linestyle='--', alpha=0.90, zorder=4)
+                else:
+                    # 持有中：停損線延伸到右邊緣 + Y 軸右側停損價標籤
+                    ax_price.hlines(sl, idx, n - 1,
+                                    colors='#ff5555', linewidth=1.8,
+                                    linestyle='--', alpha=0.90, zorder=4)
+                    ax_price.annotate(
+                        f'▼{sl:.2f}',
+                        xy=(1.0, sl), xycoords=('axes fraction', 'data'),
+                        xytext=(4, 0), textcoords='offset points',
+                        ha='left', va='center',
+                        fontsize=8, fontfamily=CHART_FONT, color='white',
+                        zorder=10, clip_on=False,
+                        bbox=dict(boxstyle='square,pad=0.25',
+                                  facecolor='#cc2222',
+                                  edgecolor='none', alpha=0.92))
+
+            # 出場訊號：橘色 ▼ 在 K 棒高點上方
+            for idx in exits:
+                y_exit = float(ohlcv['High'].iloc[idx]) * 1.003
+                ax_price.scatter(idx, y_exit, color='#ffa726', s=80,
+                                 marker='v', zorder=7, linewidths=0)
+
+            # 狀態文字框：錨定在最近進場 K 棒（無進場則最後一根），不遮擋 K 線
+            trend_now   = bool(trend[-1])   if n > 0 else False
+            ma_bull_now = bool(ma_bull[-1]) if n > 0 else False
+            _t = '✓ 多頭確認' if trend_now   else '✗ 未確認'
+            _m = '✓ 多頭排列' if ma_bull_now else '✗ 未對齊'
+            status_lines = [f'波段趨勢：{_t}', f'MA 排列：{_m}']
+            if entries:
+                last_idx, last_sl = entries[-1]
+                last_date  = ohlcv.index[last_idx].strftime('%m/%d')
+                last_price = float(ohlcv['Close'].iloc[last_idx])
+                still_in   = not any(e > last_idx for e in exits)
+                status_lines += [
+                    f'最近進場：{last_date} @ {last_price:.2f}',
+                    f'停損價：{last_sl:.2f}',
+                    f'持倉：{"持有中" if still_in else "已出場"}',
+                ]
+
+            # 狀態框：X 錨定在最近進場/最後一根，Y 浮在全圖最高點上方 margin 內
+            _anc      = entries[-1][0] if entries else n - 1
+            _pmin_now = float(ohlcv['Low'].min())
+            _pmax_now = float(ohlcv['High'].max())
+            _prange   = max(_pmax_now - _pmin_now, 1e-6)
+            # Y：緊貼最高 High 上方（margin 區域，保證不擋 K 棒）
+            _by  = _pmax_now + _prange * 0.015
+            _bva = 'bottom'
+            # X：錨點在右半 → 框向左延伸；在左半 → 框向右延伸
+            _bha = 'right' if _anc >= n * 0.5 else 'left'
+            ax_price.text(
+                _anc, _by, '\n'.join(status_lines),
+                transform=ax_price.transData,
+                ha=_bha, va=_bva,
+                fontsize=7.5, fontfamily=CHART_FONT, color='#dddddd',
+                clip_on=False,
+                bbox=dict(boxstyle='round,pad=0.45', facecolor='#1a1d2e',
+                          edgecolor='#d4af37', alpha=0.88),
+                zorder=10)
+
+        # ── 型態分析（偵測 + 按鈕高亮；疊加繪製只在型態 ON 時）────────────
+        _pat_btns  = getattr(self, '_stk_pattern_btns', {})
+        _pat_state = getattr(self, '_stk_pattern_state', {})
+        _pat_pats: list = []
+        if _pat_btns:
+            if 'MA5' not in ohlcv.columns:
+                _c2 = ohlcv['Close']
+                ohlcv['MA5']  = _c2.rolling(5,  min_periods=1).mean()
+                ohlcv['MA10'] = _c2.rolling(10, min_periods=1).mean()
+                ohlcv['MA20'] = _c2.rolling(20, min_periods=1).mean()
+                ohlcv['MA60'] = _c2.rolling(60, min_periods=1).mean()
+            _pzz, _pph, _ppl, _, _, _, _ = self._calc_zhujia_signals(
+                ohlcv, False, 0.4, False, 1.0)
+            _pat_pats = self._calc_patterns(ohlcv, _pzz, _pph, _ppl)
+            self._stk_refresh_pat_btns({p['name'] for p in _pat_pats})
+
+        if getattr(self, '_stk_pattern_on', False):
+            for _pat in _pat_pats:
+                if not _pat_state.get(_pat['name'], True):
+                    continue
+                _pc  = _pat['color']
+                _pa  = _pat['alpha']
+                _sbg = _pat.get('sig_bg', '#1a1a28')
+
+                # 型態結構線（W底 M頭 頭肩 連接各關鍵點）
+                _pts = _pat.get('points', [])
+                if _pts:
+                    _px = [p[0] for p in _pts]
+                    _py = [p[1] for p in _pts]
+                    ax_price.plot(_px, _py, color=_pc, linewidth=2.0,
+                                  linestyle='-', alpha=_pa, zorder=5)
+                    ax_price.scatter(_px, _py, color=_pc, s=30,
+                                     zorder=6, linewidths=0)
+
+                # 趨勢線（三角、矩形、旗形的邊界線）
+                for _tl in _pat.get('trend_lines', []):
+                    ax_price.plot(_tl[0], _tl[1], color=_pc, linewidth=1.8,
+                                  linestyle='--', alpha=_pa, zorder=5)
+
+                # 頸線（延伸到圖表右邊緣）
+                _nk = _pat.get('neck_pts')
+                if _nk:
+                    ax_price.plot([_nk[0][0], _nk[1][0]],
+                                  [_nk[0][1], _nk[1][1]],
+                                  color=_pc, linewidth=1.4, linestyle=':',
+                                  alpha=_pa * 0.9, zorder=5)
+
+                # 突破K棒標記（大三角形標在訊號K棒上）
+                _sb = _pat.get('signal_bar')
+                if _sb is not None and 0 <= _sb < n:
+                    _is_buy = _pat['signal'] == '買入'
+                    _ol = ohlcv['Low'].values
+                    _oh = ohlcv['High'].values
+                    _mk_y   = (_ol[_sb] * 0.986 if _is_buy else _oh[_sb] * 1.014)
+                    _mk_sym = '^' if _is_buy else 'v'
+                    ax_price.scatter([_sb], [_mk_y], marker=_mk_sym,
+                                     color=_pc, s=160, zorder=9, linewidths=0)
+
+                # 訊號標籤（買入=綠底, 賣出=紅底, 等待=灰底）
+                _lx, _ly = _pat['label_pos']
+                _lva     = _pat.get('label_va', 'bottom')
+                _lha     = 'right' if _lx > n * 0.55 else 'left'
+                ax_price.text(
+                    _lx, _ly, _pat['label'],
+                    ha=_lha, va=_lva,
+                    fontsize=8.5, fontfamily=CHART_FONT, fontweight='bold',
+                    color=_pc, alpha=min(_pa + 0.08, 1.0),
+                    clip_on=False, zorder=9,
+                    bbox=dict(boxstyle='round,pad=0.45', facecolor=_sbg,
+                              edgecolor=_pc, linewidth=1.5,
+                              alpha=min(_pa + 0.15, 1.0)))
+
         # ── Y 軸縮放 ─────────────────────────────────────────────────────
         _pvals = [ohlcv['High'].dropna().values, ohlcv['Low'].dropna().values]
         if 'BB_U' in ohlcv: _pvals.append(ohlcv['BB_U'].dropna().values)
@@ -11488,6 +12330,7 @@ class StockApp(tk.Tk):
         arrow = '▲' if is_up else '▼'
         self._stk_canvas.draw()
         self._stk_status.set(f'{code}  {name}  ─  最新：{last_close:.2f}  ─  資料載入完成')
+        self._stk_save_recent(code, name)
         # 更新資訊列初始值（最後一筆）
         last_row = ohlcv.iloc[-1]
         self._stk_info_date.config(text=ohlcv.index[-1].strftime('%Y-%m-%d'))
