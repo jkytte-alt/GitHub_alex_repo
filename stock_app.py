@@ -2106,14 +2106,17 @@ def _fetch_earn_pct(hist: dict, rows_by_tag: dict, date_vs: str, date_sel: str) 
         return {}, {}
 
     # 逐日計算持股變化量 (delta > 0 = 買入, delta < 0 = 賣出)
+    # 使用前一快照日期作為買/賣價格基準，避免「變動日=基準日」時報酬率恆為 0%
     code_changes: dict[str, list] = {c: [] for c in all_codes}
     for code in all_codes:
         prev = None
+        prev_d = None
         for d in snap_dates:
             snap = {h['code']: h for h in hist.get(d, [])}
             curr = snap[code].get('shares', 0) if code in snap else 0
             if prev is not None and curr != prev:
-                code_changes[code].append((d, curr - prev))
+                code_changes[code].append((prev_d, curr - prev))
+            prev_d = d
             prev = curr
 
     # 收集所有需要抓取股價的日期
@@ -10932,6 +10935,11 @@ class StockApp(tk.Tk):
         ttk.Button(ctrl, text='📈  查詢', style='Nav.TButton',
                    command=self._load_stk_chart).pack(side='left', padx=(6, 0))
 
+        self._stk_name_lbl = tk.Label(ctrl, text='', bg=C_BG,
+                                       fg='#e8e8f8',
+                                       font=('Microsoft JhengHei', 15, 'bold'))
+        self._stk_name_lbl.pack(side='left', padx=(20, 0))
+
         # ── 快速選股列（ctrl 正下方）────────────────────────────────────
         _CTRL_BG2 = '#1c1c28'
         _QB = dict(bg='#2a2a3e', fg='#8899cc', font=('Microsoft JhengHei', 8),
@@ -10996,7 +11004,7 @@ class StockApp(tk.Tk):
         status_bar = tk.Frame(f, bg=C_BG)
         status_bar.pack(fill='x', padx=14, pady=(0, 2))
         ttk.Label(status_bar, textvariable=self._stk_status,
-                  foreground='#c8c8d8', font=('Microsoft JhengHei', 13, 'bold')).pack(anchor='w')
+                  foreground='#6677aa', font=('Microsoft JhengHei', 9)).pack(anchor='w')
 
         # ── 單一捲動區域：K線 + 財報連續顯示 ───────────────────────────────
         _CTRL_BG = '#1c1c28'
@@ -11086,7 +11094,7 @@ class StockApp(tk.Tk):
         info_bar = tk.Frame(f, bg='#0d0f17', pady=4)
         info_bar.pack(fill='x', padx=8, pady=(0, 0))
         _FI  = ('Microsoft JhengHei', 9)
-        _FIP = ('Microsoft JhengHei', 15, 'bold')
+        _FIP = ('Microsoft JhengHei', 20, 'bold')
         self._stk_info_date   = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#777788', font=_FI)
         self._stk_info_date.pack(side='left', padx=(6, 10))
         self._stk_info_close  = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#cccccc', font=_FIP)
@@ -12019,7 +12027,8 @@ class StockApp(tk.Tk):
                     fontsize=11, fontfamily=CHART_FONT, transform=ax.transAxes)
             ax.axis('off')
             self._stk_canvas.draw()
-            self._stk_status.set(f'{code}  無法取得資料')
+            self._stk_name_lbl.config(text=code)
+            self._stk_status.set('無法取得資料')
             return
 
         # ── 指標計算（與 ETF K 線相同）────────────────────────────────────
@@ -12492,7 +12501,8 @@ class StockApp(tk.Tk):
         clr_txt = '#ef5350' if is_up else '#26a69a'
         arrow = '▲' if is_up else '▼'
         self._stk_canvas.draw()
-        self._stk_status.set(f'{code}  {name}  ─  最新：{last_close:.2f}  ─  資料載入完成')
+        self._stk_name_lbl.config(text=f'{code}  {name}')
+        self._stk_status.set('資料載入完成')
         self._stk_save_recent(code, name)
         # 更新資訊列初始值（最後一筆）
         last_row = ohlcv.iloc[-1]
