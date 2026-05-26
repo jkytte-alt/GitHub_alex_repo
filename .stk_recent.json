@@ -1,5 +1,9 @@
 [
   {
+    "code": "6442",
+    "name": "EZconn Corporation"
+  },
+  {
     "code": "6207",
     "name": "Laser Tek Taiwan"
   },
@@ -34,9 +38,5 @@
   {
     "code": "009816",
     "name": "KGI Taiwan TOP 50 ETF"
-  },
-  {
-    "code": "00713",
-    "name": "Yuanta Taiwan High Dividend Low Volatility ETF"
   }
 ]

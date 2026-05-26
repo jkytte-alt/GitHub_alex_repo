@@ -2238,7 +2238,7 @@ def _draw_heatmap(fig, canvas, all_rows: list, groups: list,
     rects   = [{'x': r['x'], 'y': 100 - r['y'] - r['dy'],
                 'dx': r['dx'], 'dy': r['dy']} for r in raw]
 
-    # 比重變化模式：無張數異動→被動比例漂移，上色以0計，標籤仍顯示實際值
+    # 比重變化模式：無張數異動→被動漂移，上色以0計，標籤仍顯示實際值
     color_vals = []
     for r in rows:
         v = r.get(mode)
@@ -5503,6 +5503,7 @@ class StockApp(tk.Tk):
             self._aetf_btn_cfg     = (_BTN_OFF, _BTN_ON)
             self._aetf_vs_btn_cfg  = (_VS_OFF, _VS_ON)
             self._aetf_groups      = []   # [(tag, hdr_label, [row_dict])]
+            self._aetf_hold_rows   = []   # 張數未異動，僅供熱力圖顯示
             self._aetf_sort_state  = {'col': None, 'asc': True}
 
             # 主動型ETF tab：樹狀圖和分析圖整合進嵌入式熱力圖，不另外顯示
@@ -6142,12 +6143,12 @@ class StockApp(tk.Tk):
             for item in diff['changed']:
                 dw = item['delta']
                 ds = item.get('delta_shares', 0)
-                if dw > 0 or ds > 0:
+                if ds > 0:   # 只有張數實際增加才算買入
                     agg_buy.setdefault(item['code'], []).append(
-                        (etf, max(dw, 0.0), max(ds, 0)))
-                if dw < 0 or ds < 0:
+                        (etf, max(dw, 0.0), ds))
+                elif ds < 0: # 只有張數實際減少才算賣出
                     agg_sell.setdefault(item['code'], []).append(
-                        (etf, abs(min(dw, 0.0)), abs(min(ds, 0))))
+                        (etf, abs(min(dw, 0.0)), abs(ds)))
 
         ok = len(sel) - len(missing)
         status = f'已分析 {ok}/{len(sel)} 支'
@@ -8325,7 +8326,8 @@ class StockApp(tk.Tk):
         base = {h['code']: h for h in hist.get(base_d, [])}
         comp = {h['code']: h for h in hist.get(comp_d, [])}
         if not base:
-            self._aetf_groups = []
+            self._aetf_groups    = []
+            self._aetf_hold_rows = []
             self._aetf_populate_tv()
             return
 
@@ -8334,6 +8336,7 @@ class StockApp(tk.Tk):
         added_rows     = []
         increased_rows = []
         decreased_rows = []
+        hold_rows      = []   # 張數未異動，僅供熱力圖顯示
 
         for code, bh in base.items():
             ch      = comp.get(code)
@@ -8351,7 +8354,14 @@ class StockApp(tk.Tk):
                 cweight = ch.get('weight', 0)
                 dw = bweight - cweight
                 ds = bshares - cshares
-                if abs(dw) < 0.005:
+                if ds == 0:          # 張數未異動→被動比例漂移，不計入加減碼
+                    hold_rows.append({
+                        'code': code, 'name': _TWSE_NAMES_CACHE.get(code, code),
+                        'shares': bshares, 'weight': bweight,
+                        'wchg': dw, 'schg': 0, 'pchg': 0,
+                        'earn_pct': None, 'earn_label': '期間漲跌',
+                        'earn_changes': [],
+                    })
                     continue
                 pchg = (ds / cshares * 100) if cshares else None
                 row = {
@@ -8359,14 +8369,14 @@ class StockApp(tk.Tk):
                     'shares': bshares, 'weight': bweight,
                     'wchg': dw, 'schg': ds, 'pchg': pchg,
                 }
-                if dw > 0:
+                if ds > 0:
                     increased_rows.append(row)
                 else:
                     decreased_rows.append(row)
 
         added_rows.sort(    key=lambda r: -r['weight'])
-        increased_rows.sort(key=lambda r: -r['wchg'])
-        decreased_rows.sort(key=lambda r:  r['wchg'])
+        increased_rows.sort(key=lambda r: -r['schg'])
+        decreased_rows.sort(key=lambda r:  r['schg'])
 
         for r in added_rows + increased_rows:
             r['earn_pct']  = None
@@ -8376,6 +8386,7 @@ class StockApp(tk.Tk):
             r['earn_label'] = '賣出後漲跌'
 
         self._aetf_refresh_key = (base_d, comp_d)
+        self._aetf_hold_rows   = hold_rows
         self._aetf_groups = [
             ('add', f'↑ 新增  {len(added_rows)} 檔',     added_rows),
             ('inc', f'↑ 加碼  {len(increased_rows)} 檔', increased_rows),
@@ -8427,8 +8438,9 @@ class StockApp(tk.Tk):
             self._draw_aetf_sector_heatmap()
             return
 
-        groups   = getattr(self, '_aetf_groups', [])
-        all_rows = [r for _, _, rows in groups for r in rows]
+        groups    = getattr(self, '_aetf_groups',    [])
+        hold_rows = getattr(self, '_aetf_hold_rows', [])
+        all_rows  = [r for _, _, rows in groups for r in rows] + hold_rows
 
         code_label = getattr(self, '_aetf_diff_code', '') or ''
         base = getattr(self, '_aetf_base_date', '') or ''
@@ -8453,9 +8465,11 @@ class StockApp(tk.Tk):
         color_mode = getattr(self, '_aetf_hm_mode',   'wchg')  # 'wchg'|'pchg'
         drill      = getattr(self, '_aetf_sector_drill', None)
 
-        groups   = getattr(self, '_aetf_groups', [])
-        all_rows = [r for _, _, rows in groups for r in rows
-                    if (r.get('weight') or 0) > 0]
+        groups    = getattr(self, '_aetf_groups',    [])
+        hold_rows = getattr(self, '_aetf_hold_rows', [])
+        all_rows  = ([r for _, _, rows in groups for r in rows
+                      if (r.get('weight') or 0) > 0]
+                     + [r for r in hold_rows if (r.get('weight') or 0) > 0])
 
         fig.clear()
         fig.patch.set_facecolor('#111111')
@@ -8497,7 +8511,7 @@ class StockApp(tk.Tk):
         sorted_secs = sorted(sectors.keys(), key=lambda s: -sec_wts[s])
 
         # ── 顏色尺度（依當前色彩模式）────────────────────────────────────
-        # 比重變化模式：無張數異動→被動漂移，上色以0計；標籤仍顯示實際值
+        # 比重變化：無張數異動→被動漂移，上色以0計；標籤仍顯示實際值
         def _color_val(r):
             if color_mode == 'wchg' and not r.get('schg'):
                 return 0.0
