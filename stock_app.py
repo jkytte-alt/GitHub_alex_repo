@@ -2238,12 +2238,17 @@ def _draw_heatmap(fig, canvas, all_rows: list, groups: list,
     rects   = [{'x': r['x'], 'y': 100 - r['y'] - r['dy'],
                 'dx': r['dx'], 'dy': r['dy']} for r in raw]
 
-    vals = []
+    # 比重變化模式：無張數異動→被動比例漂移，上色以0計，標籤仍顯示實際值
+    color_vals = []
     for r in rows:
         v = r.get(mode)
-        vals.append(float(v) if v is not None else 0.0)
+        actual = float(v) if v is not None else 0.0
+        if mode == 'wchg' and not r.get('schg'):
+            color_vals.append(0.0)
+        else:
+            color_vals.append(actual)
 
-    max_abs = max((abs(v) for v in vals), default=5.0) or 5.0
+    max_abs = max((abs(v) for v in color_vals), default=5.0) or 5.0
 
     dpi       = fig.dpi
     fig_w_px  = fig.get_size_inches()[0] * dpi
@@ -2253,7 +2258,7 @@ def _draw_heatmap(fig, canvas, all_rows: list, groups: list,
     pt_per_px = 72 / dpi
     GAP = 0.35
 
-    for row, rect, val in zip(rows, rects, vals):
+    for row, rect, color_val in zip(rows, rects, color_vals):
         rx = rect['x'] + GAP / 2
         ry = rect['y'] + GAP / 2
         rw = rect['dx'] - GAP
@@ -2261,7 +2266,7 @@ def _draw_heatmap(fig, canvas, all_rows: list, groups: list,
         if rw <= 0 or rh <= 0:
             continue
 
-        fc     = pnl_color(val, max_abs)
+        fc     = pnl_color(color_val, max_abs)
         is_new = row['code'] in add_codes
         ec     = '#ffffff' if is_new else '#222233'
         lw     = 1.2 if is_new else 0.4
@@ -2295,11 +2300,12 @@ def _draw_heatmap(fig, canvas, all_rows: list, groups: list,
         rh_px     = rh * px_per_uy
         name_disp = row['name'][:8] if len(row['name']) > 8 else row['name']
         code_disp = row['code']
+        disp_val = float(row.get(mode) or 0.0)
         if mode == 'pchg':
             chg_str = ('新' if is_new
-                       else (f"{val:+.1f}%" if row.get('pchg') is not None else '--'))
+                       else (f"{disp_val:+.1f}%" if row.get('pchg') is not None else '--'))
         else:
-            chg_str = f"{val:+.2f}%"
+            chg_str = f"{disp_val:+.2f}%"
 
         chars   = max(len(name_disp), len(code_disp), 4)
         fs_by_w = 0.55 * rw_px * pt_per_px / (chars * 0.60)
@@ -8491,8 +8497,16 @@ class StockApp(tk.Tk):
         sorted_secs = sorted(sectors.keys(), key=lambda s: -sec_wts[s])
 
         # ── 顏色尺度（依當前色彩模式）────────────────────────────────────
-        def _val(r): return r.get(color_mode) or 0.0
-        abs_vals = [abs(_val(r)) for r in all_rows if r.get(color_mode) is not None]
+        # 比重變化模式：無張數異動→被動漂移，上色以0計；標籤仍顯示實際值
+        def _color_val(r):
+            if color_mode == 'wchg' and not r.get('schg'):
+                return 0.0
+            return r.get(color_mode) or 0.0
+
+        def _disp_val(r):
+            return r.get(color_mode) or 0.0
+
+        abs_vals = [abs(_color_val(r)) for r in all_rows if r.get(color_mode) is not None]
         max_abs  = max(abs_vals, default=5.0) or 5.0
 
         color_lbl = {'wchg': '比重變化', 'pchg': '今日漲跌'}.get(color_mode, color_mode)
@@ -8515,9 +8529,10 @@ class StockApp(tk.Tk):
                 rh = sq_s['dy'] - INNER_GAP
                 if rw <= 0 or rh <= 0:
                     continue
-                val = _val(row)
+                c_val = _color_val(row)
+                d_val = _disp_val(row)
                 ax.add_patch(plt.Rectangle((rx, ry), rw, rh,
-                    facecolor=pnl_color(val, max_abs), edgecolor='#222233',
+                    facecolor=pnl_color(c_val, max_abs), edgecolor='#222233',
                     linewidth=0.35, zorder=3))
                 self._aetf_hm_rects.append({
                     'rx': rx, 'ry': ry, 'rw': rw, 'rh': rh,
@@ -8534,7 +8549,7 @@ class StockApp(tk.Tk):
                     continue
                 rw_px = rw * px_per_ux; rh_px = rh * px_per_uy
                 name_d = row['name'][:6] if len(row['name']) > 6 else row['name']
-                chg_s  = (f"{val:+.1f}%" if row.get(color_mode) is not None else '--')
+                chg_s  = (f"{d_val:+.1f}%" if row.get(color_mode) is not None else '--')
                 chars  = max(len(name_d), 4)
                 fs_n   = max(min(0.55*rw_px*pt_per_px/(chars*0.60),
                                  0.60*rh_px*pt_per_px/3.0, 28), 5.0)
@@ -8565,7 +8580,8 @@ class StockApp(tk.Tk):
             rows_in   = sorted(sectors[drill], key=lambda r: -r['weight'])
             total_sw  = sec_wts[drill]
             valid     = [(r.get(color_mode) or 0, r['weight']) for r in rows_in
-                         if r.get(color_mode) is not None]
+                         if r.get(color_mode) is not None
+                         and (color_mode != 'wchg' or r.get('schg'))]
             sec_val   = (sum(v*w for v,w in valid)/sum(w for _,w in valid)
                          if valid else 0.0)
 
@@ -8624,7 +8640,8 @@ class StockApp(tk.Tk):
             total_sw = sec_wts[s_name]
             rows_in  = sorted(sectors[s_name], key=lambda r: -r['weight'])
             valid    = [(r.get(color_mode) or 0, r['weight']) for r in rows_in
-                        if r.get(color_mode) is not None]
+                        if r.get(color_mode) is not None
+                        and (color_mode != 'wchg' or r.get('schg'))]
             sec_val  = (sum(v*w for v,w in valid)/sum(w for _,w in valid)
                         if valid else 0.0)
             sec_fc   = pnl_color(sec_val, max_abs)
