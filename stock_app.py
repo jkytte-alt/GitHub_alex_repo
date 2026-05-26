@@ -11334,6 +11334,7 @@ class StockApp(tk.Tk):
         self._stk_canvas.mpl_connect('button_release_event', self._on_stk_btn_release)
         self._stk_canvas.mpl_connect('motion_notify_event', self._on_stk_pan_move)
         self._stk_canvas.mpl_connect('motion_notify_event', self._on_stk_hover)
+        self._stk_canvas.mpl_connect('figure_leave_event',  self._on_stk_leave)
         self._stk_pan_start = None
 
         # ── 財報狀態列 + 財報 matplotlib 圖（下方，連續） ──────────────
@@ -12017,8 +12018,91 @@ class StockApp(tk.Tk):
                         except Exception:
                             pass
                     break
-            except Exception:
-                pass
+            except Exception as _e:
+                _net_log(f'stk fetch error suffix={s!r}: {_e}')
+
+        # ── TWSE/TPEX API 備援（yfinance 失敗且代號為台股數字碼）───────────
+        # 使用 urllib（Windows DNS Client），不依賴 curl_cffi，企業網路友善
+        if (ohlcv is None or ohlcv.empty) and code.isdigit():
+            import urllib.request as _ur, json as _js
+            from datetime import date as _dt, timedelta as _td
+            _pm = {'1M': 1, '3M': 3, '6M': 6, '1Y': 12, '全部': 60}
+            _months = _pm.get(getattr(self, '_stk_period', '3M'), 3)
+            _today  = _dt.today()
+            _rows   = []
+
+            def _month_dates(n):
+                res = []
+                for i in range(n - 1, -1, -1):
+                    m, y = _today.month - i, _today.year
+                    while m <= 0:
+                        m += 12; y -= 1
+                    res.append(_dt(y, m, 1))
+                return res
+
+            def _parse_twse(j):
+                out = []
+                for r in j.get('data', []):
+                    try:
+                        yy, mm, dd = map(int, r[0].split('/'))
+                        out.append({'Date': _dt(yy + 1911, mm, dd),
+                                    'Open':   float(r[3].replace(',', '')),
+                                    'High':   float(r[4].replace(',', '')),
+                                    'Low':    float(r[5].replace(',', '')),
+                                    'Close':  float(r[6].replace(',', '')),
+                                    'Volume': float(r[1].replace(',', '')) / 1000})
+                    except Exception:
+                        pass
+                return out
+
+            def _parse_tpex(j):
+                out = []
+                for r in j.get('aaData', []):
+                    try:
+                        yy, mm, dd = map(int, r[0].split('/'))
+                        out.append({'Date': _dt(yy + 1911, mm, dd),
+                                    'Open':   float(r[4].replace(',', '')),
+                                    'High':   float(r[5].replace(',', '')),
+                                    'Low':    float(r[6].replace(',', '')),
+                                    'Close':  float(r[7].replace(',', '')),
+                                    'Volume': float(r[2].replace(',', '')) / 1000})
+                    except Exception:
+                        pass
+                return out
+
+            _hdrs = {'User-Agent': _USER_AGENTS[0]}
+            _is_otc = False
+            for _d in _month_dates(_months):
+                _ds = _d.strftime('%Y%m%d')
+                _url = (f'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY'
+                        f'?date={_ds}&stockNo={code}&response=json')
+                try:
+                    with _ur.urlopen(_ur.Request(_url, headers=_hdrs), timeout=10) as _r:
+                        _j = _js.loads(_r.read().decode())
+                    if _j.get('stat') == 'OK':
+                        _rows.extend(_parse_twse(_j))
+                    elif not _rows:
+                        _is_otc = True  # 可能是上櫃股
+                except Exception as _e2:
+                    _net_log(f'TWSE API {_ds}: {_e2}')
+
+            if not _rows and _is_otc:
+                for _d in _month_dates(_months):
+                    _ds = _d.strftime('%Y/%m/%d')
+                    _url = (f'https://www.tpex.org.tw/www/zh-tw/afterTrading/daily'
+                            f'?date={_ds}&id={code}&response=json')
+                    try:
+                        with _ur.urlopen(_ur.Request(_url, headers=_hdrs), timeout=10) as _r:
+                            _j = _js.loads(_r.read().decode())
+                        _rows.extend(_parse_tpex(_j))
+                    except Exception as _e2:
+                        _net_log(f'TPEX API {_ds}: {_e2}')
+
+            if _rows:
+                _df = pd.DataFrame(_rows).drop_duplicates('Date').set_index('Date')
+                _df.index = pd.to_datetime(_df.index).tz_localize('Asia/Taipei')
+                ohlcv = _df.sort_index()
+                _net_log(f'TWSE/TPEX fallback ok: {code} {len(ohlcv)} rows')
 
         if ohlcv is None or ohlcv.empty:
             ax = fig.add_subplot(111, facecolor=PANEL_BG)
@@ -12491,6 +12575,16 @@ class StockApp(tk.Tk):
         self._stk_ohlcv = ohlcv
         self._stk_n     = n
 
+        # K棒組合 hover 標籤（每次重繪都重新建立，跟著新的 ax_price）
+        self._stk_kbar_ann = ax_price.annotate(
+            '', xy=(0, 0), xycoords='data',
+            xytext=(0, 6), textcoords='offset points',
+            ha='center', va='bottom', fontsize=8,
+            fontfamily=CHART_FONT, fontweight='bold',
+            color='#00ff88', zorder=11, clip_on=False, visible=False,
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#0d0f1a',
+                      edgecolor='#00ff88', linewidth=1.0, alpha=0.92))
+
         # 繪製後連結點擊事件（繪線功能）
         self._stk_canvas.mpl_connect('button_press_event', self._on_stk_click)
 
@@ -12630,6 +12724,12 @@ class StockApp(tk.Tk):
         self._stk_autoscale_y(int(new_xl), int(new_xr))
         self._stk_canvas.draw_idle()
 
+    def _on_stk_leave(self, _event=None):
+        ann = getattr(self, '_stk_kbar_ann', None)
+        if ann is not None and ann.get_visible():
+            ann.set_visible(False)
+            self._stk_canvas.draw_idle()
+
     def _on_stk_hover(self, event):
         """個股 K 線 hover：更新資訊列、十字游標（延伸至副圖）、右側價格標籤。"""
         if self._stk_ax is None or self._stk_ohlcv is None:
@@ -12675,14 +12775,30 @@ class StockApp(tk.Tk):
             'bull_reversal': '#00e5ff', 'bull_engulf': '#00ff88',
             'bear_reversal': '#ff6644', 'bear_engulf': '#ff3333',
         }
-        _bar_sigs = [r for r in getattr(self, '_stk_reversals', []) if r['idx'] == xi]
-        if _bar_sigs:
+        _bar_sigs  = [r for r in getattr(self, '_stk_reversals', []) if r['idx'] == xi]
+        _kbar_ann  = getattr(self, '_stk_kbar_ann', None)
+        if _bar_sigs and getattr(self, '_stk_kbar_on', False):
             _sig_parts = [_rev_label_map.get(r['type'], r['type']) for r in _bar_sigs]
             _sig_fg    = _rev_fg_map.get(_bar_sigs[0]['type'], '#00e5ff')
             _sig_extra = '＊' if any('量' in r.get('desc', '') for r in _bar_sigs) else ''
-            self._stk_info_sig.config(text='  '.join(_sig_parts) + _sig_extra, fg=_sig_fg)
+            _sig_text  = '  '.join(_sig_parts) + _sig_extra
+            self._stk_info_sig.config(text=_sig_text, fg=_sig_fg)
+            if _kbar_ann is not None:
+                _is_bull = not _bar_sigs[0]['type'].startswith('bear')
+                _ann_y   = h_ if _is_bull else l_
+                _ann_off = (0, 6) if _is_bull else (0, -6)
+                _ann_va  = 'bottom' if _is_bull else 'top'
+                _kbar_ann.xy = (xi, _ann_y)
+                _kbar_ann.xyann = _ann_off
+                _kbar_ann.set_text(_sig_text)
+                _kbar_ann.set_color(_sig_fg)
+                _kbar_ann.set_verticalalignment(_ann_va)
+                _kbar_ann.get_bbox_patch().set_edgecolor(_sig_fg)
+                _kbar_ann.set_visible(True)
         else:
             self._stk_info_sig.config(text='')
+            if _kbar_ann is not None:
+                _kbar_ann.set_visible(False)
 
         # 主圖游標線
         if self._stk_vline is not None:

@@ -1,5 +1,13 @@
 [
   {
+    "code": "6207",
+    "name": "Laser Tek Taiwan"
+  },
+  {
+    "code": "6285",
+    "name": "WNC Corporation"
+  },
+  {
     "code": "8021",
     "name": "Topoint Technology Co."
   },
@@ -16,10 +24,6 @@
     "name": "AcBel Polytech"
   },
   {
-    "code": "6285",
-    "name": "WNC Corporation"
-  },
-  {
     "code": "3533",
     "name": "Lotes Co."
   },
@@ -34,9 +38,5 @@
   {
     "code": "00713",
     "name": "Yuanta Taiwan High Dividend Low Volatility ETF"
-  },
-  {
-    "code": "00878",
-    "name": "Cathay Sustainability High Dividend ETF"
   }
 ]
