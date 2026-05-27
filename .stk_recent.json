@@ -1,15 +1,27 @@
 [
   {
+    "code": "4966",
+    "name": "Parade Technologies"
+  },
+  {
     "code": "6442",
     "name": "EZconn Corporation"
   },
   {
-    "code": "6207",
-    "name": "Laser Tek Taiwan"
-  },
-  {
     "code": "6285",
     "name": "WNC Corporation"
+  },
+  {
+    "code": "6282",
+    "name": "AcBel Polytech"
+  },
+  {
+    "code": "3017",
+    "name": "Asia Vital Components Co."
+  },
+  {
+    "code": "6207",
+    "name": "Laser Tek Taiwan"
   },
   {
     "code": "8021",
@@ -24,19 +36,7 @@
     "name": "Micro-Star International Co."
   },
   {
-    "code": "6282",
-    "name": "AcBel Polytech"
-  },
-  {
     "code": "3533",
     "name": "Lotes Co."
-  },
-  {
-    "code": "4966",
-    "name": "Parade Technologies"
-  },
-  {
-    "code": "009816",
-    "name": "KGI Taiwan TOP 50 ETF"
   }
 ]

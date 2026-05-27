@@ -5672,13 +5672,22 @@ class StockApp(tk.Tk):
         self._chg_etf_selected = {code for code, _ in ACTIVE_ETFS}  # 預設全選
         self._chg_period       = tk.StringVar(value='1d')
         self._chg_status       = tk.StringVar(value='')
-        self._chg_rects_buy    = []
-        self._chg_rects_sell   = []
         self._chg_fetching     = False
         self._chg_agg_buy      = {}
         self._chg_agg_sell     = {}
-        self._chg_resize_after = None
-        self._chg_metric       = tk.StringVar(value='weight')
+        self._chg_resize_after  = None
+        self._chg_hm_layout     = 'sector'   # 'flat' | 'sector'
+        self._chg_sector_drill  = None       # None | '__other__' | sector_name
+        self._chg_sub_drill     = None       # None | small_sector_name (2nd level)
+        self._chg_hm_rects      = []
+        self._chg_sector_rects  = []
+        self._chg_hm_ax         = None
+        self._chg_unified_rows  = []
+        self._chg_hm_tooltip    = None
+        self._chg_sec_tooltip   = None
+        self._chg_size_mode     = 'shares'   # 'shares' | 'volume'
+        self._chg_vol_cache     = {}         # code → volume (張)
+        self._chg_vol_cache_ts  = 0.0        # epoch time of last volume fetch
 
         # ── 分類快速切換列 ──────────────────────────────────────────────────
         tier_bar = tk.Frame(f, bg=C_BG)
@@ -5810,22 +5819,66 @@ class StockApp(tk.Tk):
             b.pack(side='left', padx=2)
             _period_btns[pval] = b
 
-        tk.Label(ctrl, text='  指標：', bg=C_BG, fg=C_FG,
-                 font=('Microsoft JhengHei', 9)).pack(side='left', padx=(6, 0))
+        # ── 分組按鈕 ──────────────────────────────────────────────────────
+        tk.Frame(ctrl, bg='#333355', width=1, height=16).pack(side='left', padx=(10, 4))
+        tk.Label(ctrl, text='分組：', bg=C_BG, fg='#666680',
+                 font=('Microsoft JhengHei', 8)).pack(side='left')
 
-        _metric_btns = {}
-        def _set_metric(val):
-            self._chg_metric.set(val)
-            for v, b in _metric_btns.items():
-                b.config(**(_SEL if v == val else _UNSEL))
-            self._chg_refresh()
+        _HM_SEL   = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', bd=0,
+                         font=('Microsoft JhengHei', 8, 'bold'), padx=8, pady=2,
+                         cursor='hand2', activebackground='#3a5090')
+        _HM_UNSEL = dict(bg='#1a1a2e', fg='#7a8aaa', relief='flat', bd=0,
+                         font=('Microsoft JhengHei', 8), padx=8, pady=2,
+                         cursor='hand2', activebackground='#2a2a3e')
 
-        for mval, mlbl in [('weight', '比重(%)'), ('shares', '張數')]:
-            b = tk.Button(ctrl, text=mlbl,
-                          **(_SEL if mval == self._chg_metric.get() else _UNSEL),
-                          command=lambda v=mval: _set_metric(v))
-            b.pack(side='left', padx=2)
-            _metric_btns[mval] = b
+        self._chg_flat_btn   = tk.Button(ctrl, text='依占比', **_HM_UNSEL)
+        self._chg_sector_btn = tk.Button(ctrl, text='依類股', **_HM_SEL)
+
+        def _chg_set_flat():
+            self._chg_hm_layout    = 'flat'
+            self._chg_sector_drill = None
+            self._chg_sub_drill    = None
+            self._chg_flat_btn  .config(**_HM_SEL)
+            self._chg_sector_btn.config(**_HM_UNSEL)
+            self._chg_draw_unified()
+
+        def _chg_set_sector():
+            self._chg_hm_layout    = 'sector'
+            self._chg_sector_drill = None
+            self._chg_sub_drill    = None
+            self._chg_flat_btn  .config(**_HM_UNSEL)
+            self._chg_sector_btn.config(**_HM_SEL)
+            self._chg_draw_unified()
+
+        self._chg_flat_btn  .config(command=_chg_set_flat)
+        self._chg_sector_btn.config(command=_chg_set_sector)
+        self._chg_flat_btn  .pack(side='left', padx=2)
+        self._chg_sector_btn.pack(side='left', padx=2)
+
+        # ── 大小模式按鈕 ─────────────────────────────────────────────
+        tk.Frame(ctrl, bg='#333355', width=1, height=16).pack(side='left', padx=(10, 4))
+        tk.Label(ctrl, text='大小：', bg=C_BG, fg='#666680',
+                 font=('Microsoft JhengHei', 8)).pack(side='left')
+
+        self._chg_shares_btn = tk.Button(ctrl, text='依異動量', **_HM_SEL)
+        self._chg_volume_btn = tk.Button(ctrl, text='依成交量', **_HM_UNSEL)
+
+        def _chg_set_shares():
+            self._chg_size_mode = 'shares'
+            self._chg_shares_btn.config(**_HM_SEL)
+            self._chg_volume_btn.config(**_HM_UNSEL)
+            self._chg_draw_unified()
+
+        def _chg_set_volume():
+            self._chg_size_mode = 'volume'
+            self._chg_shares_btn.config(**_HM_UNSEL)
+            self._chg_volume_btn.config(**_HM_SEL)
+            self._chg_fetch_volumes()
+
+        self._chg_shares_btn.config(command=_chg_set_shares)
+        self._chg_volume_btn.config(command=_chg_set_volume)
+        self._chg_shares_btn.pack(side='left', padx=2)
+        self._chg_volume_btn.pack(side='left', padx=2)
 
         ttk.Button(ctrl, text='擷取所有快照', style='Nav.TButton',
                    command=self._chg_fetch_all).pack(side='left', padx=(16, 4))
@@ -5837,35 +5890,24 @@ class StockApp(tk.Tk):
         # ── 主要內容區（上下分割）────────────────────────────────────────────
         content = tk.Frame(f, bg=C_BG)
         content.pack(fill='both', expand=True, padx=8, pady=(0, 6))
-        content.rowconfigure(0, weight=5, minsize=320)
-        content.rowconfigure(1, weight=4)
+        content.rowconfigure(0, weight=7, minsize=400)
+        content.rowconfigure(1, weight=2)
         content.columnconfigure(0, weight=1)
 
-        # 上半：買入 / 賣出 Treemap Canvas
-        top_pane = tk.Frame(content, bg=C_BG)
-        top_pane.grid(row=0, column=0, sticky='nsew', pady=(0, 4))
-        top_pane.columnconfigure(0, weight=1)
-        top_pane.columnconfigure(1, weight=1)
-        top_pane.rowconfigure(1, weight=1)
-
-        tk.Label(top_pane, text='▲  買入 / 增加比例', bg='#0e3018', fg='#80ff80',
-                 font=('Microsoft JhengHei', 10, 'bold'), pady=4
-                 ).grid(row=0, column=0, sticky='ew', padx=(0, 2))
-        tk.Label(top_pane, text='▼  賣出 / 減少比例', bg='#300e0e', fg='#ff8080',
-                 font=('Microsoft JhengHei', 10, 'bold'), pady=4
-                 ).grid(row=0, column=1, sticky='ew', padx=(2, 0))
-
-        self._chg_cv_buy  = tk.Canvas(top_pane, bg='#0a1a0e', highlightthickness=0)
-        self._chg_cv_buy.grid(row=1, column=0, sticky='nsew', padx=(0, 2))
-        self._chg_cv_sell = tk.Canvas(top_pane, bg='#1a0a0a', highlightthickness=0)
-        self._chg_cv_sell.grid(row=1, column=1, sticky='nsew', padx=(2, 0))
-
-        self._chg_cv_buy.bind('<Motion>',    lambda e: self._chg_on_motion(e, 'buy'))
-        self._chg_cv_buy.bind('<Leave>',     lambda e: self._chg_hide_tip())
-        self._chg_cv_sell.bind('<Motion>',   lambda e: self._chg_on_motion(e, 'sell'))
-        self._chg_cv_sell.bind('<Leave>',    lambda e: self._chg_hide_tip())
-        self._chg_cv_buy.bind('<Configure>',  lambda e: self._chg_on_resize())
-        self._chg_cv_sell.bind('<Configure>', lambda e: self._chg_on_resize())
+        # 上半：統一熱力圖（matplotlib）
+        self._chg_hm_fig    = plt.Figure(figsize=(9.5, 4.2), dpi=100,
+                                          facecolor='#111111')
+        self._chg_hm_canvas = FigureCanvasTkAgg(self._chg_hm_fig,
+                                                  master=content)
+        _chg_wh = self._chg_hm_canvas.get_tk_widget()
+        _chg_wh.configure(bg='#111111')
+        _chg_wh.grid(row=0, column=0, sticky='nsew', pady=(0, 4))
+        self._chg_hm_canvas.mpl_connect(
+            'button_press_event', self._on_chg_hm_click)
+        self._chg_hm_canvas.mpl_connect(
+            'motion_notify_event', self._on_chg_hm_motion)
+        self._chg_hm_canvas.mpl_connect(
+            'figure_leave_event', lambda _e: self._hide_chg_hm_tooltip())
 
         # 下半：異動統計 Treeview
         bot_pane = tk.Frame(content, bg=C_BG)
@@ -6159,11 +6201,644 @@ class StockApp(tk.Tk):
             status += f'　— {period_lbl}內無持股異動，請嘗試較長期間'
         self._chg_status.set(status)
 
-        self._chg_agg_buy  = agg_buy
-        self._chg_agg_sell = agg_sell
-        self._chg_draw_treemap(self._chg_cv_buy,  agg_buy,  'buy')
-        self._chg_draw_treemap(self._chg_cv_sell, agg_sell, 'sell')
+        self._chg_agg_buy      = agg_buy
+        self._chg_agg_sell     = agg_sell
+        self._chg_unified_rows = self._chg_build_unified_rows(agg_buy, agg_sell)
+        self._chg_sector_drill = None
+        self._chg_draw_unified()
         self._chg_update_summary(agg_buy, agg_sell)
+
+    # ── 統一熱力圖 ──────────────────────────────────────────────────────────
+
+    def _chg_build_unified_rows(self, agg_buy, agg_sell):
+        """合併 agg_buy / agg_sell → 每檔個股一筆 row dict，供熱力圖使用。"""
+        all_codes = set(agg_buy) | set(agg_sell)
+        rows = []
+        for code in all_codes:
+            buy_list  = agg_buy.get(code,  [])
+            sell_list = agg_sell.get(code, [])
+            buy_s     = sum(s for _, _, s in buy_list)
+            sell_s    = sum(s for _, _, s in sell_list)
+            net_s     = buy_s - sell_s        # 正→淨買入，負→淨賣出
+            total_s   = buy_s + sell_s        # 活躍度，用於方塊大小
+            if total_s <= 0:
+                continue
+            rows.append({
+                'code':       code,
+                'name':       _TWSE_NAMES_CACHE.get(code, code),
+                'weight':     total_s / 1000,  # 張，用於方塊大小
+                'schg':       net_s,            # 淨張數，用於上色
+                'buy_shares': buy_s,
+                'sell_shares':sell_s,
+                'buy_etfs':   buy_list,
+                'sell_etfs':  sell_list,
+            })
+        rows.sort(key=lambda r: -r['weight'])
+        return rows
+
+    def _chg_draw_unified(self):
+        """依 _chg_hm_layout 繪製統一熱力圖。"""
+        fig    = getattr(self, '_chg_hm_fig',    None)
+        canvas = getattr(self, '_chg_hm_canvas', None)
+        if fig is None or canvas is None:
+            return
+        _fit_fig_to_canvas(fig, canvas)
+        rows = getattr(self, '_chg_unified_rows', [])
+        if not rows:
+            fig.clear()
+            fig.patch.set_facecolor('#111111')
+            ax0 = fig.add_axes([0, 0, 1, 1])
+            ax0.set_facecolor('#111111'); ax0.axis('off')
+            ax0.text(0.5, 0.5, '請點擊「顯示變化」', ha='center', va='center',
+                     color='#555566', fontsize=14, fontfamily=CHART_FONT,
+                     transform=ax0.transAxes)
+            canvas.draw()
+            return
+        if self._chg_hm_layout == 'sector':
+            self._chg_draw_sector()
+        else:
+            self._chg_draw_flat()
+
+    def _chg_draw_flat(self):
+        """依占比（活躍度/成交量）平鋪熱力圖，色彩依淨買賣方向。"""
+        fig    = self._chg_hm_fig
+        canvas = self._chg_hm_canvas
+        rows   = [r for r in self._chg_unified_rows if r['weight'] > 0]
+        _fit_fig_to_canvas(fig, canvas)
+        fig.clear(); fig.patch.set_facecolor('#111111')
+
+        n_buy  = sum(1 for r in rows if r['schg'] > 0)
+        n_sell = sum(1 for r in rows if r['schg'] < 0)
+        size_lbl = '依成交量' if getattr(self, '_chg_size_mode', 'shares') == 'volume' else '依活躍度'
+        sax = fig.add_axes([0, 0.965, 1, 0.035])
+        sax.set_facecolor('#1a1a2e'); sax.axis('off')
+        sax.text(0.5, 0.5,
+                 f'主動型ETF 成分股異動  ·  {len(rows)} 檔  ·  '
+                 f'淨買入 {n_buy} / 淨賣出 {n_sell}  ·  {size_lbl}',
+                 ha='center', va='center', color='#9090cc',
+                 fontsize=9, fontfamily=CHART_FONT, transform=sax.transAxes)
+
+        ax = fig.add_axes([0, 0, 1, 0.96])
+        ax.set_facecolor('#111111')
+        ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.axis('off')
+
+        norm_w = squarify.normalize_sizes(
+            [self._chg_size_weight(r) for r in rows], 100, 100)
+        raw    = squarify.squarify(norm_w, 0, 0, 100, 100)
+        rects  = [{'x': r['x'], 'y': 100 - r['y'] - r['dy'],
+                   'dx': r['dx'], 'dy': r['dy']} for r in raw]
+
+        schg_vals = [r['schg'] for r in rows]
+        max_abs   = max((abs(v) for v in schg_vals), default=1000) or 1000
+
+        dpi       = fig.dpi
+        fig_w_px  = fig.get_size_inches()[0] * dpi
+        fig_h_px  = fig.get_size_inches()[1] * dpi * 0.96
+        px_per_ux = fig_w_px / 100
+        px_per_uy = fig_h_px / 100
+        pt_per_px = 72 / dpi
+        GAP = 0.35
+
+        self._chg_hm_rects = []
+        for row, rect in zip(rows, rects):
+            rx = rect['x'] + GAP / 2;  ry = rect['y'] + GAP / 2
+            rw = rect['dx'] - GAP;     rh = rect['dy'] - GAP
+            if rw <= 0 or rh <= 0:
+                continue
+            ax.add_patch(plt.Rectangle((rx, ry), rw, rh,
+                facecolor=pnl_color(row['schg'], max_abs),
+                edgecolor='#222233', linewidth=0.4, zorder=1))
+            self._chg_hm_rects.append(
+                {'rx': rx, 'ry': ry, 'rw': rw, 'rh': rh, **row})
+
+            min_dim = min(rw, rh)
+            if min_dim < 1.5:
+                continue
+            rw_px    = rw * px_per_ux; rh_px = rh * px_per_uy
+            name_d   = row['name'][:6] if len(row['name']) > 6 else row['name']
+            net      = row['schg']
+            chg_s    = f"{net/1000:+.1f}張" if abs(net) >= 100 else f"{net:+,}股"
+            chars    = max(len(name_d), 4)
+            fs_n     = max(min(0.55*rw_px*pt_per_px/(chars*0.60),
+                               0.60*rh_px*pt_per_px/3.0, 28), 5.0)
+            fs_p     = max(fs_n * 0.75, 4.5)
+            cx_t     = rx + rw / 2;  mid_y = ry + rh * 0.50
+            if min_dim >= 6:
+                gap = fs_n / pt_per_px / px_per_uy * 1.05
+                ax.text(cx_t, mid_y + gap*0.55, name_d,
+                        ha='center', va='center', color='white',
+                        fontsize=fs_n, fontweight='bold',
+                        fontfamily=CHART_FONT, clip_on=True, zorder=2)
+                ax.text(cx_t, mid_y - gap*0.55, chg_s,
+                        ha='center', va='center', color='white',
+                        fontsize=fs_p, fontfamily=CHART_FONT,
+                        clip_on=True, zorder=2)
+            elif min_dim >= 3:
+                ax.text(cx_t, mid_y, name_d, ha='center', va='center',
+                        color='white', fontsize=fs_n, fontweight='bold',
+                        fontfamily=CHART_FONT, clip_on=True, zorder=2)
+
+        canvas.draw()
+        self._chg_hm_ax = ax
+
+    def _chg_draw_sector(self):
+        """依細分類分組繪製統一熱力圖，支援 2-level drill-down。"""
+        fig    = self._chg_hm_fig
+        canvas = self._chg_hm_canvas
+        _fit_fig_to_canvas(fig, canvas)
+        drill     = getattr(self, '_chg_sector_drill', None)
+        sub_drill = getattr(self, '_chg_sub_drill', None)
+        rows      = [r for r in self._chg_unified_rows if r['weight'] > 0]
+
+        fig.clear(); fig.patch.set_facecolor('#111111')
+        if not rows:
+            canvas.draw(); return
+
+        # ── 類股對照 ─────────────────────────────────────────────────────
+        elec_assign: dict[str, str] = {}
+        for subcat, codes in _MKT_ELEC_GROUPS.items():
+            for c in codes:
+                if c not in elec_assign:
+                    elec_assign[c] = subcat
+        try:    tse_ind  = _fetch_twse_industry_map()
+        except: tse_ind  = {}
+        try:    tpex_ind = _fetch_tpex_industry_map()
+        except: tpex_ind = {}
+
+        def _sector(code):
+            return (elec_assign.get(code) or tse_ind.get(code)
+                    or tpex_ind.get(code) or '其他')
+
+        sectors: dict[str, list] = {}
+        for row in rows:
+            sectors.setdefault(_sector(row['code']), []).append(row)
+
+        sec_wts     = {s: sum(r['weight'] for r in lst)
+                       for s, lst in sectors.items()}
+        # sec_sz_wts：用於 squarify 大小（shares 或 volume 模式）
+        sec_sz_wts  = {s: sum(self._chg_size_weight(r) for r in lst)
+                       for s, lst in sectors.items()}
+        total_wt    = sum(sec_wts.values()) or 1
+        sorted_secs = sorted(sectors.keys(), key=lambda s: -sec_wts[s])
+
+        # ── 合併小類股到「其他(N類)」─────────────────────────────────────
+        THRESHOLD  = 0.04   # < 4% 的類股合併（依活躍度判定）
+        main_secs  = [s for s in sorted_secs if sec_wts[s] / total_wt >= THRESHOLD]
+        small_secs = [s for s in sorted_secs if sec_wts[s] / total_wt <  THRESHOLD]
+        if len(small_secs) < 2:   # 不足2個不值得合併
+            main_secs  = sorted_secs
+            small_secs = []
+        other_wt    = sum(sec_wts[s]    for s in small_secs)
+        other_sz_wt = sum(sec_sz_wts[s] for s in small_secs)
+        other_rows  = [r for s in small_secs for r in sectors[s]]
+
+        schg_vals = [abs(r['schg']) for r in rows]
+        max_abs   = max(schg_vals, default=1000) or 1000
+
+        dpi       = fig.dpi
+        fig_w_px  = fig.get_size_inches()[0] * dpi
+        fig_h_px  = fig.get_size_inches()[1] * dpi * 0.96
+        px_per_ux = fig_w_px / 100
+        px_per_uy = fig_h_px / 100
+        pt_per_px = 72 / dpi
+        INNER_GAP = 0.28
+        OUTER_GAP = 0.7
+        HDR_MIN = 5.5; HDR_MAX = 11.0; HDR_RATIO = 0.22
+
+        self._chg_hm_rects     = []
+        self._chg_sector_rects = []
+
+        def _draw_stocks(ax, rows_in, sq_stks):
+            for row, sq_s in zip(rows_in, sq_stks):
+                rx = sq_s['x'] + INNER_GAP / 2
+                ry = (100 - sq_s['y'] - sq_s['dy']) + INNER_GAP / 2
+                rw = sq_s['dx'] - INNER_GAP
+                rh = sq_s['dy'] - INNER_GAP
+                if rw <= 0 or rh <= 0:
+                    continue
+                ax.add_patch(plt.Rectangle((rx, ry), rw, rh,
+                    facecolor=pnl_color(row['schg'], max_abs),
+                    edgecolor='#222233', linewidth=0.35, zorder=3))
+                self._chg_hm_rects.append(
+                    {'rx': rx, 'ry': ry, 'rw': rw, 'rh': rh, **row})
+                min_dim = min(rw, rh)
+                if min_dim < 1.5:
+                    continue
+                rw_px  = rw * px_per_ux; rh_px = rh * px_per_uy
+                name_d = row['name'][:6] if len(row['name']) > 6 else row['name']
+                net    = row['schg']
+                chg_s  = f"{net/1000:+.1f}張" if abs(net) >= 100 else f"{net:+,}股"
+                chars  = max(len(name_d), 4)
+                fs_n   = max(min(0.55*rw_px*pt_per_px/(chars*0.60),
+                                 0.60*rh_px*pt_per_px/3.0, 28), 5.0)
+                fs_p   = max(fs_n * 0.75, 4.5)
+                cx_t   = rx + rw / 2; mid_y = ry + rh * 0.50
+                if min_dim >= 6:
+                    gap = fs_n / pt_per_px / px_per_uy * 1.05
+                    ax.text(cx_t, mid_y+gap*0.55, name_d,
+                            ha='center', va='center', color='white',
+                            fontsize=fs_n, fontweight='bold',
+                            fontfamily=CHART_FONT, clip_on=True, zorder=4)
+                    ax.text(cx_t, mid_y-gap*0.55, chg_s,
+                            ha='center', va='center', color='white',
+                            fontsize=fs_p, fontfamily=CHART_FONT,
+                            clip_on=True, zorder=4)
+                elif min_dim >= 3:
+                    ax.text(cx_t, mid_y, name_d, ha='center', va='center',
+                            color='white', fontsize=fs_n, fontweight='bold',
+                            fontfamily=CHART_FONT, clip_on=True, zorder=4)
+
+        def _draw_one_sector(ax, s_name, rows_in, total_sw, net_all,
+                             sx, sy, sdx, sdy, is_other=False, is_other_sub=False):
+            """Draw sector background + header + (optionally) stocks inside."""
+            if sdx <= 0 or sdy <= 0:
+                return
+            sec_fc = pnl_color(net_all, max_abs * 10)
+            ax.add_patch(plt.Rectangle((sx, sy), sdx, sdy,
+                facecolor=sec_fc, edgecolor='#556677',
+                linewidth=0.9, zorder=1, alpha=0.22))
+            hdr_h  = max(HDR_MIN, min(HDR_MAX, sdy * HDR_RATIO))
+            hdr_y  = sy + sdy - hdr_h
+            ax.add_patch(plt.Rectangle((sx, hdr_y), sdx, hdr_h,
+                facecolor='#1e2040', edgecolor='#445566',
+                linewidth=0.6, zorder=2))
+            hdr_px    = hdr_h * px_per_uy
+            hdr_fs    = max(7.5, min(13.0, hdr_px * pt_per_px * 0.54))
+            max_chars = max(4, int(sdx / 3.8))
+            s_disp    = (s_name if len(s_name) <= max_chars
+                         else s_name[:max_chars - 1] + '…')
+            net_s     = (f"{net_all/1000:+.1f}張" if abs(net_all) >= 100
+                         else f"{net_all:+,}股") if net_all != 0 else ''
+            ax.text(sx + sdx/2, hdr_y + hdr_h/2,
+                    f'{s_disp}  {net_s}',
+                    ha='center', va='center', color='#c8d8f0',
+                    fontsize=hdr_fs, fontweight='bold', fontfamily=CHART_FONT,
+                    clip_on=True, zorder=5)
+            self._chg_sector_rects.append({
+                'x': sx, 'y': hdr_y, 'w': sdx, 'h': hdr_h,
+                'sector':      '__other__' if is_other else s_name,
+                'display_name': s_name,
+                'total_sw':    total_sw,
+                'net_all':     net_all,
+                'count':       len(rows_in),
+                'top_rows':    rows_in[:7],
+                '_is_other':     is_other,
+                '_is_other_sub': is_other_sub,
+            })
+            inner_h = sdy - hdr_h - 0.25
+            if inner_h > 0:
+                sq_inner_y = 100 - sy - inner_h
+                norm_stks  = squarify.normalize_sizes(
+                    [self._chg_size_weight(r) for r in rows_in], sdx, inner_h)
+                sq_stks = squarify.squarify(norm_stks, sx, sq_inner_y, sdx, inner_h)
+                _draw_stocks(ax, rows_in, sq_stks)
+
+        def _make_status_ax(text, color='#9090cc'):
+            sax = fig.add_axes([0, 0.965, 1, 0.035])
+            sax.set_facecolor('#1a1a2e'); sax.axis('off')
+            sax.text(0.5, 0.5, text, ha='center', va='center', color=color,
+                     fontsize=9, fontfamily=CHART_FONT, transform=sax.transAxes)
+            return sax
+
+        def _make_main_ax():
+            ax = fig.add_axes([0, 0, 1, 0.96])
+            ax.set_facecolor('#111111')
+            ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.axis('off')
+            return ax
+
+        # ── MODE D: 其他 + sub_drill → 特定小類股的個股檢視 ─────────────
+        if drill == '__other__' and sub_drill and sub_drill in sectors:
+            rows_in  = sorted(sectors[sub_drill], key=lambda r: -r['weight'])
+            total_sw = sec_wts[sub_drill]
+            net_all  = sum(r['schg'] for r in rows_in)
+            net_s = f"{net_all/1000:+.1f}張" if abs(net_all) >= 100 else f"{net_all:+,}股"
+            _make_status_ax(
+                f'← {sub_drill}  ·  活躍度 {total_sw:.1f}張  ·  淨 {net_s}'
+                f'  ·  點擊空白處返回其他({len(small_secs)}類)', '#f0c060')
+            ax = _make_main_ax()
+            norm_s  = squarify.normalize_sizes(
+                [self._chg_size_weight(r) for r in rows_in], 100, 100)
+            sq_stks = squarify.squarify(norm_s, 0, 0, 100, 100)
+            _draw_stocks(ax, rows_in, sq_stks)
+            canvas.draw(); self._chg_hm_ax = ax; return
+
+        # ── MODE B: Main sector drill → 該類股個股檢視 ───────────────────
+        if drill and drill != '__other__' and drill in sectors:
+            rows_in  = sorted(sectors[drill], key=lambda r: -r['weight'])
+            total_sw = sec_wts[drill]
+            net_all  = sum(r['schg'] for r in rows_in)
+            net_s = f"{net_all/1000:+.1f}張" if abs(net_all) >= 100 else f"{net_all:+,}股"
+            _make_status_ax(
+                f'← {drill}  ·  活躍度 {total_sw:.1f}張  ·  淨 {net_s}'
+                f'  ·  點擊空白處返回總覽', '#f0c060')
+            ax = _make_main_ax()
+            norm_s  = squarify.normalize_sizes(
+                [self._chg_size_weight(r) for r in rows_in], 100, 100)
+            sq_stks = squarify.squarify(norm_s, 0, 0, 100, 100)
+            _draw_stocks(ax, rows_in, sq_stks)
+            canvas.draw(); self._chg_hm_ax = ax; return
+
+        # ── MODE C: 其他 sub-overview → 展開小類股 ───────────────────────
+        if drill == '__other__' and small_secs:
+            small_sorted = sorted(small_secs, key=lambda s: -sec_sz_wts[s])
+            n_buy  = sum(1 for r in other_rows if r['schg'] > 0)
+            n_sell = sum(1 for r in other_rows if r['schg'] < 0)
+            _make_status_ax(
+                f'← 其他({len(small_secs)}類)  ·  {len(other_rows)} 檔  ·  '
+                f'淨買入 {n_buy} / 淨賣出 {n_sell}  ·  '
+                f'點擊類股標題展開  ·  點擊空白處返回總覽')
+            ax = _make_main_ax()
+            norm_secs = squarify.normalize_sizes(
+                [sec_sz_wts[s] for s in small_sorted], 100, 100)
+            sq_secs = squarify.squarify(norm_secs, 0, 0, 100, 100)
+            for s_name, sq_r in zip(small_sorted, sq_secs):
+                sx  = sq_r['x'] + OUTER_GAP / 2
+                sy  = (100 - sq_r['y'] - sq_r['dy']) + OUTER_GAP / 2
+                sdx = sq_r['dx'] - OUTER_GAP
+                sdy = sq_r['dy'] - OUTER_GAP
+                rows_in  = sorted(sectors[s_name], key=lambda r: -r['weight'])
+                total_sw = sec_wts[s_name]
+                net_all  = sum(r['schg'] for r in rows_in)
+                _draw_one_sector(ax, s_name, rows_in, total_sw, net_all,
+                                 sx, sy, sdx, sdy, is_other_sub=True)
+            canvas.draw(); self._chg_hm_ax = ax; return
+
+        # ── MODE A: 總覽 → main sectors + 虛擬「其他(N類)」──────────────
+        n_buy  = sum(1 for r in rows if r['schg'] > 0)
+        n_sell = sum(1 for r in rows if r['schg'] < 0)
+        size_lbl  = '依成交量' if getattr(self, '_chg_size_mode', 'shares') == 'volume' else '依活躍度'
+        other_hint = (f'  ·  {len(small_secs)} 類合併為「其他」'
+                      if small_secs else '')
+        _make_status_ax(
+            f'主動型ETF 成分股異動  ·  {len(sectors)} 類  {len(rows)} 檔  ·  '
+            f'淨買入 {n_buy} / 淨賣出 {n_sell}{other_hint}  ·  {size_lbl}  ·  點擊類股標題展開')
+        ax = _make_main_ax()
+
+        display_secs = list(main_secs)
+        display_wts  = [sec_sz_wts[s] for s in display_secs]
+        if small_secs:
+            display_secs.append('__other__')
+            display_wts.append(other_sz_wt)
+
+        norm_secs = squarify.normalize_sizes(display_wts, 100, 100)
+        sq_secs   = squarify.squarify(norm_secs, 0, 0, 100, 100)
+
+        for s_name, sq_r in zip(display_secs, sq_secs):
+            sx  = sq_r['x'] + OUTER_GAP / 2
+            sy  = (100 - sq_r['y'] - sq_r['dy']) + OUTER_GAP / 2
+            sdx = sq_r['dx'] - OUTER_GAP
+            sdy = sq_r['dy'] - OUTER_GAP
+            if s_name == '__other__':
+                other_net    = sum(r['schg'] for r in other_rows)
+                other_sorted = sorted(other_rows, key=lambda r: -r['weight'])
+                _draw_one_sector(ax, f'其他({len(small_secs)}類)',
+                                 other_sorted, other_wt, other_net,
+                                 sx, sy, sdx, sdy, is_other=True)
+            else:
+                rows_in  = sorted(sectors[s_name], key=lambda r: -r['weight'])
+                total_sw = sec_wts[s_name]
+                net_all  = sum(r['schg'] for r in rows_in)
+                _draw_one_sector(ax, s_name, rows_in, total_sw, net_all,
+                                 sx, sy, sdx, sdy)
+
+        canvas.draw()
+        self._chg_hm_ax = ax
+
+    def _chg_size_weight(self, row):
+        """返回 squarify 所用的方塊大小權重（依異動量或成交量）。"""
+        if getattr(self, '_chg_size_mode', 'shares') == 'volume':
+            return max(self._chg_vol_cache.get(row['code'], 0), 1)
+        return max(row['weight'], 0.001)
+
+    def _chg_fetch_volumes(self):
+        """異步取得全市場成交量並更新 _chg_vol_cache，完成後重繪。"""
+        import time
+        now = time.time()
+        if now - self._chg_vol_cache_ts < 1800 and self._chg_vol_cache:
+            self._chg_draw_unified()
+            return
+        self._chg_status.set('正在取得成交量…')
+
+        def _worker():
+            vol: dict[str, int] = {}
+            # TWSE openapi（含 TradeVolume 欄位，單位：股）
+            try:
+                rows = _cffi_get_json(
+                    'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL',
+                    timeout=15)
+                for r in rows:
+                    code = str(r.get('Code', '')).strip()
+                    try:
+                        v = int(str(r.get('TradeVolume', '0')).replace(',', '') or '0') // 1000
+                        if v > 0:
+                            vol[code] = v
+                    except (ValueError, TypeError):
+                        pass
+            except Exception as _e:
+                _net_log(f'_chg_fetch_volumes TWSE: {_e}')
+            # TPEX openapi（TradingShares 欄位，單位：股）
+            try:
+                rows = _cffi_get_json(
+                    'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes',
+                    timeout=12)
+                for r in rows:
+                    code = str(r.get('SecuritiesCompanyCode', '')).strip()
+                    if code in vol:
+                        continue
+                    try:
+                        raw = (r.get('TradingShares') or r.get('Volume')
+                               or r.get('TradeVolume', '0'))
+                        v = int(str(raw).replace(',', '') or '0') // 1000
+                        if v > 0:
+                            vol[code] = v
+                    except (ValueError, TypeError):
+                        pass
+            except Exception as _e:
+                _net_log(f'_chg_fetch_volumes TPEX: {_e}')
+            return vol
+
+        def _on_done(vol):
+            import time as _t
+            self._chg_vol_cache    = vol
+            self._chg_vol_cache_ts = _t.time()
+            n = sum(1 for c in getattr(self, '_chg_unified_rows', [])
+                    if c['code'] in vol)
+            self._chg_status.set(f'成交量已更新（命中 {n} 檔）')
+            self._chg_draw_unified()
+
+        import threading
+        def _run():
+            v = _worker()
+            self.after(0, lambda: _on_done(v))
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_chg_hm_click(self, event):
+        if getattr(self, '_chg_hm_layout', 'sector') != 'sector':
+            return
+        if event.inaxes is None or event.xdata is None:
+            return
+        x, y = event.xdata, event.ydata
+        drill     = getattr(self, '_chg_sector_drill', None)
+        sub_drill = getattr(self, '_chg_sub_drill', None)
+
+        # Mode D: 其他 + sub_drill (stocks) → back to Mode C
+        if drill == '__other__' and sub_drill:
+            self._chg_sub_drill = None
+            self._chg_draw_unified()
+            return
+
+        # Mode B: Main sector stocks → back to Mode A overview
+        if drill and drill != '__other__':
+            self._chg_sector_drill = None
+            self._chg_draw_unified()
+            return
+
+        # Mode C: 其他 sub-overview → click sub-sector header or return to overview
+        if drill == '__other__':
+            for rect in getattr(self, '_chg_sector_rects', []):
+                if (rect.get('_is_other_sub') and
+                        rect['x'] <= x <= rect['x'] + rect['w'] and
+                        rect['y'] <= y <= rect['y'] + rect['h']):
+                    self._chg_sub_drill = rect['sector']
+                    self._chg_draw_unified()
+                    return
+            self._chg_sector_drill = None
+            self._chg_sub_drill    = None
+            self._chg_draw_unified()
+            return
+
+        # Mode A: Overview → click on sector header to drill in
+        for rect in getattr(self, '_chg_sector_rects', []):
+            if (rect['x'] <= x <= rect['x'] + rect['w'] and
+                    rect['y'] <= y <= rect['y'] + rect['h']):
+                self._chg_sector_drill = rect['sector']  # '__other__' or sector_name
+                self._chg_draw_unified()
+                return
+
+    def _on_chg_hm_motion(self, event):
+        hm_ax = getattr(self, '_chg_hm_ax', None)
+        if event.inaxes is None or hm_ax is None:
+            self._hide_chg_hm_tooltip(); return
+        xd, yd = event.xdata, event.ydata
+        widget = self._chg_hm_canvas.get_tk_widget()
+        sx = widget.winfo_rootx() + int(event.x)
+        sy = widget.winfo_rooty() + int(widget.winfo_height() - event.y)
+        for r in getattr(self, '_chg_hm_rects', []):
+            if (r['rx'] <= xd <= r['rx'] + r['rw'] and
+                    r['ry'] <= yd <= r['ry'] + r['rh']):
+                self._show_chg_stock_tooltip(sx, sy, r)
+                return
+        if getattr(self, '_chg_hm_layout', 'sector') == 'sector':
+            for r in getattr(self, '_chg_sector_rects', []):
+                if (r['x'] <= xd <= r['x'] + r['w'] and
+                        r['y'] <= yd <= r['y'] + r['h']):
+                    self._show_chg_sector_tooltip(sx, sy, r)
+                    return
+        self._hide_chg_hm_tooltip()
+
+    def _show_chg_stock_tooltip(self, sx, sy, data):
+        sec_tip = getattr(self, '_chg_sec_tooltip', None)
+        if sec_tip and sec_tip.winfo_exists():
+            sec_tip.withdraw()
+        tip = getattr(self, '_chg_hm_tooltip', None)
+        if tip is None or not tip.winfo_exists():
+            tip = tk.Toplevel(self)
+            tip.overrideredirect(True); tip.attributes('-topmost', True)
+            tip.configure(bg='#1e1e1e')
+            border = tk.Frame(tip, bg='#3e3e3e', padx=1, pady=1)
+            border.pack(fill='both', expand=True)
+            inner  = tk.Frame(border, bg='#252526', padx=10, pady=8)
+            inner.pack(fill='both', expand=True)
+            self._chg_tip_w = {}
+            for key in ('title', 'line1', 'line2', 'sep', 'etfs_frame'):
+                if key == 'etfs_frame':
+                    fr = tk.Frame(inner, bg='#252526')
+                    fr.pack(fill='x')
+                    self._chg_tip_w[key] = fr
+                else:
+                    lbl = tk.Label(inner, bg='#252526',
+                                   font=('Microsoft JhengHei', 10), anchor='w')
+                    lbl.pack(fill='x')
+                    self._chg_tip_w[key] = lbl
+            self._chg_hm_tooltip = tip
+        w    = self._chg_tip_w
+        net  = data['schg']
+        net_s = (f"{net/1000:+.1f}張" if abs(net) >= 100 else f"{net:+,}股")
+        fg_net = '#f07070' if net >= 0 else '#4ec94e'
+        w['title'].config(text=f'{data["name"]}  {data["code"]}',
+                          fg='#8ab4d4', font=('Microsoft JhengHei', 11, 'bold'))
+        w['line1'].config(text=f'活躍度：{data["weight"]:.1f}張（|買|+|賣|）',
+                          fg='#cccccc')
+        w['line2'].config(text=f'淨異動：{net_s}', fg=fg_net)
+        w['sep'].config(text='─' * 22, fg='#3a3a4a', font=('Consolas', 8))
+        fr = w['etfs_frame']
+        for child in fr.winfo_children():
+            child.destroy()
+        for etf, _, s in sorted(data.get('buy_etfs', []), key=lambda x: -x[2])[:4]:
+            tk.Label(fr, bg='#252526', fg='#80e080', anchor='w',
+                     font=('Microsoft JhengHei', 9),
+                     text=f'  {etf}  買入 {s//1000:.0f}張').pack(fill='x')
+        for etf, _, s in sorted(data.get('sell_etfs', []), key=lambda x: -x[2])[:4]:
+            tk.Label(fr, bg='#252526', fg='#e08080', anchor='w',
+                     font=('Microsoft JhengHei', 9),
+                     text=f'  {etf}  賣出 {s//1000:.0f}張').pack(fill='x')
+        self._place_tooltip(tip, sx, sy)
+        tip.deiconify()
+
+    def _show_chg_sector_tooltip(self, sx, sy, data):
+        tip0 = getattr(self, '_chg_hm_tooltip', None)
+        if tip0 and tip0.winfo_exists():
+            tip0.withdraw()
+        tip = getattr(self, '_chg_sec_tooltip', None)
+        if tip is None or not tip.winfo_exists():
+            tip = tk.Toplevel(self)
+            tip.overrideredirect(True); tip.attributes('-topmost', True)
+            tip.configure(bg='#1e1e1e')
+            border = tk.Frame(tip, bg='#3e3e3e', padx=1, pady=1)
+            border.pack(fill='both', expand=True)
+            inner  = tk.Frame(border, bg='#1c1c2c', padx=10, pady=8)
+            inner.pack(fill='both', expand=True)
+            self._chg_sec_tip_w = {}
+            for key in ('title', 'act', 'net', 'count', 'sep'):
+                lbl = tk.Label(inner, bg='#1c1c2c',
+                               font=('Microsoft JhengHei', 10), anchor='w')
+                lbl.pack(fill='x')
+                self._chg_sec_tip_w[key] = lbl
+            sf = tk.Frame(inner, bg='#1c1c2c'); sf.pack(fill='x')
+            self._chg_sec_tip_w['stocks_frame'] = sf
+            self._chg_sec_tooltip = tip
+        w      = self._chg_sec_tip_w
+        net    = data['net_all']
+        net_s  = (f"{net/1000:+.1f}張" if abs(net) >= 100 else f"{net:+,}股")
+        fg_net = '#f07070' if net >= 0 else '#4ec94e'
+        title  = data.get('display_name', data['sector'])
+        w['title'].config(text=title,
+                          fg='#f0c060', font=('Microsoft JhengHei', 12, 'bold'))
+        w['act'].config(text=f'類股活躍度：{data["total_sw"]:.1f}張', fg='#cccccc')
+        w['net'].config(text=f'淨異動：{net_s}', fg=fg_net)
+        expand_hint = '點擊展開查看子類股' if data.get('_is_other') else '點擊展開'
+        w['count'].config(text=f'成分股：{data["count"]} 檔   ·   {expand_hint}',
+                          fg='#7080a0')
+        w['sep'].config(text='─' * 22, fg='#2a2a3a', font=('Consolas', 8))
+        sf = w['stocks_frame']
+        for child in sf.winfo_children():
+            child.destroy()
+        for row in data.get('top_rows', []):
+            net_r  = row['schg']
+            fg_r   = '#f07070' if net_r >= 0 else '#4ec94e'
+            net_rs = (f"{net_r/1000:+.1f}張" if abs(net_r) >= 100
+                      else f"{net_r:+,}股")
+            tk.Label(sf, bg='#1c1c2c', fg=fg_r, anchor='w',
+                     font=('Microsoft JhengHei', 9),
+                     text=f'  {row["name"]}  {net_rs}').pack(fill='x')
+        self._place_tooltip(tip, sx, sy)
+        tip.deiconify()
+
+    def _hide_chg_hm_tooltip(self):
+        for attr in ('_chg_hm_tooltip', '_chg_sec_tooltip'):
+            tip = getattr(self, attr, None)
+            if tip and tip.winfo_exists():
+                tip.withdraw()
 
     def _chg_draw_treemap(self, canvas, agg, side):
         canvas.delete('all')
@@ -6276,9 +6951,8 @@ class StockApp(tk.Tk):
 
     def _chg_redraw_on_resize(self):
         self._chg_resize_after = None
-        if self._chg_agg_buy or self._chg_agg_sell:
-            self._chg_draw_treemap(self._chg_cv_buy,  self._chg_agg_buy,  'buy')
-            self._chg_draw_treemap(self._chg_cv_sell, self._chg_agg_sell, 'sell')
+        if self._chg_unified_rows:
+            self._chg_draw_unified()
 
     def _chg_update_summary(self, agg_buy, agg_sell):
         tv = self._chg_sum_tv
@@ -6304,8 +6978,7 @@ class StockApp(tk.Tk):
             if s > 0:     parts.append(f'{s // 1000:.0f}張')
             return '/'.join(parts) or '-'
 
-        is_shares = self._chg_metric.get() == 'shares'
-        def _sort_key(t): return t[2] / 1000 if is_shares else t[1]
+        def _sort_key(t): return t[2] / 1000  # 依張數排序
 
         max_lines = 1
         rows = []
