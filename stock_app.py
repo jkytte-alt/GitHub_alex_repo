@@ -8366,8 +8366,7 @@ class StockApp(tk.Tk):
             ohlcv['MA10']  = close.rolling(10,  min_periods=1).mean()
             ohlcv['MA20']  = close.rolling(20,  min_periods=1).mean()
             ohlcv['MA60']  = close.rolling(60,  min_periods=1).mean()
-            ohlcv['MA120'] = close.rolling(120, min_periods=1).mean()
-            ohlcv['MA240'] = close.rolling(240, min_periods=1).mean()
+            ohlcv['MA100'] = close.rolling(100, min_periods=1).mean()
         if ind.get('BB', False):
             _bb_m = close.rolling(20, min_periods=5).mean()
             _bb_s = close.rolling(20, min_periods=5).std(ddof=0)
@@ -8458,7 +8457,7 @@ class StockApp(tk.Tk):
                 (i - cw/2, min(o_, c_)), cw, max(abs(c_ - o_), 0.005 * c_),
                 facecolor=clr, edgecolor='none', linewidth=0, zorder=3))
 
-        # ── MA 線（MA5/10/20/60/120/240）────────────────────────────────
+        # ── MA 線（MA5/10/20/60/100）────────────────────────────────────
         _leg_handles = []
         if ind.get('MA', True):
             for col, clr, lbl, lw in [
@@ -8466,8 +8465,7 @@ class StockApp(tk.Tk):
                     ('MA10',  '#4a9cf0', 'MA10',  1.1),
                     ('MA20',  '#f0a04a', 'MA20',  1.1),
                     ('MA60',  '#e060e0', 'MA60',  1.0),
-                    ('MA120', '#60c060', 'MA120', 1.0),
-                    ('MA240', '#f08040', 'MA240', 1.0)]:
+                    ('MA100', '#60c060', 'MA100', 1.0)]:
                 if col in ohlcv:
                     ln, = ax_price.plot(xs, ohlcv[col].values, color=clr,
                                         linewidth=lw, label=lbl, zorder=4)
@@ -11769,7 +11767,7 @@ class StockApp(tk.Tk):
         # 指標
         self._stk_ind_state: dict[str, bool] = {
             'MA': True, 'BB': False, 'VOL': True,
-            'MACD': True, 'RSI': False, 'KD': True}
+            'MACD': True, 'RSI': False, 'KD': True, 'TL': True}
         self._stk_ind_btns: dict[str, tk.Button] = {}
         tk.Label(kctrl, text='指標:', bg=_CTRL_BG, fg='#6677aa',
                  font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 4))
@@ -11779,7 +11777,7 @@ class StockApp(tk.Tk):
             _s6btn(self._stk_ind_btns[lbl], self._stk_ind_state[lbl])
             self._redraw_stk_kline()
 
-        for _il in ['MA', 'BB', 'VOL', 'MACD', 'RSI', 'KD']:
+        for _il in ['MA', 'BB', 'VOL', 'MACD', 'RSI', 'KD', 'TL']:
             _on = self._stk_ind_state[_il]
             _b = tk.Button(kctrl, text=_il,
                            **(_BTN_ON if _on else _BTN_OFF),
@@ -11949,6 +11947,49 @@ class StockApp(tk.Tk):
         self._stk_kbar_btn = tk.Button(
             zhujia_bar, text='K棒組合 OFF', **_DB_OFF, command=_toggle_kbar)
         self._stk_kbar_btn.pack(side='left', padx=2)
+
+        # ── 林恩如 超簡單（合併至朱家泓列） ─────────────────────────────
+        tk.Label(zhujia_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=6)
+        tk.Label(zhujia_bar, text='林恩如 超簡單：', bg='#1c1c28', fg='#7ec8e3',
+                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(0, 6))
+
+        self._stk_linen_on      = False
+        self._stk_linen_vol_on  = True
+        self._stk_linen_vol_var = tk.StringVar(value='1.5')
+
+        def _toggle_linen():
+            self._stk_linen_on = not self._stk_linen_on
+            self._stk_linen_main_btn.config(
+                **(_DB_ON if self._stk_linen_on else _DB_OFF),
+                text='訊號 ON' if self._stk_linen_on else '訊號 OFF')
+            self._redraw_stk_kline()
+
+        self._stk_linen_main_btn = tk.Button(
+            zhujia_bar, text='訊號 OFF', **_DB_OFF, command=_toggle_linen)
+        self._stk_linen_main_btn.pack(side='left', padx=2)
+
+        tk.Label(zhujia_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=6)
+
+        def _toggle_linen_vol():
+            self._stk_linen_vol_on = not self._stk_linen_vol_on
+            self._stk_linen_vol_btn.config(
+                **(_DB_ON if self._stk_linen_vol_on else _DB_OFF))
+            self._redraw_stk_kline()
+
+        self._stk_linen_vol_btn = tk.Button(
+            zhujia_bar, text='量增', **_DB_ON, command=_toggle_linen_vol)
+        self._stk_linen_vol_btn.pack(side='left', padx=2)
+
+        _linen_vol_sb = tk.Spinbox(
+            zhujia_bar, from_=0.5, to=5.0, increment=0.1, width=4,
+            textvariable=self._stk_linen_vol_var,
+            bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
+            buttonbackground='#2a2a3e', relief='flat',
+            font=('Microsoft JhengHei', 8),
+            command=self._redraw_stk_kline)
+        _linen_vol_sb.pack(side='left', padx=(1, 0))
+        tk.Label(zhujia_bar, text='x', bg='#1c1c28', fg='#6677aa',
+                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(1, 0))
 
         # ── 型態分析工具列 ───────────────────────────────────────────────
         pat_bar = tk.Frame(f, bg='#1c1c28', pady=3)
@@ -12506,6 +12547,117 @@ class StockApp(tk.Tk):
                 best[nm] = pat
         return list(best.values())
 
+    def _calc_auto_trendlines(self, ohlcv, extend=10):
+        """偵測最近一條有效上升/下降趨勢線（底底高 / 頭頭低 pivot pair）。
+        回傳 (up_line, down_line)，各為 (x1,y1, x2,y2, x_ext,y_ext) 或 None。
+        x 座標為 K 棒索引，x_ext 可超出 n-1 作右側延伸。
+        """
+        import numpy as np
+        n    = len(ohlcv)
+        high = ohlcv.get('High', ohlcv['Close']).values.astype(float)
+        low  = ohlcv.get('Low',  ohlcv['Close']).values.astype(float)
+
+        zz_n = max(3, min(8, n // 40))
+        raw_ph, raw_pl = [], []
+        for i in range(zz_n, n - zz_n):
+            win_h = high[i - zz_n: i + zz_n + 1]
+            win_l = low [i - zz_n: i + zz_n + 1]
+            if high[i] >= win_h.max():
+                raw_ph.append((i, high[i]))
+            if low[i]  <= win_l.min():
+                raw_pl.append((i, low[i]))
+
+        all_pts = sorted([(i, p, 'H') for i, p in raw_ph] +
+                         [(i, p, 'L') for i, p in raw_pl], key=lambda x: x[0])
+        zz: list = []
+        for pt in all_pts:
+            if not zz:
+                zz.append(pt)
+            elif pt[2] == zz[-1][2]:
+                if (pt[2] == 'H' and pt[1] > zz[-1][1]) or \
+                   (pt[2] == 'L' and pt[1] < zz[-1][1]):
+                    zz[-1] = pt
+            else:
+                zz.append(pt)
+
+        ph = [(i, p) for i, p, t in zz if t == 'H']
+        pl = [(i, p) for i, p, t in zz if t == 'L']
+
+        x_ext     = n - 1 + extend
+        up_line   = None
+        down_line = None
+
+        # 上升趨勢線：最近一對底底高 pivot low（影線低點）
+        for i in range(len(pl) - 1, 0, -1):
+            x2, y2 = pl[i]
+            x1, y1 = pl[i - 1]
+            if y2 > y1:
+                slope  = (y2 - y1) / (x2 - x1)
+                y_end  = y2 + slope * (x_ext - x2)
+                up_line = (x1, y1, x2, y2, x_ext, y_end)
+                break
+
+        # 下降趨勢線：最近一對頭頭低 pivot high（影線高點）
+        for i in range(len(ph) - 1, 0, -1):
+            x2, y2 = ph[i]
+            x1, y1 = ph[i - 1]
+            if y2 < y1:
+                slope    = (y2 - y1) / (x2 - x1)
+                y_end    = y2 + slope * (x_ext - x2)
+                down_line = (x1, y1, x2, y2, x_ext, y_end)
+                break
+
+        return up_line, down_line
+
+    def _calc_linen_signals(self, ohlcv, vol_mult=1.5, vol_enabled=True):
+        """林恩如超簡單趨勢波段投資法進出場訊號。
+        進場：收盤突破MA100 + 實體紅K + 大量（可選）
+        強進場：進場條件 + 開盤也在MA100之上
+        出場：收盤跌破MA100
+        回傳 (entries, exits)
+          entries: [(idx, entry_price, sl_price, is_strong)]
+          exits:   [idx]
+        """
+        import numpy as np
+
+        close = ohlcv['Close'].values.astype(float)
+        open_ = ohlcv.get('Open', ohlcv['Close']).values.astype(float)
+        vol   = ohlcv.get('Volume', pd.Series(np.zeros(len(ohlcv)))).values.astype(float)
+        n     = len(close)
+
+        if 'MA100' in ohlcv.columns:
+            ma100 = ohlcv['MA100'].values.astype(float)
+        else:
+            ma100 = pd.Series(close).rolling(100, min_periods=1).mean().values.astype(float)
+
+        vol5 = np.array([np.mean(vol[max(0, i - 5):i]) if i > 0 else vol[i]
+                         for i in range(n)])
+
+        entries: list = []
+        exits:   list = []
+
+        for i in range(1, n):
+            # 出場：收盤跌破 MA100
+            if close[i] < ma100[i] and close[i - 1] >= ma100[i - 1]:
+                exits.append(i)
+
+            # 進場：前收 ≤ MA100，當收 > MA100（突破）
+            if close[i - 1] > ma100[i - 1]:
+                continue
+            if close[i] <= ma100[i]:
+                continue
+            # 實體紅K（收 > 開）
+            if close[i] <= open_[i]:
+                continue
+            # 量能條件
+            if vol_enabled and vol5[i] > 0 and vol[i] < vol_mult * vol5[i]:
+                continue
+
+            is_strong = bool(open_[i] > ma100[i])   # 開盤也在MA100上 = 強進場
+            entries.append((i, float(close[i]), float(ma100[i]), is_strong))
+
+        return entries, exits
+
     def _calc_zhujia_signals(self, ohlcv, redk_enabled, redk_ratio, vol_enabled, vol_mult):
         """計算朱家泓多頭進出場訊號（ZigZag + 頭頭高底底高 + MA 排列）。"""
         import numpy as np
@@ -12702,8 +12854,10 @@ class StockApp(tk.Tk):
         self._stk_ohlcv = None
 
         # ── 取得 OHLCV ────────────────────────────────────────────────────
-        _period_map = {'1M': '1mo', '3M': '3mo', '6M': '6mo', '1Y': '1y', '全部': '5y'}
-        _yf_period = _period_map.get(getattr(self, '_stk_period', '3M'), '3mo')
+        # MA100 暖機需 100 根；各期間需 display_rows + 100 以上
+        # 1M(22)+100=122→6mo(130)✓  3M(65)+100=165→1y(252)✓  6M(130)+100=230→1y(252)✓  1Y(252)+100=352→2y(504)✓
+        _period_map = {'1M': '6mo', '3M': '1y', '6M': '1y', '1Y': '2y', '全部': '5y'}
+        _yf_period = _period_map.get(getattr(self, '_stk_period', '3M'), '1y')
         ohlcv = None
         for s in ['.TW', '.TWO', '']:
             try:
@@ -12730,7 +12884,7 @@ class StockApp(tk.Tk):
         if (ohlcv is None or ohlcv.empty) and code.isdigit():
             import urllib.request as _ur, json as _js
             from datetime import date as _dt, timedelta as _td
-            _pm = {'1M': 1, '3M': 3, '6M': 6, '1Y': 12, '全部': 60}
+            _pm = {'1M': 7, '3M': 16, '6M': 16, '1Y': 24, '全部': 60}
             _months = _pm.get(getattr(self, '_stk_period', '3M'), 3)
             _today  = _dt.today()
             _rows   = []
@@ -12829,8 +12983,7 @@ class StockApp(tk.Tk):
             ohlcv['MA10']  = close.rolling(10,  min_periods=1).mean()
             ohlcv['MA20']  = close.rolling(20,  min_periods=1).mean()
             ohlcv['MA60']  = close.rolling(60,  min_periods=1).mean()
-            ohlcv['MA120'] = close.rolling(120, min_periods=1).mean()
-            ohlcv['MA240'] = close.rolling(240, min_periods=1).mean()
+            ohlcv['MA100'] = close.rolling(100, min_periods=1).mean()
         if ind.get('BB'):
             _bbm = close.rolling(20, min_periods=5).mean()
             _bbs = close.rolling(20, min_periods=5).std(ddof=0)
@@ -12856,6 +13009,12 @@ class StockApp(tk.Tk):
             _rk = 100 * (close - _lo) / (_hi - _lo + 1e-10)
             ohlcv['KD_K'] = _rk.ewm(com=2, adjust=False).mean()
             ohlcv['KD_D'] = ohlcv['KD_K'].ewm(com=2, adjust=False).mean()
+
+        # 截回顯示期間（多載的暖機資料只用於 MA 計算，不顯示）
+        _disp_rows = {'1M': 22, '3M': 65, '6M': 130, '1Y': 252}
+        _keep = _disp_rows.get(getattr(self, '_stk_period', '3M'), 65)
+        if len(ohlcv) > _keep:
+            ohlcv = ohlcv.iloc[-_keep:]
 
         n  = len(ohlcv)
         xs = np.arange(n)
@@ -12936,8 +13095,7 @@ class StockApp(tk.Tk):
                     ('MA10',  '#4a9cf0', 'MA10',  1.1),
                     ('MA20',  '#f0a04a', 'MA20',  1.1),
                     ('MA60',  '#e060e0', 'MA60',  1.0),
-                    ('MA120', '#60c060', 'MA120', 1.0),
-                    ('MA240', '#f08040', 'MA240', 1.0)]:
+                    ('MA100', '#60c060', 'MA100', 1.0)]:
                 if col in ohlcv:
                     ln, = ax_price.plot(xs, ohlcv[col].values, color=clr,
                                         linewidth=lw, label=lbl, zorder=4)
@@ -12953,6 +13111,36 @@ class StockApp(tk.Tk):
                           linewidth=0.8, linestyle='--', label='BB下', zorder=4)
             ax_price.fill_between(xs, ohlcv['BB_U'].values, ohlcv['BB_L'].values,
                                   color='#4a9cf0', alpha=0.06, zorder=1)
+
+        # ── 自動趨勢線 ────────────────────────────────────────────────────
+        _TL_EXT = 5
+        _tl_up, _tl_dn = None, None
+        if ind.get('TL'):
+            _tl_up, _tl_dn = self._calc_auto_trendlines(ohlcv, extend=_TL_EXT)
+            if _tl_up:
+                _x1, _y1, _x2, _y2, _xe, _ye = _tl_up
+                _slope_u = (_y2 - _y1) / (_x2 - _x1)
+                ln, = ax_price.plot([_x1, _xe], [_y1, _ye],
+                                    color='#18ffff', linewidth=1.0,
+                                    linestyle='--', alpha=0.9, zorder=5, label='上升趨勢')
+                _leg_handles.append(ln)
+                ax_price.annotate(f'{_slope_u:+.2f}/日',
+                                  xy=(_xe, _ye), xytext=(-4, 6),
+                                  textcoords='offset points', ha='right', va='bottom',
+                                  fontsize=7.5, fontfamily=CHART_FONT,
+                                  color='#18ffff', alpha=0.9, zorder=6)
+            if _tl_dn:
+                _x1, _y1, _x2, _y2, _xe, _ye = _tl_dn
+                _slope_d = (_y2 - _y1) / (_x2 - _x1)
+                ln, = ax_price.plot([_x1, _xe], [_y1, _ye],
+                                    color='#ff6d00', linewidth=1.0,
+                                    linestyle='--', alpha=0.9, zorder=5, label='下降趨勢')
+                _leg_handles.append(ln)
+                ax_price.annotate(f'{_slope_d:+.2f}/日',
+                                  xy=(_xe, _ye), xytext=(-4, -6),
+                                  textcoords='offset points', ha='right', va='top',
+                                  fontsize=7.5, fontfamily=CHART_FONT,
+                                  color='#ff6d00', alpha=0.9, zorder=6)
 
         # ── 朱家泓老師技術分析訊號疊加 ────────────────────────────────────
         if getattr(self, '_stk_zhujia_on', False):
@@ -13110,6 +13298,102 @@ class StockApp(tk.Tk):
                           edgecolor='#d4af37', alpha=0.88),
                 zorder=10)
 
+        # ── 林恩如 超簡單趨勢波段投資法訊號 ──────────────────────────────
+        if getattr(self, '_stk_linen_on', False):
+            try:
+                _ln_vol_mult = float(self._stk_linen_vol_var.get())
+            except (ValueError, AttributeError):
+                _ln_vol_mult = 1.5
+            _ln_vol_en = getattr(self, '_stk_linen_vol_on', True)
+
+            if 'MA100' not in ohlcv.columns:
+                ohlcv['MA100'] = ohlcv['Close'].rolling(100, min_periods=1).mean()
+
+            ln_entries, ln_exits = self._calc_linen_signals(
+                ohlcv, vol_mult=_ln_vol_mult, vol_enabled=_ln_vol_en)
+
+            # ── 進場標記 ─────────────────────────────────────────────────
+            for idx, ep, sl, is_strong in ln_entries:
+                _bg  = '#1565c0' if is_strong else '#1976d2'
+                _lbl = '強進場'  if is_strong else '進場'
+                _clr_tri = '#2979ff' if is_strong else '#42a5f5'
+                _sz      = 120      if is_strong else 90
+                y_e = float(ohlcv['Low'].iloc[idx]) * 0.997
+                ax_price.scatter(idx, y_e, color=_clr_tri, s=_sz,
+                                 marker='^', zorder=7, linewidths=0)
+                ax_price.annotate(_lbl,
+                                  xy=(idx, y_e), xytext=(0, -18),
+                                  textcoords='offset points',
+                                  ha='center', va='top',
+                                  fontsize=9, fontfamily=CHART_FONT,
+                                  color='#ffffff', zorder=8,
+                                  bbox=dict(boxstyle='round,pad=0.30',
+                                            facecolor=_bg,
+                                            edgecolor='none', alpha=0.92))
+
+                # 停損線（MA100 進場當日值，點狀延伸到出場）
+                _next_ex = next((e for e in ln_exits if e > idx), None)
+                _ext_to  = _next_ex if _next_ex is not None else n - 1
+                ax_price.hlines(sl, idx, _ext_to,
+                                colors='#ff5555', linewidth=1.2,
+                                linestyle=':', alpha=0.85, zorder=4)
+                if _next_ex is None:
+                    ax_price.annotate(f'▼{sl:.2f}',
+                                      xy=(1.0, sl),
+                                      xycoords=('axes fraction', 'data'),
+                                      xytext=(4, 0), textcoords='offset points',
+                                      ha='left', va='center', clip_on=False,
+                                      fontsize=8, fontfamily=CHART_FONT,
+                                      color='white', zorder=10,
+                                      bbox=dict(boxstyle='square,pad=0.25',
+                                                facecolor='#cc2222',
+                                                edgecolor='none', alpha=0.92))
+
+            # ── 出場標記 + 損益 ───────────────────────────────────────────
+            for idx in ln_exits:
+                y_ex = float(ohlcv['High'].iloc[idx]) * 1.003
+                ax_price.scatter(idx, y_ex, color='#ffa726', s=80,
+                                 marker='v', zorder=7, linewidths=0)
+                prev_e = next((e for e in reversed(ln_entries) if e[0] < idx), None)
+                if prev_e:
+                    pnl  = (float(ohlcv['Close'].iloc[idx]) - prev_e[1]) / prev_e[1] * 100
+                    _pbg = '#c62828' if pnl >= 0 else '#2e7d32'   # 台灣：紅漲綠跌
+                    ax_price.annotate(f'{pnl:+.1f}%',
+                                      xy=(idx, y_ex), xytext=(0, 14),
+                                      textcoords='offset points',
+                                      ha='center', va='bottom',
+                                      fontsize=9, fontfamily=CHART_FONT,
+                                      color='#ffffff', zorder=8,
+                                      bbox=dict(boxstyle='round,pad=0.30',
+                                                facecolor=_pbg,
+                                                edgecolor='none', alpha=0.92))
+
+            # ── 狀態資訊框 ────────────────────────────────────────────────
+            _ma100_now  = float(ohlcv['MA100'].iloc[-1])
+            _close_now  = float(ohlcv['Close'].iloc[-1])
+            _ln_st = ['✓ 股價 > MA100' if _close_now > _ma100_now else '✗ 股價 < MA100',
+                      f'MA100：{_ma100_now:.2f}']
+            if ln_entries:
+                _le = ln_entries[-1]
+                _still = not any(e > _le[0] for e in ln_exits)
+                _ln_st += [
+                    f'最近進場：{ohlcv.index[_le[0]].strftime("%m/%d")} @ {_le[1]:.2f}',
+                    f'停損：{_le[2]:.2f}',
+                    f'持倉：{"持有中" if _still else "已出場"}',
+                ]
+                if _still:
+                    _unr = (_close_now - _le[1]) / _le[1] * 100
+                    _ln_st.append(f'未實現：{_unr:+.1f}%')
+            ax_price.text(
+                0.99, 0.98,
+                '\n'.join(_ln_st),
+                ha='right', va='top',
+                transform=ax_price.transAxes,
+                fontsize=7.5, fontfamily=CHART_FONT, color='#dddddd',
+                bbox=dict(boxstyle='round,pad=0.45', facecolor='#1a1d2e',
+                          edgecolor='#7ec8e3', alpha=0.88),
+                zorder=10)
+
         # ── 型態分析（偵測 + 按鈕高亮；疊加繪製只在型態 ON 時）────────────
         _pat_btns  = getattr(self, '_stk_pattern_btns', {})
         _pat_state = getattr(self, '_stk_pattern_state', {})
@@ -13192,6 +13476,8 @@ class StockApp(tk.Tk):
         ax_price.set_ylim(_pmin - _mg, _pmax + _mg * 2.0)
 
         _style(ax_price)
+        if ind.get('TL') and (_tl_up or _tl_dn):
+            ax_price.set_xlim(-0.5, n - 1 + _TL_EXT + 0.5)
         ax_price.tick_params(labelsize=7.5)
         ax_price.yaxis.set_major_locator(
             matplotlib.ticker.MaxNLocator(nbins=6, prune='upper', integer=False))
@@ -13246,6 +13532,11 @@ class StockApp(tk.Tk):
             ax_k.set_ylabel('KD', color='#888', fontsize=7, labelpad=2)
             ax_k.yaxis.set_label_position('left')
             _style(ax_k)
+
+        # ── 同步副圖 xlim（與主圖一致，避免趨勢線延伸或其他情況造成查價線偏移）──
+        _ax_xl, _ax_xr = ax_price.get_xlim()
+        for _ax in sub_axes.values():
+            _ax.set_xlim(_ax_xl, _ax_xr)
 
         # ── X 軸日期 ─────────────────────────────────────────────────────
         _bottom_ax = sub_axes[sub_list[-1]] if sub_list else ax_price
@@ -13377,7 +13668,10 @@ class StockApp(tk.Tk):
         axes = getattr(self, '_stk_all_axes', [self._stk_ax])
         xl, xr = self._stk_ax.get_xlim()
         span   = xr - xl
-        cx     = event.xdata if event.xdata is not None else (xl + xr) / 2
+        try:
+            cx = self._stk_ax.transData.inverted().transform((event.x, event.y))[0]
+        except Exception:
+            cx = event.xdata if event.xdata is not None else (xl + xr) / 2
         factor = 0.80 if event.button == 'up' else 1.25
         new_span = max(10, min(n + 1, span * factor))
         ratio    = (cx - xl) / span if span > 0 else 0.5
@@ -13443,7 +13737,14 @@ class StockApp(tk.Tk):
             return
         if event.xdata is None:
             return
-        xi = int(round(event.xdata))
+        # 平移後 xlim 已更新，但 event.xdata 是舊 xlim 算的；
+        # 改用 transData.inverted() 從 display pixel 重算正確資料座標
+        try:
+            xi_f = self._stk_ax.transData.inverted().transform(
+                (event.x, event.y))[0]
+            xi = int(round(xi_f))
+        except Exception:
+            xi = int(round(event.xdata))
         if not (0 <= xi < self._stk_n):
             return
 
