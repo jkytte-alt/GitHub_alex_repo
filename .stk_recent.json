@@ -1,7 +1,15 @@
 [
   {
+    "code": "2382",
+    "name": "Quanta Computer"
+  },
+  {
     "code": "2317",
     "name": "Hon Hai Precision Industry Co."
+  },
+  {
+    "code": "6285",
+    "name": "WNC Corporation"
   },
   {
     "code": "3376",
@@ -14,10 +22,6 @@
   {
     "code": "2303",
     "name": "United Microelectronics Corporation"
-  },
-  {
-    "code": "6285",
-    "name": "WNC Corporation"
   },
   {
     "code": "00713",
@@ -34,9 +38,5 @@
   {
     "code": "6282",
     "name": "AcBel Polytech"
-  },
-  {
-    "code": "3017",
-    "name": "Asia Vital Components Co."
   }
 ]
