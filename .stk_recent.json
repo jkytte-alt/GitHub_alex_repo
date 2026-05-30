@@ -1,11 +1,19 @@
 [
   {
-    "code": "2303",
-    "name": "United Microelectronics Corporation"
+    "code": "2317",
+    "name": "Hon Hai Precision Industry Co."
+  },
+  {
+    "code": "3376",
+    "name": "Shin Zu Shing Co."
   },
   {
     "code": "6206",
     "name": "Flytech Technology Co."
+  },
+  {
+    "code": "2303",
+    "name": "United Microelectronics Corporation"
   },
   {
     "code": "6285",
@@ -30,13 +38,5 @@
   {
     "code": "3017",
     "name": "Asia Vital Components Co."
-  },
-  {
-    "code": "6207",
-    "name": "Laser Tek Taiwan"
-  },
-  {
-    "code": "8021",
-    "name": "Topoint Technology Co."
   }
 ]

@@ -12609,11 +12609,16 @@ class StockApp(tk.Tk):
 
         return up_line, down_line
 
-    def _calc_linen_signals(self, ohlcv, vol_mult=1.5, vol_enabled=True):
+    def _calc_linen_signals(self, ohlcv, vol_mult=1.5, vol_enabled=True,
+                            ma20_filter=True, profit_trail_pct=0.10,
+                            ma100_slope_n=20, max_loss_pct=0.10,
+                            base_lookback=20, debug_date=None):
         """林恩如超簡單趨勢波段投資法進出場訊號。
-        進場：收盤突破MA100 + 實體紅K + 大量（可選）
+        進場：收盤突破MA100 + 實體紅K + MA20向上 + 底部型態回看 + 大量（可選）
         強進場：進場條件 + 開盤也在MA100之上
-        出場：收盤跌破MA100
+        出場（虧損 >= max_loss_pct）：強制停損
+        出場（未達獲利門檻）：跌破MA100 且 MA20不再向上
+        出場（獲利 >= profit_trail_pct）：改用跌破MA20出場
         回傳 (entries, exits)
           entries: [(idx, entry_price, sl_price, is_strong)]
           exits:   [idx]
@@ -12622,6 +12627,8 @@ class StockApp(tk.Tk):
 
         close = ohlcv['Close'].values.astype(float)
         open_ = ohlcv.get('Open', ohlcv['Close']).values.astype(float)
+        high  = ohlcv.get('High', ohlcv['Close']).values.astype(float)
+        low   = ohlcv.get('Low',  ohlcv['Close']).values.astype(float)
         vol   = ohlcv.get('Volume', pd.Series(np.zeros(len(ohlcv)))).values.astype(float)
         n     = len(close)
 
@@ -12630,31 +12637,141 @@ class StockApp(tk.Tk):
         else:
             ma100 = pd.Series(close).rolling(100, min_periods=1).mean().values.astype(float)
 
+        if 'MA20' in ohlcv.columns:
+            ma20 = ohlcv['MA20'].values.astype(float)
+        else:
+            ma20 = pd.Series(close).rolling(20, min_periods=1).mean().values.astype(float)
+
         vol5 = np.array([np.mean(vol[max(0, i - 5):i]) if i > 0 else vol[i]
                          for i in range(n)])
+
+        def _has_bullish_base(i):
+            """回看 base_lookback 根K棒，確認是否有底部型態。"""
+            s  = max(1, i - base_lookback)
+            wc = close[s:i + 1]
+            wh = high[s:i + 1]
+            wl = low[s:i + 1]
+            wo = open_[s:i + 1]
+            m  = len(wc)
+            if m < 5:
+                return False
+
+            # 局部低點
+            local_lows = [(j, wl[j]) for j in range(1, m - 1)
+                          if wl[j] <= wl[j - 1] and wl[j] <= wl[j + 1]]
+
+            # 條件1：W底（兩低點相近 + 中間有反彈）
+            if len(local_lows) >= 2:
+                l1_j, l1_p = local_lows[-2]
+                l2_j, l2_p = local_lows[-1]
+                if (abs(l1_p - l2_p) / max(l1_p, l2_p) <= 0.05 and l2_j > l1_j):
+                    peak = max(wc[l1_j:l2_j + 1])
+                    if (peak - max(l1_p, l2_p)) / max(l1_p, l2_p) >= 0.03:
+                        return True
+
+            # 條件2：低檔K棒反轉（錘頭 或 紅K吞噬黑K）
+            rng_lo = wl.min()
+            rng    = wh.max() - rng_lo if wh.max() > rng_lo else 1.0
+            for j in range(1, m):
+                if (wc[j] - rng_lo) / rng > 0.35:
+                    continue
+                body  = abs(wc[j] - wo[j])
+                lower = min(wc[j], wo[j]) - wl[j]
+                upper = wh[j] - max(wc[j], wo[j])
+                if body > 0 and lower >= body * 2 and upper <= body:
+                    return True
+                if (wc[j] > wo[j] and wc[j - 1] < wo[j - 1]
+                        and abs(wc[j] - wo[j]) > abs(wc[j - 1] - wo[j - 1])):
+                    return True
+
+            # 條件3：底底高（後低點 > 前低點）
+            if len(local_lows) >= 2 and local_lows[-1][1] > local_lows[-2][1]:
+                return True
+
+            # 條件4：平底整理（窄幅橫盤，高低差 ≤ 8%，至少持續10根K棒）
+            if m >= 10:
+                recent_hi = wh[-10:].max()
+                recent_lo = wl[-10:].min()
+                if recent_lo > 0 and (recent_hi - recent_lo) / recent_lo <= 0.08:
+                    return True
+
+            return False
 
         entries: list = []
         exits:   list = []
 
-        for i in range(1, n):
-            # 出場：收盤跌破 MA100
-            if close[i] < ma100[i] and close[i - 1] >= ma100[i - 1]:
-                exits.append(i)
+        in_pos       = False   # 目前是否持倉
+        ep_price     = 0.0     # 進場收盤價
+        profit_trail = False   # 是否已觸發獲利追蹤模式
 
-            # 進場：前收 ≤ MA100，當收 > MA100（突破）
+        for i in range(1, n):
+            if in_pos:
+                pnl = (close[i] - ep_price) / ep_price if ep_price > 0 else 0.0
+
+                # 最大虧損停損（優先於其他出場條件）
+                if pnl <= -max_loss_pct:
+                    exits.append(i)
+                    in_pos = False
+                    profit_trail = False
+                    continue
+
+                if pnl >= profit_trail_pct:
+                    profit_trail = True
+
+                if profit_trail:
+                    # 獲利超過門檻：改用 MA20 出場（更緊的追蹤停利）
+                    if close[i] < ma20[i] and close[i - 1] >= ma20[i - 1]:
+                        exits.append(i)
+                        in_pos = False
+                        profit_trail = False
+                else:
+                    # 未達門檻：跌破 MA100 且 MA20 不再向上才出場
+                    if close[i] < ma100[i] and close[i - 1] >= ma100[i - 1]:
+                        if not ma20_filter or ma20[i] <= ma20[i - 1]:
+                            exits.append(i)
+                            in_pos = False
+                continue  # 持倉中不尋找新進場
+
+            # ── 進場條件（未持倉時才判斷）────────────────────────────────
+            _dbg = (debug_date is not None and
+                    len(ohlcv) > i and
+                    str(ohlcv.index[i])[:10] == str(debug_date)[:10])
+
+            # K線必須穿越MA100：前收 ≤ MA100，當收 > MA100
             if close[i - 1] > ma100[i - 1]:
+                if _dbg: print(f'[DEBUG] {debug_date} ❌ 穿越MA100：前收{close[i-1]:.2f} > 前MA100{ma100[i-1]:.2f}')
                 continue
             if close[i] <= ma100[i]:
+                if _dbg: print(f'[DEBUG] {debug_date} ❌ 當收未過MA100：{close[i]:.2f} <= {ma100[i]:.2f}')
                 continue
-            # 實體紅K（收 > 開）
+            # 實體紅K（收 > 開）且實體比例 ≥ 35%
             if close[i] <= open_[i]:
+                if _dbg: print(f'[DEBUG] {debug_date} ❌ 非紅K：收{close[i]:.2f} <= 開{open_[i]:.2f}')
+                continue
+            _body = close[i] - open_[i]
+            _full = high[i] - low[i]
+            if _full > 0 and _body / _full < 0.35:
+                if _dbg: print(f'[DEBUG] {debug_date} ❌ 實體比例不足：{_body/_full:.1%} < 35%')
+                continue
+            # MA20 向上（中期趨勢確認）
+            if ma20_filter and ma20[i] <= ma20[i - 1]:
+                if _dbg: print(f'[DEBUG] {debug_date} ❌ MA20未向上：{ma20[i]:.2f} <= {ma20[i-1]:.2f}')
                 continue
             # 量能條件
             if vol_enabled and vol5[i] > 0 and vol[i] < vol_mult * vol5[i]:
+                if _dbg: print(f'[DEBUG] {debug_date} ❌ 量能不足：{vol[i]:.0f} < {vol_mult}×{vol5[i]:.0f}={vol_mult*vol5[i]:.0f}')
                 continue
+            # 底部型態回看（過去一個月需有底部結構）
+            if not _has_bullish_base(i):
+                if _dbg: print(f'[DEBUG] {debug_date} ❌ 無底部型態（W底/錘頭/底底高）')
+                continue
+            if _dbg: print(f'[DEBUG] {debug_date} ✅ 所有條件通過，進場 @ {close[i]:.2f}')
 
-            is_strong = bool(open_[i] > ma100[i])   # 開盤也在MA100上 = 強進場
+            is_strong = bool(open_[i] > ma100[i])
             entries.append((i, float(close[i]), float(ma100[i]), is_strong))
+            in_pos       = True
+            ep_price     = float(close[i])
+            profit_trail = False
 
         return entries, exits
 
@@ -13308,9 +13425,13 @@ class StockApp(tk.Tk):
 
             if 'MA100' not in ohlcv.columns:
                 ohlcv['MA100'] = ohlcv['Close'].rolling(100, min_periods=1).mean()
+            if 'MA20' not in ohlcv.columns:
+                ohlcv['MA20'] = ohlcv['Close'].rolling(20, min_periods=1).mean()
 
+            _ln_debug = getattr(self, '_stk_linen_debug_date', None)
             ln_entries, ln_exits = self._calc_linen_signals(
-                ohlcv, vol_mult=_ln_vol_mult, vol_enabled=_ln_vol_en)
+                ohlcv, vol_mult=_ln_vol_mult, vol_enabled=_ln_vol_en, ma20_filter=True,
+                debug_date=_ln_debug)
 
             # ── 進場標記 ─────────────────────────────────────────────────
             for idx, ep, sl, is_strong in ln_entries:
