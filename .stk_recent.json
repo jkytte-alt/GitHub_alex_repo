@@ -1,7 +1,7 @@
 [
   {
-    "code": "2382",
-    "name": "Quanta Computer"
+    "code": "2377",
+    "name": "微星"
   },
   {
     "code": "2317",
@@ -12,16 +12,20 @@
     "name": "WNC Corporation"
   },
   {
+    "code": "2303",
+    "name": "United Microelectronics Corporation"
+  },
+  {
+    "code": "2382",
+    "name": "Quanta Computer"
+  },
+  {
     "code": "3376",
     "name": "Shin Zu Shing Co."
   },
   {
     "code": "6206",
     "name": "Flytech Technology Co."
-  },
-  {
-    "code": "2303",
-    "name": "United Microelectronics Corporation"
   },
   {
     "code": "00713",
@@ -34,9 +38,5 @@
   {
     "code": "6442",
     "name": "EZconn Corporation"
-  },
-  {
-    "code": "6282",
-    "name": "AcBel Polytech"
   }
 ]

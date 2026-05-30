@@ -5358,6 +5358,20 @@ class StockApp(tk.Tk):
                        font=('Microsoft JhengHei', 8)).pack(side='right', padx=2)
             tk.Label(badge_bar, text='年', bg=_DIFF_BG, fg='#6677aa',
                      font=('Microsoft JhengHei', 8)).pack(side='right')
+            # 方法選擇
+            _ABT_ON  = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', font=('Microsoft JhengHei', 8, 'bold'), cursor='hand2', padx=5)
+            _ABT_OFF = dict(bg='#1e2133', fg='#6677aa', relief='flat', font=('Microsoft JhengHei', 8),         cursor='hand2', padx=5)
+            self._aetf_bt_method = tk.StringVar(value='linen')
+            self._aetf_bt_linen_btn  = tk.Button(badge_bar, text='林恩如', **_ABT_ON)
+            self._aetf_bt_zhujia_btn = tk.Button(badge_bar, text='朱家泓', **_ABT_OFF)
+            def _aetf_bt_switch(m):
+                self._aetf_bt_method.set(m)
+                self._aetf_bt_linen_btn.config( **(_ABT_ON  if m == 'linen'  else _ABT_OFF))
+                self._aetf_bt_zhujia_btn.config(**(_ABT_ON  if m == 'zhujia' else _ABT_OFF))
+            self._aetf_bt_linen_btn.config( command=lambda: _aetf_bt_switch('linen'))
+            self._aetf_bt_zhujia_btn.config(command=lambda: _aetf_bt_switch('zhujia'))
+            self._aetf_bt_linen_btn.pack( side='right', padx=(0, 1))
+            self._aetf_bt_zhujia_btn.pack(side='right', padx=(0, 2))
             tk.Button(badge_bar, text='批次回測',
                       bg='#2d3561', fg='#a0b4e8', relief='flat',
                       font=('Microsoft JhengHei', 8), cursor='hand2',
@@ -9028,10 +9042,12 @@ class StockApp(tk.Tk):
         years     = getattr(self, '_aetf_bt_years_var', None)
         years     = int(years.get()) if years else 2
         yf_period = '1y' if years <= 1 else '2y' if years <= 2 else '3y' if years <= 3 else '5y'
+        method    = getattr(self, '_aetf_bt_method', tk.StringVar()).get() or 'linen'
 
         # 建立 popup 視窗
+        method_name = '林恩如' if method == 'linen' else '朱家泓'
         win = tk.Toplevel(self)
-        win.title(f'{etf_code} 成分股林恩如回測（近 {years} 年）')
+        win.title(f'{etf_code} 成分股{method_name}回測（近 {years} 年）')
         win.configure(bg='#12142a')
         win.geometry('780x560')
 
@@ -9113,7 +9129,6 @@ class StockApp(tk.Tk):
         def _worker():
             results = []
             cutoff = (pd.Timestamp.now() - pd.DateOffset(years=years)).date()
-            vol_mult = 1.5;  vol_en = True
 
             for idx, code in enumerate(codes, 1):
                 win.after(0, lambda c=code, i=idx:
@@ -9130,8 +9145,8 @@ class StockApp(tk.Tk):
                         results.append({'code': code, 'no_data': True}); continue
 
                     ohlcv = ohlcv.copy()
-                    ohlcv['MA100'] = ohlcv['Close'].rolling(100, min_periods=1).mean()
-                    ohlcv['MA20']  = ohlcv['Close'].rolling(20,  min_periods=1).mean()
+                    for col, w in [('MA5',5),('MA10',10),('MA20',20),('MA60',60),('MA100',100)]:
+                        ohlcv[col] = ohlcv['Close'].rolling(w, min_periods=1).mean()
                     tz = ohlcv.index.tz
                     cutoff_ts = pd.Timestamp(cutoff).tz_localize(tz) if tz else pd.Timestamp(cutoff)
                     ohlcv_bt  = ohlcv[ohlcv.index >= cutoff_ts].copy()
@@ -9139,32 +9154,42 @@ class StockApp(tk.Tk):
                     if len(ohlcv_bt) < 20:
                         results.append({'code': code, 'no_data': True}); continue
 
-                    entries, exits = self._calc_linen_signals(
-                        ohlcv_bt, vol_mult=vol_mult, vol_enabled=vol_en, ma20_filter=True)
-
                     close_arr = ohlcv_bt['Close'].values.astype(float)
-                    exits_s   = sorted(exits)
+                    exits_s   = []
                     trades    = []
-                    for ei, ep, sl, is_strong in entries:
-                        nx = next((x for x in exits_s if x > ei), None)
-                        if nx is not None:
-                            trades.append((close_arr[nx] - ep) / ep)
-                        else:
-                            trades.append((close_arr[-1] - ep) / ep)
 
-                    cl = trades
-                    if not cl:
+                    if method == 'linen':
+                        entries, exits = self._calc_linen_signals(
+                            ohlcv_bt, vol_mult=1.5, vol_enabled=True, ma20_filter=True)
+                        exits_s = sorted(exits)
+                        for ei, ep, sl, is_strong in entries:
+                            nx = next((x for x in exits_s if x > ei), None)
+                            pnl = (close_arr[nx] - ep) / ep if nx is not None else (close_arr[-1] - ep) / ep
+                            trades.append(pnl)
+                    else:  # zhujia
+                        _, _, _, _, _, entries, exits, _ = self._calc_zhujia_signals(
+                            ohlcv_bt, redk_enabled=True, redk_ratio=0.40,
+                            vol_enabled=False, vol_mult=1.0)
+                        exits_s = sorted(exits)
+                        for ei, sl in entries:
+                            nx = next((x for x in exits_s if x > ei), None)
+                            ep = close_arr[ei]
+                            pnl = (close_arr[nx] - ep) / ep if nx is not None else (close_arr[-1] - ep) / ep
+                            trades.append(pnl)
+
+                    if not trades:
                         results.append({'code': code, 'no_data': True}); continue
 
-                    w  = [p for p in cl if p > 0]
-                    ls = [p for p in cl if p <= 0]
-                    wr = len(w) / len(cl)
+                    w  = [p for p in trades if p > 0]
+                    ls = [p for p in trades if p <= 0]
+                    wr = len(w) / len(trades)
                     aw = np.mean([p*100 for p in w])  if w  else 0.0
                     al = np.mean([p*100 for p in ls]) if ls else 0.0
                     ev = wr * aw + (1 - wr) * al
-                    results.append({'code': code, 'n': len(cl), 'wr': wr,
+                    results.append({'code': code, 'n': len(trades), 'wr': wr,
                                     'aw': aw, 'al': al, 'ev': ev, 'no_data': False})
-                except Exception:
+                except Exception as _e:
+                    import traceback; traceback.print_exc()
                     results.append({'code': code, 'no_data': True})
 
             # 更新 UI
@@ -12222,12 +12247,22 @@ class StockApp(tk.Tk):
                    font=('Microsoft JhengHei', 8)).pack(side='left', padx=(2, 0))
         tk.Label(zhujia_bar, text='年', bg='#1c1c28', fg='#6677aa',
                  font=('Microsoft JhengHei', 8)).pack(side='left', padx=(1, 4))
+        # 方法選擇
+        _BT_ON  = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', font=('Microsoft JhengHei', 8, 'bold'), cursor='hand2', padx=6)
+        _BT_OFF = dict(bg='#2a2a3e', fg='#8899cc', relief='flat', font=('Microsoft JhengHei', 8),         cursor='hand2', padx=6)
+        self._bt_method = tk.StringVar(value='linen')
+        self._bt_linen_btn  = tk.Button(zhujia_bar, text='林恩如', **_BT_ON,
+                                        command=lambda: self._bt_switch('linen'))
+        self._bt_linen_btn.pack(side='left', padx=(0, 1))
+        self._bt_zhujia_btn = tk.Button(zhujia_bar, text='朱家泓', **_BT_OFF,
+                                        command=lambda: self._bt_switch('zhujia'))
+        self._bt_zhujia_btn.pack(side='left', padx=(0, 4))
         tk.Button(zhujia_bar, text='執行回測',
                   bg='#2d3561', fg='#a0b4e8', relief='flat',
                   font=('Microsoft JhengHei', 8),
                   activebackground='#3d4571', activeforeground='#c0d0f0',
                   cursor='hand2',
-                  command=self._run_linen_backtest).pack(side='left', padx=2)
+                  command=self._run_backtest).pack(side='left', padx=2)
 
         # ── 型態分析工具列 ───────────────────────────────────────────────
         pat_bar = tk.Frame(f, bg='#1c1c28', pady=3)
@@ -12338,7 +12373,7 @@ class StockApp(tk.Tk):
             self._bt_title_var.set('林恩如回測結果')
             self._bt_text.config(state='normal')
             self._bt_text.delete('1.0', 'end')
-            self._bt_text.insert('end', '  點擊「執行回測」查看此股票的林恩如方法回測結果\n', 'hdr')
+            self._bt_text.insert('end', '  選擇方法（林恩如 / 朱家泓）後點擊「執行回測」\n', 'hdr')
             self._bt_text.config(state='disabled')
         tk.Button(_bt_hdr, text='清除', bg='#1a1d3a', fg='#667799', relief='flat',
                   font=('Microsoft JhengHei', 8), cursor='hand2',
@@ -12607,6 +12642,131 @@ class StockApp(tk.Tk):
         self._draw_stk_kline(code, code)
         import threading
         threading.Thread(target=self._load_fin_data, args=(code,), daemon=True).start()
+
+    def _bt_switch(self, method):
+        """切換回測方法，更新按鈕高亮。"""
+        self._bt_method.set(method)
+        _ON  = dict(bg='#2a3f6f', fg='#ffffff', font=('Microsoft JhengHei', 8, 'bold'))
+        _OFF = dict(bg='#2a2a3e', fg='#8899cc', font=('Microsoft JhengHei', 8))
+        self._bt_linen_btn.config( **(_ON  if method == 'linen'  else _OFF))
+        self._bt_zhujia_btn.config(**(_ON  if method == 'zhujia' else _OFF))
+
+    def _run_backtest(self):
+        """根據選擇的方法執行回測。"""
+        if getattr(self, '_bt_method', tk.StringVar()).get() == 'zhujia':
+            self._run_zhujia_backtest()
+        else:
+            self._run_linen_backtest()
+
+    def _run_zhujia_backtest(self):
+        """執行朱家泓方法回測，結果顯示在回測面板。"""
+        import numpy as np
+
+        code  = getattr(self, '_stk_current_code', None)
+        years = self._bt_years_var.get()
+        if not code:
+            import tkinter.messagebox as mb
+            mb.showinfo('回測', '請先查詢股票資料')
+            return
+
+        need_days = years * 365 + 150
+        yf_period = '1y' if need_days <= 365 else '2y' if need_days <= 730 else '3y' if need_days <= 1095 else '5y'
+
+        ohlcv = None
+        for s in ['.TW', '.TWO', '']:
+            try:
+                h = yf.Ticker(code + s).history(period=yf_period, auto_adjust=False)
+                if not h.empty: ohlcv = h; break
+            except Exception: pass
+        if ohlcv is None or ohlcv.empty:
+            ohlcv = getattr(self, '_stk_ohlcv_full', None) or getattr(self, '_stk_ohlcv', None)
+        if ohlcv is None or ohlcv.empty:
+            import tkinter.messagebox as mb
+            mb.showinfo('回測', '無法取得資料，請先查詢股票')
+            return
+
+        tz     = ohlcv.index.tz
+        cutoff = pd.Timestamp.now(tz=tz) - pd.DateOffset(years=years)
+
+        # 讀取 UI 上的朱家泓參數
+        try:    redk_ratio = float(self._stk_zhujia_redk_var.get()) / 100
+        except: redk_ratio = 0.40
+        redk_en = getattr(self, '_stk_zhujia_redk', True)
+        vol_en  = getattr(self, '_stk_zhujia_vol',  False)
+        try:    vol_mult = float(self._stk_zhujia_vol_var.get())
+        except: vol_mult = 1.0
+
+        ohlcv = ohlcv.copy()
+        for col, w in [('MA5',5),('MA10',10),('MA20',20),('MA60',60)]:
+            if col not in ohlcv.columns:
+                ohlcv[col] = ohlcv['Close'].rolling(w, min_periods=1).mean()
+
+        ohlcv_bt = ohlcv[ohlcv.index >= cutoff].copy()
+        if len(ohlcv_bt) < 30:
+            import tkinter.messagebox as mb
+            mb.showinfo('回測', f'資料不足（{len(ohlcv_bt)} 根）')
+            return
+
+        _, _, _, _, _, entries, exits, _ = self._calc_zhujia_signals(
+            ohlcv_bt, redk_enabled=redk_en, redk_ratio=redk_ratio,
+            vol_enabled=vol_en, vol_mult=vol_mult)
+
+        # 配對進出場
+        close_arr = ohlcv_bt['Close'].values.astype(float)
+        idx_dates = ohlcv_bt.index
+        exits_s   = sorted(exits)
+        trades    = []
+        for ei, sl in entries:
+            nx = next((x for x in exits_s if x > ei), None)
+            if nx is not None:
+                xp  = float(close_arr[nx])
+                pnl = (xp - float(close_arr[ei])) / float(close_arr[ei])
+                reason = '停損' if xp < sl else 'MA5'
+                trades.append({'ed': str(idx_dates[ei])[:10], 'ep': float(close_arr[ei]),
+                                'xd': str(idx_dates[nx])[:10], 'xp': xp,
+                                'pnl': pnl, 'reason': reason, 'open': False})
+            else:
+                pnl = (float(close_arr[-1]) - float(close_arr[ei])) / float(close_arr[ei])
+                trades.append({'ed': str(idx_dates[ei])[:10], 'ep': float(close_arr[ei]),
+                                'xd': '持有中', 'xp': float(close_arr[-1]),
+                                'pnl': pnl, 'reason': '持有中', 'open': True})
+
+        # 統計
+        closed  = [t for t in trades if not t['open']]
+        wins    = [t for t in closed if t['pnl'] > 0]
+        losses  = [t for t in closed if t['pnl'] <= 0]
+
+        self._bt_s_total.set(f'{len(trades)} 筆')
+        self._bt_s_closed.set(f'{len(closed)} 筆')
+        if closed:
+            wr = len(wins) / len(closed)
+            self._bt_s_winrate.set(f'{len(wins)}/{len(closed)} = {wr*100:.0f}%')
+            self._bt_s_avg_win.set(f'+{np.mean([t["pnl"]*100 for t in wins]):.1f}%' if wins else '--')
+            self._bt_s_avg_loss.set(f'{np.mean([t["pnl"]*100 for t in losses]):.1f}%' if losses else '--')
+            aw = np.mean([t['pnl'] for t in wins]) if wins else 0
+            al = np.mean([t['pnl'] for t in losses]) if losses else 0
+            ev = wr * aw * 100 + (1 - wr) * al * 100
+            self._bt_s_ev.set(f'{ev:+.1f}%')
+        else:
+            for attr in ('_bt_s_winrate','_bt_s_avg_win','_bt_s_avg_loss','_bt_s_ev'):
+                getattr(self, attr).set('--')
+
+        self._bt_title_var.set(
+            f'朱家泓回測結果  {code}  近 {years} 年  ({str(cutoff)[:10]} ~ {str(pd.Timestamp.now(tz=tz))[:10]})')
+
+        self._bt_text.config(state='normal')
+        self._bt_text.delete('1.0', 'end')
+        hdr = f"  {'進場日':12} {'進場價':>8}  {'出場日':12} {'出場價':>8}  {'損益':>8}  {'原因'}\n"
+        self._bt_text.insert('end', hdr, 'hdr')
+        self._bt_text.insert('end', '  ' + '─' * 66 + '\n', 'hdr')
+        for t in trades:
+            tag  = 'hold' if t['open'] else ('win' if t['pnl'] > 0 else 'loss')
+            sign = '+' if t['pnl'] > 0 else ''
+            line = (f"  {t['ed']:12} {t['ep']:>8.2f}  {t['xd']:12} {t['xp']:>8.2f}"
+                    f"  {sign}{t['pnl']*100:>6.1f}%  [{t['reason']}]\n")
+            self._bt_text.insert('end', line, tag)
+        self._bt_text.config(state='disabled')
+        self._bt_frame.after(100, lambda: self._bt_frame.update_idletasks())
 
     def _run_linen_backtest(self):
         """執行林恩如方法回測，結果顯示在回測面板。"""
@@ -13309,32 +13469,58 @@ class StockApp(tk.Tk):
             for i in range(n)
         ])
 
-        # ── 進場訊號 ─────────────────────────────────────────────────────
-        entries = []   # (idx, stop_loss_price)
+        # ── 進出場訊號（有狀態迴圈，停損確實執行）──────────────────────
+        entries  = []   # (idx, stop_loss_price)
+        exits    = []   # idx
+        in_pos   = False
+        sl_price = 0.0  # 目前持倉的停損價（進場K棒最低價）
+
         for i in range(1, n):
+            if np.isnan(ma5[i - 1]) or np.isnan(ma5[i]):
+                continue
+
+            if in_pos:
+                # 出場1：收盤跌破進場K棒最低價（停損）
+                if close[i] < sl_price:
+                    exits.append(i)
+                    in_pos = False
+                    continue
+                # 出場2：收盤跌破 MA5（趨勢出場）
+                if close[i - 1] >= ma5[i - 1] and close[i] < ma5[i]:
+                    exits.append(i)
+                    in_pos = False
+                continue  # 持倉中不找新進場
+
+            # ── 進場條件 ──────────────────────────────────────────────
             if not trend[i] or not ma_bull[i]:
                 continue
-            if not (close[i - 1] <= ma5[i - 1] and close[i] > ma5[i]):
+
+            # 觸發條件：K線必須從MA5下方穿越（標準 或 跳空）
+            # 兩者都要求前收 ≤ MA5，確保是真正的穿越而非在MA5上方繼續跳空
+            is_ma5_cross = close[i - 1] <= ma5[i - 1] and close[i] > ma5[i]   # 標準穿越
+            is_gap_up    = (close[i - 1] <= ma5[i - 1] and              # 前收在MA5以下
+                            open_[i]     > close[i - 1] and             # 跳空開高
+                            close[i]     > ma5[i])                       # 收盤在MA5以上
+            if not (is_ma5_cross or is_gap_up):
                 continue
-            if redk_enabled:
+
+            # 實體紅K 條件（跳空日豁免）
+            if redk_enabled and not is_gap_up:
                 if close[i] <= open_[i]:
                     continue
                 body = close[i] - open_[i]
                 full = high[i] - low[i] + 1e-10
                 if body / full < redk_ratio:
                     continue
+
+            # 量能條件
             if vol_enabled and vol5[i] > 0:
                 if vol[i] < vol5[i] * vol_mult:
                     continue
-            entries.append((i, low[i]))
 
-        # ── 出場訊號（收盤跌破 MA5）──────────────────────────────────────
-        exits = []   # idx
-        for i in range(1, n):
-            if np.isnan(ma5[i - 1]) or np.isnan(ma5[i]):
-                continue
-            if close[i - 1] >= ma5[i - 1] and close[i] < ma5[i]:
-                exits.append(i)
+            entries.append((i, low[i]))
+            in_pos   = True
+            sl_price = low[i]  # 停損設在進場K棒最低價
 
         # ── K棒組合變盤訊號（朱家泓）────────────────────────────────────
         # 高低檔由ZigZag波段結構判斷；週K由日K重採樣取得
@@ -13428,6 +13614,10 @@ class StockApp(tk.Tk):
         PANEL_BG = '#1e2133'
 
         self._stk_current_code = code
+        # 優先用 TWSE 中文名稱
+        _tw_names = _load_twse_stock_names()
+        if name == code and code in _tw_names:
+            name = _tw_names[code]
         self._stk_current_name = name
 
         fig = self._stk_fig
@@ -13448,7 +13638,7 @@ class StockApp(tk.Tk):
                 h = t.history(period=_yf_period, auto_adjust=False)
                 if not h.empty:
                     ohlcv = h
-                    # 若名稱仍是代號，嘗試從 yfinance 取得中文名
+                    # 若 TWSE 查不到名稱，才嘗試 yfinance
                     if name == code:
                         try:
                             raw = t.info.get('longName') or t.info.get('shortName') or code
