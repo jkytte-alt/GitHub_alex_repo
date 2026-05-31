@@ -1,5 +1,29 @@
 [
   {
+    "code": "6285",
+    "name": "啟碁"
+  },
+  {
+    "code": "6282",
+    "name": "康舒"
+  },
+  {
+    "code": "00878",
+    "name": "國泰永續高股息"
+  },
+  {
+    "code": "2308",
+    "name": "台達電"
+  },
+  {
+    "code": "6669",
+    "name": "緯穎"
+  },
+  {
+    "code": "6147",
+    "name": "頎邦"
+  },
+  {
     "code": "2377",
     "name": "微星"
   },
@@ -8,35 +32,11 @@
     "name": "Hon Hai Precision Industry Co."
   },
   {
-    "code": "6285",
-    "name": "WNC Corporation"
-  },
-  {
     "code": "2303",
     "name": "United Microelectronics Corporation"
   },
   {
     "code": "2382",
     "name": "Quanta Computer"
-  },
-  {
-    "code": "3376",
-    "name": "Shin Zu Shing Co."
-  },
-  {
-    "code": "6206",
-    "name": "Flytech Technology Co."
-  },
-  {
-    "code": "00713",
-    "name": "Yuanta Taiwan High Dividend Low Volatility ETF"
-  },
-  {
-    "code": "4966",
-    "name": "Parade Technologies"
-  },
-  {
-    "code": "6442",
-    "name": "EZconn Corporation"
   }
 ]

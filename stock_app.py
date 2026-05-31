@@ -2554,6 +2554,11 @@ class StockApp(tk.Tk):
         self.geometry('1200x780')
         self.configure(bg=C_BG)
         self._apply_dark_theme()
+        # 啟動時預設最大化（Windows）
+        try:
+            self.state('zoomed')
+        except Exception:
+            pass
 
         # ── 跨執行緒 UI 回呼佇列（必須最先初始化，背景執行緒可能很早啟動）──────
         import queue as _q
@@ -5174,6 +5179,7 @@ class StockApp(tk.Tk):
         wk.configure(bg='#111111')
         wk.pack(fill='both', expand=True)
         wk.bind('<MouseWheel>', _mw)
+        
 
         # ── 樹狀圖畫布（K 線之後，主動型tab 則排在比對區後面）────────────
         self._etf_fig    = plt.Figure(figsize=(9.5, 5.3), dpi=100, facecolor='#111111')
@@ -8127,6 +8133,9 @@ class StockApp(tk.Tk):
             self._etf_status.set(f'{code}  {etf_name}  ·  {count_label}  ·  '
                                   f'更新：{datetime.now().strftime("%H:%M:%S")}{src_note}')
         _canvas.draw()
+        # 強制根據當前 widget 實際尺寸更新 Figure，確保初始加載時填滿可用空間
+        _fit_fig_to_canvas(_fig, _canvas)
+        _canvas.draw()
         if not target_fig:
             self._draw_etf_kline(code, etf_name)
             self._draw_etf_info(components, meta, debug_msg, ind_map or {})
@@ -8303,6 +8312,9 @@ class StockApp(tk.Tk):
 
         self._etf_info_cid = self._etf_info_canvas.mpl_connect(
             'motion_notify_event', _on_info_hover)
+        self._etf_info_canvas.draw()
+        # 強制根據當前 widget 實際尺寸更新 Figure，確保初始加載時填滿可用空間
+        _fit_fig_to_canvas(self._etf_info_fig, self._etf_info_canvas)
         self._etf_info_canvas.draw()
 
     # ── ETF K 線圖 ────────────────────────────────────────────────────────────
@@ -8620,6 +8632,9 @@ class StockApp(tk.Tk):
         self._kline_n     = n
 
         self._etf_kline_canvas.draw()
+        # 強制根據當前 widget 實際尺寸更新 Figure，確保初始加載時填滿可用空間
+        _fit_fig_to_canvas(self._etf_kline_fig, self._etf_kline_canvas)
+        self._etf_kline_canvas.draw()
 
     def _on_kline_hover(self, event):
         """K 線圖 hover：更新頂部資訊文字、十字游標（延伸副圖）、右側價格標籤。"""
@@ -8828,6 +8843,9 @@ class StockApp(tk.Tk):
         fig.text(0.99, 0.02, expand_hint, ha='right', va='bottom',
                  color='#666688', fontsize=8, fontfamily=CHART_FONT)
 
+        self._etf_heatmap_canvas.draw()
+        # 強制根據當前 widget 實際尺寸更新 Figure，確保初始加載時填滿可用空間
+        _fit_fig_to_canvas(self._etf_heatmap_fig, self._etf_heatmap_canvas)
         self._etf_heatmap_canvas.draw()
 
         # 畫完熱力圖後，繪製變化列表
@@ -9116,14 +9134,20 @@ class StockApp(tk.Tk):
         for col in _cols:
             tv.heading(col, text=col, command=lambda c=col: _sort_by(c))
 
-        # 雙擊跳轉個股
+        # 雙擊跳轉個股（關閉 popup 並切換到個股分析）
         def _on_dbl(evt):
-            iid = tv.focus()
+            iid = tv.identify_row(evt.y) or tv.focus()
             if iid:
                 code = tv.set(iid, '代號')
-                if code and hasattr(self, '_stk_code_var'):
-                    self._stk_code_var.set(code)
-                    self._load_stk_chart()
+                if code:
+                    name = _name_table.get(code, '')
+                    try:
+                        # 關閉回測 popup 視窗，使主視窗可見
+                        win.destroy()
+                    except Exception:
+                        pass
+                    # 延遲切頁以避免 race condition
+                    self.after(50, lambda c=code, n=name: self._open_stk_analysis(c, n))
         tv.bind('<Double-1>', _on_dbl)
 
         def _worker():
@@ -9160,7 +9184,7 @@ class StockApp(tk.Tk):
 
                     if method == 'linen':
                         entries, exits = self._calc_linen_signals(
-                            ohlcv_bt, vol_mult=1.5, vol_enabled=True, ma20_filter=True)
+                            ohlcv_bt, vol_mult=1.75, vol_enabled=True, ma20_filter=True)
                         exits_s = sorted(exits)
                         for ei, ep, sl, is_strong in entries:
                             nx = next((x for x in exits_s if x > ei), None)
@@ -9169,7 +9193,7 @@ class StockApp(tk.Tk):
                     else:  # zhujia
                         _, _, _, _, _, entries, exits, _ = self._calc_zhujia_signals(
                             ohlcv_bt, redk_enabled=True, redk_ratio=0.40,
-                            vol_enabled=False, vol_mult=1.0)
+                            vol_enabled=True, vol_mult=1.25)
                         exits_s = sorted(exits)
                         for ei, sl in entries:
                             nx = next((x for x in exits_s if x > ei), None)
@@ -12115,10 +12139,10 @@ class StockApp(tk.Tk):
                  font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(8, 6))
 
         self._stk_zhujia_on         = False
-        self._stk_zhujia_redk       = False
-        self._stk_zhujia_vol        = False
+        self._stk_zhujia_redk       = True
+        self._stk_zhujia_vol        = True
         self._stk_zhujia_redk_var   = tk.StringVar(value='40')
-        self._stk_zhujia_vol_var    = tk.StringVar(value='1.0')
+        self._stk_zhujia_vol_var    = tk.StringVar(value='1.25')
 
         def _toggle_zhujia():
             self._stk_zhujia_on = not self._stk_zhujia_on
@@ -12142,7 +12166,7 @@ class StockApp(tk.Tk):
             self._redraw_stk_kline()
 
         self._stk_zhujia_redk_btn = tk.Button(
-            zhujia_bar, text='實體紅K', **_DB_OFF, command=_toggle_zhujia_redk)
+            zhujia_bar, text='實體紅K', **_DB_ON, command=_toggle_zhujia_redk)
         self._stk_zhujia_redk_btn.pack(side='left', padx=2)
 
         _redk_sb = tk.Spinbox(
@@ -12163,7 +12187,7 @@ class StockApp(tk.Tk):
             self._redraw_stk_kline()
 
         self._stk_zhujia_vol_btn = tk.Button(
-            zhujia_bar, text='量增', **_DB_OFF, command=_toggle_zhujia_vol)
+            zhujia_bar, text='量增', **_DB_ON, command=_toggle_zhujia_vol)
         self._stk_zhujia_vol_btn.pack(side='left', padx=2)
 
         _vol_sb = tk.Spinbox(
@@ -12199,7 +12223,7 @@ class StockApp(tk.Tk):
 
         self._stk_linen_on      = False
         self._stk_linen_vol_on  = True
-        self._stk_linen_vol_var = tk.StringVar(value='1.5')
+        self._stk_linen_vol_var = tk.StringVar(value='1.75')
 
         def _toggle_linen():
             self._stk_linen_on = not self._stk_linen_on
@@ -12333,7 +12357,11 @@ class StockApp(tk.Tk):
         scroll_inner.bind('<Configure>', _inner_cfg)
 
         def _sc_cfg(e):
-            self._stk_sc.itemconfig(_win_id, width=e.width)
+            # 同步內部 window 寬高，使 scroll_inner 可隨外層 Canvas 大小改變
+            try:
+                self._stk_sc.itemconfig(_win_id, width=e.width, height=e.height)
+            except Exception:
+                self._stk_sc.itemconfig(_win_id, width=e.width)
         self._stk_sc.bind('<Configure>', _sc_cfg)
 
         def _wheel(e):
@@ -12346,8 +12374,20 @@ class StockApp(tk.Tk):
         self._stk_canvas = FigureCanvasTkAgg(self._stk_fig, master=scroll_inner)
         wk = self._stk_canvas.get_tk_widget()
         wk.configure(bg=CHART_BG)
-        wk.pack(fill='x', pady=(0, 2))
+        # 讓 K 線圖元件可隨可視空間放大縮小
+        wk.pack(fill='both', expand=True, pady=(0, 2))
         wk.bind('<MouseWheel>', _wheel)   # 滾輪還原為捲動頁面
+        # 當 widget 大小改變時，動態調整 Matplotlib Figure 尺寸以填滿空間
+        def _on_wk_cfg(ev):
+            try:
+                dpi = self._stk_fig.get_dpi()
+                w_in = max(2, ev.width / dpi)
+                h_in = max(2, ev.height / dpi)
+                self._stk_fig.set_size_inches(w_in, h_in, forward=True)
+                self._stk_canvas.draw_idle()
+            except Exception:
+                pass
+        wk.bind('<Configure>', _on_wk_cfg)
         self._stk_canvas.mpl_connect('button_press_event',  self._on_stk_btn_press)
         self._stk_canvas.mpl_connect('button_release_event', self._on_stk_btn_release)
         self._stk_canvas.mpl_connect('motion_notify_event', self._on_stk_pan_move)
@@ -12692,9 +12732,9 @@ class StockApp(tk.Tk):
         try:    redk_ratio = float(self._stk_zhujia_redk_var.get()) / 100
         except: redk_ratio = 0.40
         redk_en = getattr(self, '_stk_zhujia_redk', True)
-        vol_en  = getattr(self, '_stk_zhujia_vol',  False)
+        vol_en  = getattr(self, '_stk_zhujia_vol',  True)
         try:    vol_mult = float(self._stk_zhujia_vol_var.get())
-        except: vol_mult = 1.0
+        except: vol_mult = 1.25
 
         ohlcv = ohlcv.copy()
         for col, w in [('MA5',5),('MA10',10),('MA20',20),('MA60',60)]:
@@ -12821,7 +12861,7 @@ class StockApp(tk.Tk):
         try:
             vol_mult = float(self._stk_linen_vol_var.get())
         except Exception:
-            vol_mult = 1.5
+            vol_mult = 1.75
         vol_en = getattr(self, '_stk_linen_vol_on', True)
 
         entries, exits = self._calc_linen_signals(
@@ -13214,7 +13254,7 @@ class StockApp(tk.Tk):
 
         return up_line, down_line
 
-    def _calc_linen_signals(self, ohlcv, vol_mult=1.5, vol_enabled=True,
+    def _calc_linen_signals(self, ohlcv, vol_mult=1.75, vol_enabled=True,
                             ma20_filter=True, profit_trail_pct=0.10,
                             ma100_slope_n=20, max_loss_pct=0.10,
                             base_lookback=20, debug_date=None):
@@ -13800,10 +13840,11 @@ class StockApp(tk.Tk):
         if ind.get('RSI'):  sub_list.append('RSI')
         if ind.get('MACD'): sub_list.append('MACD')
 
-        L, W  = 0.07, 0.88
-        TOP   = 0.94
-        BOT   = 0.07
-        GAP   = 0.012
+        # Reduce left/right margins and give more vertical space for the price panel
+        L, W  = 0.035, 0.93
+        TOP   = 0.96
+        BOT   = 0.06
+        GAP   = 0.01
         n_sub = len(sub_list)
         avail = TOP - BOT
 
@@ -13925,7 +13966,7 @@ class StockApp(tk.Tk):
             try:
                 _vol_mult = float(self._stk_zhujia_vol_var.get())
             except (ValueError, AttributeError):
-                _vol_mult = 1.0
+                _vol_mult = 1.25
 
             # 確保 MA 存在（即使指標列 MA 為 OFF）
             if 'MA5' not in ohlcv.columns:
@@ -14077,7 +14118,7 @@ class StockApp(tk.Tk):
             try:
                 _ln_vol_mult = float(self._stk_linen_vol_var.get())
             except (ValueError, AttributeError):
-                _ln_vol_mult = 1.5
+                _ln_vol_mult = 1.75
             _ln_vol_en = getattr(self, '_stk_linen_vol_on', True)
 
             if 'MA100' not in ohlcv.columns:
@@ -14367,6 +14408,9 @@ class StockApp(tk.Tk):
         is_up = last_close >= prev_close
         clr_txt = '#ef5350' if is_up else '#26a69a'
         arrow = '▲' if is_up else '▼'
+        self._stk_canvas.draw()
+        # 強制根據當前 widget 實際尺寸更新 Figure，確保初始加載時填滿可用空間
+        _fit_fig_to_canvas(self._stk_fig, self._stk_canvas)
         self._stk_canvas.draw()
         self._stk_name_lbl.config(text=f'{code}  {name}')
         self._stk_status.set('資料載入完成')
