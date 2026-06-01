@@ -1,11 +1,19 @@
 [
   {
-    "code": "6285",
-    "name": "啟碁"
+    "code": "4966",
+    "name": "Parade Technologies"
   },
   {
     "code": "6282",
     "name": "康舒"
+  },
+  {
+    "code": "00713",
+    "name": "元大台灣高息低波"
+  },
+  {
+    "code": "6285",
+    "name": "啟碁"
   },
   {
     "code": "00878",
@@ -30,13 +38,5 @@
   {
     "code": "2317",
     "name": "Hon Hai Precision Industry Co."
-  },
-  {
-    "code": "2303",
-    "name": "United Microelectronics Corporation"
-  },
-  {
-    "code": "2382",
-    "name": "Quanta Computer"
   }
 ]

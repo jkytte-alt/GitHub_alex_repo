@@ -3437,6 +3437,10 @@ class StockApp(tk.Tk):
                   foreground=C_FG2, font=('Microsoft JhengHei', 9)).pack(side='left', padx=14)
         ttk.Button(ctrl, text='💾  另存圖檔', style='Nav.TButton', command=self._save_treemap).pack(side='right', padx=(4, 0))
         ttk.Button(ctrl, text='🔄  更新報價', style='Nav.TButton', command=self._draw_treemap).pack(side='right')
+        self._tm_view_mode = 'profit'
+        self._tm_mode_btn = ttk.Button(ctrl, text='📈 今日動態', style='Nav.TButton',
+                                       command=self._toggle_tm_view_mode)
+        self._tm_mode_btn.pack(side='right', padx=(0, 4))
 
         # ── 整體庫存摘要列 ────────────────────────────────────────────────────
         summary_bar = tk.Frame(f, bg=C_PANEL)
@@ -3468,17 +3472,18 @@ class StockApp(tk.Tk):
         def _sub(parent, title):
             fr = tk.Frame(parent, bg='#1a1a2e', padx=16)
             fr.pack(side='left', anchor='center')
-            tk.Label(fr, text=title, bg='#1a1a2e',
-                     fg='#6a8faf', font=('Microsoft JhengHei', 9)).pack(anchor='w')
+            tlbl = tk.Label(fr, text=title, bg='#1a1a2e',
+                     fg='#6a8faf', font=('Microsoft JhengHei', 9))
+            tlbl.pack(anchor='w')
             var = tk.StringVar(value='—')
             lbl = tk.Label(fr, textvariable=var, bg='#1a1a2e',
                            fg=C_FG, font=('Microsoft JhengHei', 16, 'bold'))
             lbl.pack(anchor='w')
-            return var, lbl
+            return var, lbl, tlbl
 
-        self._sv_pnl,    self._sl_pnl    = _sub(_mid, '損益試算')
-        self._sv_pnlpct, self._sl_pnlpct = _sub(_mid, '報酬率')
-        self._sv_cost,   self._sl_cost   = _sub(_mid, '總付出成本')
+        self._sv_pnl,    self._sl_pnl,    self._tl_pnl    = _sub(_mid, '損益試算')
+        self._sv_pnlpct, self._sl_pnlpct, self._tl_pnlpct = _sub(_mid, '報酬率')
+        self._sv_cost,   self._sl_cost,   self._tl_cost   = _sub(_mid, '總付出成本')
 
         self._tm_fig = plt.Figure(figsize=(9.5, 5.5), dpi=100, facecolor='#111111')
         self._tm_canvas = FigureCanvasTkAgg(self._tm_fig, master=f)
@@ -3561,7 +3566,7 @@ class StockApp(tk.Tk):
         self._hide_tooltip()
 
     def _show_tooltip(self, sx, sy, data):
-        expected_keys = {'title', 'price', 'qty', 'mktval', 'ratio', 'avgcost', 'pnl'}
+        expected_keys = {'title', 'price', 'today_chg', 'qty', 'mktval', 'ratio', 'avgcost', 'pnl'}
         needs_rebuild = (self._tm_tooltip is None or not self._tm_tooltip.winfo_exists()
                          or not expected_keys.issubset(self._tm_tip_widgets))
         if needs_rebuild:
@@ -3577,7 +3582,7 @@ class StockApp(tk.Tk):
             inner = tk.Frame(border, bg='#252526', padx=10, pady=8)
             inner.pack(fill='both', expand=True)
             self._tm_tip_widgets = {}
-            for key in ('title', 'price', 'qty', 'mktval', 'ratio', 'avgcost', 'pnl'):
+            for key in ('title', 'price', 'today_chg', 'qty', 'mktval', 'ratio', 'avgcost', 'pnl'):
                 lbl = tk.Label(inner, bg='#252526',
                                font=('Microsoft JhengHei', 10), anchor='w')
                 lbl.pack(fill='x')
@@ -3594,11 +3599,24 @@ class StockApp(tk.Tk):
         val   = data['value']
         pct   = data['pnl_pct']
         pnl_a = (price - avg) * qty if price else None
+        today_chg_pct = data.get('today_chg_pct', 0.0)
+        prev_p = data.get('prev_price')
 
         w['title'].config(text=f'{code}  {name}  ({cat})',
                           fg='#8ab4d4', font=('Microsoft JhengHei', 11, 'bold'))
         w['price'].config(text=f'現價：{"—" if not price else f"{price:,.2f} 元"}',
                           fg='#cccccc')
+        # 今日漲跌
+        if prev_p and price:
+            chg_amt = (price - prev_p) * qty
+            chg_sign = '+' if today_chg_pct >= 0 else ''
+            chg_fg = '#f07070' if today_chg_pct >= 0 else '#4ec94e'
+            chg_txt = (f'今日：{chg_sign}{today_chg_pct:.2f}%  '
+                       f'({chg_sign}{chg_amt:,.0f} 元)  昨收 {prev_p:,.2f}')
+        else:
+            chg_fg = '#888888'
+            chg_txt = '今日：— (無昨收資料)'
+        w['today_chg'].config(text=chg_txt, fg=chg_fg)
         w['qty'].config(text=f'持股：{qty:,.0f} 股', fg='#cccccc')
         w['mktval'].config(text=f'市值：{val:,.0f} 元', fg='#cccccc')
         portfolio_pct = data.get('portfolio_pct', 0.0)
@@ -3797,6 +3815,15 @@ class StockApp(tk.Tk):
 
     _TM_REFRESH_MS = 30_000  # 30 秒自動更新間隔
 
+    def _toggle_tm_view_mode(self):
+        if self._tm_view_mode == 'profit':
+            self._tm_view_mode = 'daily'
+            self._tm_mode_btn.configure(text='💹 獲利狀態')
+        else:
+            self._tm_view_mode = 'profit'
+            self._tm_mode_btn.configure(text='📈 今日動態')
+        self._draw_treemap()
+
     def _draw_treemap(self):
         if self._tm_fetching:
             return
@@ -3879,9 +3906,10 @@ class StockApp(tk.Tk):
 
         for (code, _cat), h in holdings.items():
             if code in _mis_prices:
-                p = _mis_prices[code][0]
+                p, prev_p = _mis_prices[code]
             else:
                 p, _ = get_price(code)
+                prev_p = None
             cat  = h.get('category', '未分類')
             avg  = h['avg_cost']
             if p:
@@ -3891,33 +3919,61 @@ class StockApp(tk.Tk):
                 val = h['total_cost']
                 pnl = 0.0
                 no_price_list.append(code)
+            today_chg_pct = (p - prev_p) / prev_p * 100 if (p and prev_p and prev_p > 0) else 0.0
             total_val += val
             groups.setdefault(cat, []).append({
                 'code': code, 'name': h['name'],
                 'value': val, 'pnl_pct': pnl, 'price': p,
                 'avg_cost': avg, 'qty': h['qty'],
                 'total_cost': h['total_cost'],
+                'today_chg_pct': today_chg_pct, 'prev_price': prev_p,
             })
 
         # ── 更新摘要列 ────────────────────────────────────────────────────────
-        total_cost    = sum(h['total_cost'] for h in holdings.values())
-        pnl_amt       = total_val - total_cost
-        pnl_pct_total = pnl_amt / total_cost * 100 if total_cost else 0
-        pnl_fg        = '#f07070' if pnl_amt >= 0 else '#4ec94e'
-        sign          = '+' if pnl_amt >= 0 else ''
+        import math as _math
         self._sv_count .set(f'持股標的  {len(holdings)} 檔')
         self._sv_mktval.set(f'{total_val:,.0f} 元')
-        self._sv_cost  .set(f'{total_cost:,.0f} 元')
-        self._sv_pnl   .set(f'{sign}{pnl_amt:,.0f} 元')
-        self._sv_pnlpct.set(f'{sign}{pnl_pct_total:.2f}%')
-        self._sl_pnl   .config(fg=pnl_fg)
-        self._sl_pnlpct.config(fg=pnl_fg)
-        self._sl_cost  .config(fg=C_FG)
+        if self._tm_view_mode == 'daily':
+            _all_stks = [s for stks in groups.values() for s in stks]
+            _today_gain = sum(
+                s['qty'] * (s['price'] - s['prev_price'])
+                for s in _all_stks if s['price'] and s['prev_price'])
+            _prev_total = sum(
+                s['qty'] * s['prev_price']
+                for s in _all_stks if s['prev_price'])
+            _today_pct  = _today_gain / _prev_total * 100 if _prev_total else 0
+            _today_fg   = '#f07070' if _today_gain >= 0 else '#4ec94e'
+            _today_sign = '+' if _today_gain >= 0 else ''
+            self._tl_pnl   .config(text='今日損益')
+            self._tl_pnlpct.config(text='今日漲跌')
+            self._tl_cost  .config(text='昨收總值')
+            self._sv_pnl   .set(f'{_today_sign}{_today_gain:,.0f} 元')
+            self._sv_pnlpct.set(f'{_today_sign}{_today_pct:.2f}%')
+            self._sv_cost  .set(f'{_prev_total:,.0f} 元')
+            self._sl_pnl   .config(fg=_today_fg)
+            self._sl_pnlpct.config(fg=_today_fg)
+            self._sl_cost  .config(fg=C_FG)
+            all_pcts = [s['today_chg_pct'] for s in _all_stks
+                        if not _math.isnan(s['today_chg_pct'])]
+        else:
+            total_cost    = sum(h['total_cost'] for h in holdings.values())
+            pnl_amt       = total_val - total_cost
+            pnl_pct_total = pnl_amt / total_cost * 100 if total_cost else 0
+            pnl_fg        = '#f07070' if pnl_amt >= 0 else '#4ec94e'
+            sign          = '+' if pnl_amt >= 0 else ''
+            self._tl_pnl   .config(text='損益試算')
+            self._tl_pnlpct.config(text='報酬率')
+            self._tl_cost  .config(text='總付出成本')
+            self._sv_cost  .set(f'{total_cost:,.0f} 元')
+            self._sv_pnl   .set(f'{sign}{pnl_amt:,.0f} 元')
+            self._sv_pnlpct.set(f'{sign}{pnl_pct_total:.2f}%')
+            self._sl_pnl   .config(fg=pnl_fg)
+            self._sl_pnlpct.config(fg=pnl_fg)
+            self._sl_cost  .config(fg=C_FG)
+            all_pcts = [s['pnl_pct'] for stks in groups.values() for s in stks
+                        if not _math.isnan(s['pnl_pct'])]
 
-        # 動態計算報酬率範圍，作為顏色插值基準
-        import math as _math
-        all_pcts = [s['pnl_pct'] for stocks in groups.values() for s in stocks
-                    if not _math.isnan(s['pnl_pct'])]
+        # 動態計算顏色範圍
         _max_abs = max((abs(p) for p in all_pcts), default=10.0) or 10.0
 
         # 各分類依市值降冪排列
@@ -3972,9 +4028,10 @@ class StockApp(tk.Tk):
                     _rw, _rh = _sw - GAP, _sh - GAP
                     if _rw <= 0 or _rh <= 0:
                         continue
+                    _pct_color = _stk['today_chg_pct'] if self._tm_view_mode == 'daily' else _stk['pnl_pct']
                     ax.add_patch(plt.Rectangle(
                         (_rx, _ry), _rw, _rh,
-                        facecolor=pnl_color(_stk['pnl_pct'], _max_abs),
+                        facecolor=pnl_color(_pct_color, _max_abs),
                         edgecolor=SEP_COL, linewidth=0.4, zorder=1))
                     self._tm_rects.append({
                         'rx': _rx, 'ry': _ry, 'rw': _rw, 'rh': _rh,
@@ -3983,6 +4040,7 @@ class StockApp(tk.Tk):
                         'pnl_pct':  _stk['pnl_pct'], 'avg_cost': _stk['avg_cost'],
                         'qty':      _stk['qty'],   'category': _drill_name,
                         'portfolio_pct': _stk['value'] / _drill_cat_val * 100 if _drill_cat_val else 0,
+                        'today_chg_pct': _stk['today_chg_pct'], 'prev_price': _stk['prev_price'],
                     })
                     _min_dim = min(_rw, _rh)
                     if _min_dim < 2:
@@ -3997,7 +4055,11 @@ class StockApp(tk.Tk):
                     _fs_name  = max(min(0.80 * _rw_px * _pt_per_px / (_name_chars * 0.95),
                                         _fs_code * 0.55, 22), 5)
                     _fs_sub   = max(_fs_code * 0.55, 5)
-                    _pnl_str  = f"{'+' if _stk['pnl_pct'] >= 0 else ''}{_stk['pnl_pct']:.2f}%"
+                    if self._tm_view_mode == 'daily':
+                        _chg = _stk['today_chg_pct']
+                        _pnl_str = f"{'+' if _chg >= 0 else ''}{_chg:.2f}%"
+                    else:
+                        _pnl_str = f"{'+' if _stk['pnl_pct'] >= 0 else ''}{_stk['pnl_pct']:.2f}%"
                     _cx_t     = _rx + _rw / 2
                     _mid_y    = _ry + _rh * 0.50
                     _fs_code_uy = _fs_code / _pt_per_px / _px_per_uy
@@ -4037,19 +4099,34 @@ class StockApp(tk.Tk):
 
             # 同步摘要列為此分類數據
             _d_val  = sum(s['value']      for s in _drill_stocks)
-            _d_cost = sum(s['total_cost'] for s in _drill_stocks)
-            _d_pnl  = _d_val - _d_cost
-            _d_pct  = _d_pnl / _d_cost * 100 if _d_cost else 0
-            _d_sign = '+' if _d_pnl >= 0 else ''
-            _d_fg   = '#f07070' if _d_pnl >= 0 else '#4ec94e'
             self._sv_count .set(f'持股標的  {len(_drill_stocks)} 檔')
             self._sv_mktval.set(f'{_d_val:,.0f} 元')
-            self._sv_cost  .set(f'{_d_cost:,.0f} 元')
-            self._sv_pnl   .set(f'{_d_sign}{_d_pnl:,.0f} 元')
-            self._sv_pnlpct.set(f'{_d_sign}{_d_pct:.2f}%')
-            self._sl_pnl   .config(fg=_d_fg)
-            self._sl_pnlpct.config(fg=_d_fg)
-            self._sl_cost  .config(fg=C_FG)
+            if self._tm_view_mode == 'daily':
+                _dd_gain = sum(s['qty'] * (s['price'] - s['prev_price'])
+                               for s in _drill_stocks if s['price'] and s['prev_price'])
+                _dd_prev = sum(s['qty'] * s['prev_price']
+                               for s in _drill_stocks if s['prev_price'])
+                _dd_pct  = _dd_gain / _dd_prev * 100 if _dd_prev else 0
+                _dd_sign = '+' if _dd_gain >= 0 else ''
+                _dd_fg   = '#f07070' if _dd_gain >= 0 else '#4ec94e'
+                self._sv_cost  .set(f'{_dd_prev:,.0f} 元')
+                self._sv_pnl   .set(f'{_dd_sign}{_dd_gain:,.0f} 元')
+                self._sv_pnlpct.set(f'{_dd_sign}{_dd_pct:.2f}%')
+                self._sl_pnl   .config(fg=_dd_fg)
+                self._sl_pnlpct.config(fg=_dd_fg)
+                self._sl_cost  .config(fg=C_FG)
+            else:
+                _d_cost = sum(s['total_cost'] for s in _drill_stocks)
+                _d_pnl  = _d_val - _d_cost
+                _d_pct  = _d_pnl / _d_cost * 100 if _d_cost else 0
+                _d_sign = '+' if _d_pnl >= 0 else ''
+                _d_fg   = '#f07070' if _d_pnl >= 0 else '#4ec94e'
+                self._sv_cost  .set(f'{_d_cost:,.0f} 元')
+                self._sv_pnl   .set(f'{_d_sign}{_d_pnl:,.0f} 元')
+                self._sv_pnlpct.set(f'{_d_sign}{_d_pct:.2f}%')
+                self._sl_pnl   .config(fg=_d_fg)
+                self._sl_pnlpct.config(fg=_d_fg)
+                self._sl_cost  .config(fg=C_FG)
 
             warn = f'  ⚠ {", ".join(no_price_list)} 無即時報價' if no_price_list else ''
             sax.text(0.5, 0.5,
@@ -4139,9 +4216,10 @@ class StockApp(tk.Tk):
                 if rw <= 0 or rh <= 0:
                     continue
 
+                _pct_color = stock['today_chg_pct'] if self._tm_view_mode == 'daily' else stock['pnl_pct']
                 ax.add_patch(plt.Rectangle(
                     (rx, ry), rw, rh,
-                    facecolor=pnl_color(stock['pnl_pct'], _max_abs),
+                    facecolor=pnl_color(_pct_color, _max_abs),
                     edgecolor=SEP_COL, linewidth=0.4, zorder=1))
 
                 # 儲存 rect 供 hover 偵測
@@ -4156,6 +4234,7 @@ class StockApp(tk.Tk):
                     'qty':      stock['qty'],
                     'category': cat_name,
                     'portfolio_pct': stock['value'] / total_val * 100 if total_val else 0,
+                    'today_chg_pct': stock['today_chg_pct'], 'prev_price': stock['prev_price'],
                 })
 
                 # 字體依方塊像素大小計算（方塊越大=占比越高=字越大）
@@ -4174,7 +4253,11 @@ class StockApp(tk.Tk):
                                    fs_code * 0.55, 22), 5)
                 fs_sub   = max(fs_code * 0.55, 5)
 
-                pnl_str = f"{'+' if stock['pnl_pct'] >= 0 else ''}{stock['pnl_pct']:.2f}%"
+                if self._tm_view_mode == 'daily':
+                    _chg = stock['today_chg_pct']
+                    pnl_str = f"{'+' if _chg >= 0 else ''}{_chg:.2f}%"
+                else:
+                    pnl_str = f"{'+' if stock['pnl_pct'] >= 0 else ''}{stock['pnl_pct']:.2f}%"
                 cx_t    = rx + rw / 2
                 mid_y   = ry + rh * 0.50
 
@@ -5087,16 +5170,17 @@ class StockApp(tk.Tk):
         self._etf_inner = tk.Frame(self._etf_sc, bg='#111111')
         _sc_win = self._etf_sc.create_window(0, 0, anchor='nw', window=self._etf_inner)
 
-        def _on_inner_cfg(e):
-            self._etf_sc.configure(scrollregion=self._etf_sc.bbox('all'))
+        # 用 default 參數捕捉當前 canvas/win ID，避免 context-swap 後 self._etf_sc 換成另一個 tab 的 canvas
+        def _on_inner_cfg(e, _sc=self._etf_sc):
+            _sc.configure(scrollregion=_sc.bbox('all'))
         self._etf_inner.bind('<Configure>', _on_inner_cfg)
 
-        def _on_sc_cfg(e):
-            self._etf_sc.itemconfig(_sc_win, width=e.width)
+        def _on_sc_cfg(e, _sc=self._etf_sc, _win=_sc_win):
+            _sc.itemconfig(_win, width=e.width)
         self._etf_sc.bind('<Configure>', _on_sc_cfg)
 
-        def _mw(e):
-            self._etf_sc.yview_scroll(-1 if e.delta > 0 else 1, 'units')
+        def _mw(e, _sc=self._etf_sc):
+            _sc.yview_scroll(-1 if e.delta > 0 else 1, 'units')
         for _w in (self._etf_sc, self._etf_inner):
             _w.bind('<MouseWheel>', _mw)
 
@@ -12080,6 +12164,12 @@ class StockApp(tk.Tk):
         self._stk_info_sig = tk.Label(info_bar, text='', bg='#0d0f17',
                                        fg='#00e5ff', font=('Microsoft JhengHei', 9, 'bold'))
         self._stk_info_sig.pack(side='left', padx=(12, 4))
+        # 即時報價指示（盤中才顯示）
+        self._stk_info_rt = tk.Label(info_bar, text='', bg='#0d0f17',
+                                      fg='#ff6644', font=('Microsoft JhengHei', 8))
+        self._stk_info_rt.pack(side='right', padx=(0, 8))
+        self._stk_rt_job  = None
+        self._stk_rt_code = None
 
         # ── 繪線工具列 ───────────────────────────────────────────────────
         draw_bar = tk.Frame(f, bg='#1c1c28', pady=3)
@@ -12352,20 +12442,20 @@ class StockApp(tk.Tk):
         scroll_inner = tk.Frame(self._stk_sc, bg=CHART_BG)
         _win_id = self._stk_sc.create_window((0, 0), window=scroll_inner, anchor='nw')
 
-        def _inner_cfg(_e):
-            self._stk_sc.configure(scrollregion=self._stk_sc.bbox('all'))
+        def _inner_cfg(_e, _sc=self._stk_sc):
+            _sc.configure(scrollregion=_sc.bbox('all'))
         scroll_inner.bind('<Configure>', _inner_cfg)
 
-        def _sc_cfg(e):
-            # 同步內部 window 寬高，使 scroll_inner 可隨外層 Canvas 大小改變
+        def _sc_cfg(e, _sc=self._stk_sc, _win=_win_id):
+            # 只同步寬度，不限高度，讓 scroll_inner 可依內容自然展高（財報等區塊才能捲動）
             try:
-                self._stk_sc.itemconfig(_win_id, width=e.width, height=e.height)
+                _sc.itemconfig(_win, width=e.width)
             except Exception:
-                self._stk_sc.itemconfig(_win_id, width=e.width)
+                pass
         self._stk_sc.bind('<Configure>', _sc_cfg)
 
-        def _wheel(e):
-            self._stk_sc.yview_scroll(int(-1 * (e.delta / 120)), 'units')
+        def _wheel(e, _sc=self._stk_sc):
+            _sc.yview_scroll(int(-1 * (e.delta / 120)), 'units')
         for _w in [self._stk_sc, scroll_inner]:
             _w.bind('<MouseWheel>', _wheel)
 
@@ -12378,13 +12468,19 @@ class StockApp(tk.Tk):
         wk.pack(fill='both', expand=True, pady=(0, 2))
         wk.bind('<MouseWheel>', _wheel)   # 滾輪還原為捲動頁面
         # 當 widget 大小改變時，動態調整 Matplotlib Figure 尺寸以填滿空間
-        def _on_wk_cfg(ev):
+        self._stk_resize_job = None
+        def _on_wk_cfg(ev, _fig=self._stk_fig, _canvas=self._stk_canvas):
+            # 更新 figure 尺寸，並以 debounce 方式等視窗停止拖動後才做同步 draw()
+            # draw_idle() 在多次連續觸發時無法保證最終尺寸正確，改用 after(200) 確保穩定後才重繪
             try:
-                dpi = self._stk_fig.get_dpi()
-                w_in = max(2, ev.width / dpi)
-                h_in = max(2, ev.height / dpi)
-                self._stk_fig.set_size_inches(w_in, h_in, forward=True)
-                self._stk_canvas.draw_idle()
+                if ev.width < 50 or ev.height < 50:
+                    return
+                _fig.set_size_inches(ev.width / _fig.get_dpi(),
+                                     ev.height / _fig.get_dpi(),
+                                     forward=False)
+                if self._stk_resize_job:
+                    self.after_cancel(self._stk_resize_job)
+                self._stk_resize_job = self.after(200, _canvas.draw)
             except Exception:
                 pass
         wk.bind('<Configure>', _on_wk_cfg)
@@ -12677,6 +12773,8 @@ class StockApp(tk.Tk):
         code = self._stk_code.get().strip()
         if not code:
             return
+        self._stk_cancel_rt()  # 取消舊的即時報價輪詢
+        self._stk_info_rt.config(text='')
         self._stk_status.set(f'載入 {code} 中…')
         self._fin_status.set(f'載入 {code} 財報資料中…')
         self._draw_stk_kline(code, code)
@@ -13544,14 +13642,15 @@ class StockApp(tk.Tk):
             if not (is_ma5_cross or is_gap_up):
                 continue
 
-            # 實體紅K 條件（跳空日豁免）
-            if redk_enabled and not is_gap_up:
-                if close[i] <= open_[i]:
+            # 實體紅K 條件（跳空日僅豁免實體比例，仍須收陽）
+            if redk_enabled:
+                if close[i] <= open_[i]:          # 陰線一律排除（含跳空日）
                     continue
-                body = close[i] - open_[i]
-                full = high[i] - low[i] + 1e-10
-                if body / full < redk_ratio:
-                    continue
+                if not is_gap_up:                  # 非跳空才檢查實體比例
+                    body = close[i] - open_[i]
+                    full = high[i] - low[i] + 1e-10
+                    if body / full < redk_ratio:
+                        continue
 
             # 量能條件
             if vol_enabled and vol5[i] > 0:
@@ -14425,6 +14524,109 @@ class StockApp(tk.Tk):
         self._stk_info_h.config(text=f'{float(last_row.get("High", last_close)):.2f}')
         self._stk_info_l.config(text=f'{float(last_row.get("Low",  last_close)):.2f}')
         self._stk_info_v.config(text=f'{int(last_row.get("Volume", 0)):,}')
+        # 盤中則啟動即時報價輪詢
+        self._stk_schedule_rt(code)
+
+    # ── 即時報價（盤中）────────────────────────────────────────────────────────
+    @staticmethod
+    def _is_tw_market_hours() -> bool:
+        from datetime import datetime, timezone, timedelta
+        _tz = timezone(timedelta(hours=8))
+        now = datetime.now(_tz)
+        if now.weekday() >= 5:
+            return False
+        return (9, 0) <= (now.hour, now.minute) <= (13, 30)
+
+    def _stk_schedule_rt(self, code: str):
+        """若在盤中，立即抓取即時報價並排程每 30 秒更新一次。"""
+        self._stk_cancel_rt()
+        if not self._is_tw_market_hours():
+            return
+        self._stk_rt_code = code
+        self._stk_fetch_rt(code)
+
+    def _stk_cancel_rt(self):
+        if self._stk_rt_job:
+            self.after_cancel(self._stk_rt_job)
+            self._stk_rt_job = None
+        self._stk_rt_code = None
+
+    def _stk_fetch_rt(self, code: str):
+        """背景抓取 TWSE MIS 即時報價，回 UI thread 後更新資訊列。"""
+        import threading
+        def _fetch():
+            hdrs = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0',
+                'Referer':    'https://mis.twse.com.tw/stock/fibest.jsp',
+                'Accept':     'application/json',
+            }
+            result = None
+            for ex in ('tse', 'otc'):
+                url = (f'https://mis.twse.com.tw/stock/api/getStockInfo.jsp'
+                       f'?ex_ch={ex}_{code}.tw')
+                try:
+                    data = _cffi_get_json(url, headers=hdrs, timeout=8)
+                    for s in data.get('msgArray', []):
+                        if str(s.get('c', '')).strip() != code:
+                            continue
+                        def _flt(k):
+                            v = str(s.get(k, '-')).strip()
+                            try:    return float(v) if v and v != '-' else None
+                            except: return None
+                        curr = _flt('z') or _flt('o')
+                        if curr:
+                            result = {
+                                'price': curr,
+                                'prev':  _flt('y'),
+                                'open':  _flt('o'),
+                                'high':  _flt('h'),
+                                'low':   _flt('l'),
+                                'vol':   _flt('v'),    # 張
+                            }
+                        break
+                except Exception:
+                    pass
+                if result:
+                    break
+            if result:
+                self._ui_call(lambda r=result: self._stk_update_rt(code, r))
+            # 若仍在盤中且目標股票未換，排程下次更新
+            self._ui_call(lambda: self._stk_reschedule_rt(code))
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _stk_reschedule_rt(self, code: str):
+        """在 UI thread 檢查是否繼續排程。"""
+        if self._stk_rt_code == code and self._is_tw_market_hours():
+            self._stk_rt_job = self.after(30000, lambda: self._stk_fetch_rt(code))
+        else:
+            self._stk_rt_job = None
+            self._stk_rt_code = None
+            self._stk_info_rt.config(text='')
+
+    def _stk_update_rt(self, code: str, r: dict):
+        """UI thread：將即時報價寫入資訊列。"""
+        if self._stk_rt_code != code:
+            return
+        from datetime import datetime, timezone, timedelta
+        now_str = datetime.now(timezone(timedelta(hours=8))).strftime('%H:%M:%S')
+        curr = r['price']
+        prev = r['prev']
+        chg  = (curr - prev) if prev else 0
+        pct  = chg / prev * 100 if prev else 0
+        is_up = chg >= 0
+        clr  = '#ef5350' if is_up else '#26a69a'
+        arrow = '▲' if is_up else '▼'
+        sign  = '+' if chg >= 0 else ''
+        self._stk_info_date .config(text='即時',    fg='#ff9966')
+        self._stk_info_close.config(text=f'{curr:.2f}', fg=clr)
+        self._stk_info_chg  .config(
+            text=f'{arrow} {sign}{chg:.2f} ({sign}{pct:.2f}%)', fg=clr)
+        if r.get('open'):  self._stk_info_o.config(text=f'{r["open"]:.2f}')
+        if r.get('high'):  self._stk_info_h.config(text=f'{r["high"]:.2f}')
+        if r.get('low'):   self._stk_info_l.config(text=f'{r["low"]:.2f}')
+        if r.get('vol'):   self._stk_info_v.config(text=f'{int(r["vol"]):,} 張')
+        self._stk_info_rt.config(text=f'● 即時  {now_str}')
+        self._stk_status.set(f'即時報價  {now_str}')
 
     # ── K線圖縮放 / 平移 ──────────────────────────────────────────────────────
     def _stk_autoscale_y(self, i0: int, i1: int):
