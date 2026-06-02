@@ -11986,6 +11986,8 @@ class StockApp(tk.Tk):
 
         ttk.Button(ctrl, text='📈  查詢', style='Nav.TButton',
                    command=self._load_stk_chart).pack(side='left', padx=(6, 0))
+        ttk.Button(ctrl, text='💾  另存圖檔', style='Nav.TButton',
+                   command=self._save_stk_chart).pack(side='right', padx=(4, 0))
 
         self._stk_name_lbl = tk.Label(ctrl, text='', bg=C_BG,
                                        fg='#e8e8f8',
@@ -12142,30 +12144,8 @@ class StockApp(tk.Tk):
             command=self._open_wantgoo_kline)
         self._wg_open_btn.pack(side='left', padx=2)
 
-        # ── 當日資訊列 ───────────────────────────────────────────────────
-        info_bar = tk.Frame(f, bg='#0d0f17', pady=4)
-        info_bar.pack(fill='x', padx=8, pady=(0, 0))
         _FI  = ('Microsoft JhengHei', 9)
         _FIP = ('Microsoft JhengHei', 20, 'bold')
-        self._stk_info_date   = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#777788', font=_FI)
-        self._stk_info_date.pack(side='left', padx=(6, 10))
-        self._stk_info_close  = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#cccccc', font=_FIP)
-        self._stk_info_close.pack(side='left', padx=(0, 4))
-        self._stk_info_chg    = tk.Label(info_bar, text='', bg='#0d0f17', fg='#cccccc', font=_FI)
-        self._stk_info_chg.pack(side='left', padx=(0, 14))
-        for _lbl, _attr in [('開', '_stk_info_o'), ('高', '_stk_info_h'),
-                             ('低', '_stk_info_l'), ('量', '_stk_info_v')]:
-            tk.Label(info_bar, text=_lbl, bg='#0d0f17', fg='#555566', font=_FI).pack(side='left', padx=(4, 1))
-            _w = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#cccccc', font=_FI)
-            _w.pack(side='left', padx=(0, 4))
-            setattr(self, _attr, _w)
-        self._stk_info_sig = tk.Label(info_bar, text='', bg='#0d0f17',
-                                       fg='#00e5ff', font=('Microsoft JhengHei', 9, 'bold'))
-        self._stk_info_sig.pack(side='left', padx=(12, 4))
-        # 即時報價指示（盤中才顯示）
-        self._stk_info_rt = tk.Label(info_bar, text='', bg='#0d0f17',
-                                      fg='#ff6644', font=('Microsoft JhengHei', 8))
-        self._stk_info_rt.pack(side='right', padx=(0, 8))
         self._stk_rt_job  = None
         self._stk_rt_code = None
 
@@ -12423,6 +12403,32 @@ class StockApp(tk.Tk):
                            command=lambda k=_pk: _toggle_pat(k))
             _b.pack(side='left', padx=2)
             self._stk_pattern_btns[_pk] = _b
+
+        # ── 資訊列（緊貼K線上方）──────────────────────────────────────
+        info_bar = tk.Frame(f, bg='#0d0f17', pady=4)
+        info_bar.pack(fill='x', padx=8, pady=(2, 0))
+        self._stk_info_title = tk.Label(info_bar, text='', bg='#0d0f17',
+                                         fg='#c8d0e8', font=('Microsoft JhengHei', 11, 'bold'))
+        self._stk_info_title.pack(side='left', padx=(8, 14))
+        tk.Label(info_bar, text='│', bg='#0d0f17', fg='#333355', font=_FI).pack(side='left', padx=4)
+        self._stk_info_date   = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#777788', font=_FI)
+        self._stk_info_date.pack(side='left', padx=(2, 10))
+        self._stk_info_close  = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#cccccc', font=_FIP)
+        self._stk_info_close.pack(side='left', padx=(0, 4))
+        self._stk_info_chg    = tk.Label(info_bar, text='', bg='#0d0f17', fg='#cccccc', font=_FI)
+        self._stk_info_chg.pack(side='left', padx=(0, 14))
+        for _lbl, _attr in [('開', '_stk_info_o'), ('高', '_stk_info_h'),
+                             ('低', '_stk_info_l'), ('量', '_stk_info_v')]:
+            tk.Label(info_bar, text=_lbl, bg='#0d0f17', fg='#555566', font=_FI).pack(side='left', padx=(4, 1))
+            _w = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#cccccc', font=_FI)
+            _w.pack(side='left', padx=(0, 4))
+            setattr(self, _attr, _w)
+        self._stk_info_sig = tk.Label(info_bar, text='', bg='#0d0f17',
+                                       fg='#00e5ff', font=('Microsoft JhengHei', 9, 'bold'))
+        self._stk_info_sig.pack(side='left', padx=(12, 4))
+        self._stk_info_rt = tk.Label(info_bar, text='', bg='#0d0f17',
+                                      fg='#ff6644', font=('Microsoft JhengHei', 8))
+        self._stk_info_rt.pack(side='right', padx=(0, 8))
 
         # ── 共用捲動區域（K線 + 財報連續） ──────────────────────────────
         scroll_outer = tk.Frame(f, bg=CHART_BG)
@@ -12764,6 +12770,47 @@ class StockApp(tk.Tk):
         self._fin_status.set(f'載入 {code} 財報資料中…')
         import threading
         threading.Thread(target=self._load_fin_data, args=(code,), daemon=True).start()
+
+    def _save_stk_chart(self):
+        """儲存K線圖（含目前開啟的所有子圖）為PNG/JPG。"""
+        from tkinter import filedialog
+        if not getattr(self, '_stk_current_code', None):
+            return
+        code = self._stk_current_code
+        name = getattr(self, '_stk_current_name', '')
+        default_name = f'{code}_{name}_kline.png'.replace(' ', '_')
+        path = filedialog.asksaveasfilename(
+            title='儲存K線圖',
+            defaultextension='.png',
+            filetypes=[('PNG 圖片', '*.png'), ('JPEG 圖片', '*.jpg'), ('所有檔案', '*.*')],
+            initialfile=default_name)
+        if not path:
+            return
+        # 組合資訊列文字作為圖表標題
+        date_txt  = self._stk_info_date .cget('text')
+        close_txt = self._stk_info_close.cget('text')
+        chg_txt   = self._stk_info_chg  .cget('text')
+        o_txt = self._stk_info_o.cget('text')
+        h_txt = self._stk_info_h.cget('text')
+        l_txt = self._stk_info_l.cget('text')
+        v_txt = self._stk_info_v.cget('text')
+        sig_txt   = self._stk_info_sig  .cget('text')
+        title_str = (f'{code}  {name}   {date_txt}  {close_txt}  {chg_txt}'
+                     f'   開 {o_txt}  高 {h_txt}  低 {l_txt}  量 {v_txt}')
+        if sig_txt:
+            title_str += f'   {sig_txt}'
+        st = self._stk_fig.suptitle(
+            title_str,
+            color='#c8d0e8', fontfamily='Microsoft JhengHei',
+            fontsize=10, y=1.01, ha='left', x=0.01)
+        try:
+            self._stk_fig.savefig(
+                path, dpi=150, bbox_inches='tight',
+                facecolor=self._stk_fig.get_facecolor())
+            self._stk_status.set(f'已儲存：{path}')
+        finally:
+            st.remove()
+            self._stk_canvas.draw_idle()
 
     def _load_stk_chart(self):
         """查詢按鈕 / Enter：繪製 K 線並載入財報。"""
@@ -13891,6 +13938,7 @@ class StockApp(tk.Tk):
             ax.axis('off')
             self._stk_canvas.draw()
             self._stk_name_lbl.config(text=code)
+            self._stk_info_title.config(text=code)
             self._stk_status.set('無法取得資料')
             return
 
@@ -14543,6 +14591,7 @@ class StockApp(tk.Tk):
         _fit_fig_to_canvas(self._stk_fig, self._stk_canvas)
         self._stk_canvas.draw()
         self._stk_name_lbl.config(text=f'{code}  {name}')
+        self._stk_info_title.config(text=f'{code}  {name}')
         self._stk_status.set('資料載入完成')
         self._stk_save_recent(code, name)
         # 更新資訊列初始值（最後一筆）
