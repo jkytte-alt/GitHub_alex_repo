@@ -9218,20 +9218,18 @@ class StockApp(tk.Tk):
         for col in _cols:
             tv.heading(col, text=col, command=lambda c=col: _sort_by(c))
 
-        # 雙擊跳轉個股（關閉 popup 並切換到個股分析）
+        # 雙擊跳轉個股（保留回測視窗，切換主視窗到個股分析後拉到前景）
         def _on_dbl(evt):
             iid = tv.identify_row(evt.y) or tv.focus()
             if iid:
                 code = tv.set(iid, '代號')
                 if code:
                     name = _name_table.get(code, '')
-                    try:
-                        # 關閉回測 popup 視窗，使主視窗可見
-                        win.destroy()
-                    except Exception:
-                        pass
-                    # 延遲切頁以避免 race condition
-                    self.after(50, lambda c=code, n=name: self._open_stk_analysis(c, n))
+                    def _switch(c=code, n=name):
+                        self._open_stk_analysis(c, n)
+                        self.lift()          # 主視窗拉到最前
+                        self.focus_force()   # 確保主視窗獲得焦點
+                    self.after(50, _switch)
         tv.bind('<Double-1>', _on_dbl)
 
         def _worker():
@@ -12469,15 +12467,14 @@ class StockApp(tk.Tk):
         wk.bind('<MouseWheel>', _wheel)   # 滾輪還原為捲動頁面
         # 當 widget 大小改變時，動態調整 Matplotlib Figure 尺寸以填滿空間
         self._stk_resize_job = None
-        def _on_wk_cfg(ev, _fig=self._stk_fig, _canvas=self._stk_canvas):
-            # 更新 figure 尺寸，並以 debounce 方式等視窗停止拖動後才做同步 draw()
-            # draw_idle() 在多次連續觸發時無法保證最終尺寸正確，改用 after(200) 確保穩定後才重繪
+        def _on_wk_cfg(ev, _fig=self._stk_fig, _canvas=self._stk_canvas, _wk=wk):
+            # winfo_width/height() 比 ev.width/height 更可靠（DPI 縮放下 ev 可能不準）
             try:
-                if ev.width < 50 or ev.height < 50:
+                w = _wk.winfo_width()
+                h = _wk.winfo_height()
+                if w < 50 or h < 50:
                     return
-                _fig.set_size_inches(ev.width / _fig.get_dpi(),
-                                     ev.height / _fig.get_dpi(),
-                                     forward=False)
+                _fig.set_size_inches(w / _fig.get_dpi(), h / _fig.get_dpi(), forward=False)
                 if self._stk_resize_job:
                     self.after_cancel(self._stk_resize_job)
                 self._stk_resize_job = self.after(200, _canvas.draw)
@@ -13515,11 +13512,23 @@ class StockApp(tk.Tk):
             if not _strong_day and not _has_bullish_base(i):
                 if _dbg: print(f'[DEBUG] {debug_date} ❌ 無底部型態（W底/錘頭/底底高），漲幅{_day_gain:.1%} <= 7%')
                 continue
-            # 條件A：MA100 比 30 天前下降 > 4%（長期空頭趨勢，過濾）
+            # 條件A：MA100 長期下降且未趨緩 → 過濾系統性空頭
+            # 若 30 天跌幅 > 4%，再檢查近 10 天斜率是否比前 10 天改善（趨緩）
+            # 趨緩定義：近10天降幅 >= 前10天降幅（slope_recent >= slope_older）
             _ref30 = max(0, i - 30)
             if ma100[i] < ma100[_ref30] * 0.96:
-                if _dbg: print(f'[DEBUG] {debug_date} ❌ MA100持續下降：{ma100[i]:.2f} < {ma100[_ref30]:.2f}*0.96')
-                continue
+                _ref10 = max(0, i - 10)
+                _ref20 = max(0, i - 20)
+                _slope_r = ma100[i]      - ma100[_ref10]   # 近10天變化（負=仍下降）
+                _slope_o = ma100[_ref10] - ma100[_ref20]   # 前10天變化
+                _decelerating = _slope_r >= _slope_o        # 近期降幅縮小 = 趨緩
+                if not _decelerating:
+                    if _dbg: print(f'[DEBUG] {debug_date} ❌ MA100持續下降且加速：'
+                                   f'{ma100[i]:.2f} < {ma100[_ref30]:.2f}*0.96，'
+                                   f'近10天={_slope_r:+.2f} 前10天={_slope_o:+.2f}')
+                    continue
+                if _dbg: print(f'[DEBUG] {debug_date} ⚠ MA100下降但趨緩，允許繼續：'
+                               f'近10天={_slope_r:+.2f} 前10天={_slope_o:+.2f}')
             # 條件B：前 20 天至少 70% 收盤在 MA100 以下（MA100 震盪股，過濾）
             _s20   = max(0, i - 20)
             _w20   = i - _s20
@@ -14056,6 +14065,9 @@ class StockApp(tk.Tk):
                                   fontsize=7.5, fontfamily=CHART_FONT,
                                   color='#ff6d00', alpha=0.9, zorder=6)
 
+        # 進出場 marker hover tooltip 資料（朱家泓 + 林恩如共用，每次重繪重置）
+        self._stk_marker_tooltips = []
+
         # ── 朱家泓老師技術分析訊號疊加 ────────────────────────────────────
         if getattr(self, '_stk_zhujia_on', False):
             try:
@@ -14175,42 +14187,37 @@ class StockApp(tk.Tk):
                         transform=_strip_trans,
                         zorder=8, linewidths=0, clip_on=False)
 
-            # 狀態文字框：錨定在最近進場 K 棒（無進場則最後一根），不遮擋 K 線
-            trend_now   = bool(trend[-1])   if n > 0 else False
-            ma_bull_now = bool(ma_bull[-1]) if n > 0 else False
-            _t = '✓ 多頭確認' if trend_now   else '✗ 未確認'
-            _m = '✓ 多頭排列' if ma_bull_now else '✗ 未對齊'
-            status_lines = [f'波段趨勢：{_t}', f'MA 排列：{_m}']
-            if entries:
-                last_idx, last_sl = entries[-1]
-                last_date  = ohlcv.index[last_idx].strftime('%m/%d')
-                last_price = float(ohlcv['Close'].iloc[last_idx])
-                still_in   = not any(e > last_idx for e in exits)
-                status_lines += [
-                    f'最近進場：{last_date} @ {last_price:.2f}',
-                    f'停損價：{last_sl:.2f}',
-                    f'持倉：{"持有中" if still_in else "已出場"}',
-                ]
+            # 朱家泓 hover tooltip 資料（取代固定文字框）
+            _zj_trend_now   = bool(trend[-1])   if n > 0 else False
+            _zj_ma_bull_now = bool(ma_bull[-1]) if n > 0 else False
+            _zj_t = '✓ 多頭確認' if _zj_trend_now   else '✗ 未確認'
+            _zj_m = '✓ 多頭排列' if _zj_ma_bull_now else '✗ 未對齊'
 
-            # 狀態框：X 錨定在最近進場/最後一根，Y 浮在全圖最高點上方 margin 內
-            _anc      = entries[-1][0] if entries else n - 1
-            _pmin_now = float(ohlcv['Low'].min())
-            _pmax_now = float(ohlcv['High'].max())
-            _prange   = max(_pmax_now - _pmin_now, 1e-6)
-            # Y：緊貼最高 High 上方（margin 區域，保證不擋 K 棒）
-            _by  = _pmax_now + _prange * 0.015
-            _bva = 'bottom'
-            # X：錨點在右半 → 框向左延伸；在左半 → 框向右延伸
-            _bha = 'right' if _anc >= n * 0.5 else 'left'
-            ax_price.text(
-                _anc, _by, '\n'.join(status_lines),
-                transform=ax_price.transData,
-                ha=_bha, va=_bva,
-                fontsize=7.5, fontfamily=CHART_FONT, color='#dddddd',
-                clip_on=False,
-                bbox=dict(boxstyle='round,pad=0.45', facecolor='#1a1d2e',
-                          edgecolor='#d4af37', alpha=0.88),
-                zorder=10)
+            for _ei, _esl in entries:
+                _e_date  = ohlcv.index[_ei].strftime('%m/%d')
+                _e_price = float(ohlcv['Close'].iloc[_ei])
+                _e_still = not any(e > _ei for e in exits)
+                _e_y     = float(ohlcv['Low'].iloc[_ei]) * 0.997
+                _e_lines = [f'【朱】進場', f'{_e_date} @ {_e_price:.2f}', f'停損：{_esl:.2f}']
+                if _e_still:
+                    _e_unr = (float(ohlcv['Close'].iloc[-1]) - _e_price) / _e_price * 100
+                    _e_lines += [f'持倉：持有中', f'未實現：{_e_unr:+.1f}%']
+                self._stk_marker_tooltips.append({
+                    'xi': _ei, 'y': _e_y, 'text': '\n'.join(_e_lines),
+                    'edge': '#d4af37', 'xytext': (10, 12), 'ha': 'left', 'va': 'bottom'})
+
+            for _xi in exits:
+                _x_date  = ohlcv.index[_xi].strftime('%m/%d')
+                _x_y     = float(ohlcv['High'].iloc[_xi]) * 1.003
+                self._stk_marker_tooltips.append({
+                    'xi': _xi, 'y': _x_y, 'text': f'【朱】出場\n{_x_date}',
+                    'edge': '#ffa726', 'xytext': (10, -12), 'ha': 'left', 'va': 'top'})
+
+            # 最新 K 棒：波段趨勢 + MA 排列狀態
+            self._stk_marker_tooltips.append({
+                'xi': n - 1, 'y': float(ohlcv['Close'].iloc[-1]),
+                'text': f'【朱】最新狀態\n波段趨勢：{_zj_t}\nMA 排列：{_zj_m}',
+                'edge': '#d4af37', 'xytext': (-10, -12), 'ha': 'right', 'va': 'top'})
 
         # ── 林恩如 超簡單趨勢波段投資法訊號 ──────────────────────────────
         if getattr(self, '_stk_linen_on', False):
@@ -14226,9 +14233,22 @@ class StockApp(tk.Tk):
                 ohlcv['MA20'] = ohlcv['Close'].rolling(20, min_periods=1).mean()
 
             _ln_debug = getattr(self, '_stk_linen_debug_date', None)
+            # ── 診斷特定日期：set self._stk_linen_debug_date = 'YYYY-MM-DD' 可列印條件 ──
             ln_entries, ln_exits = self._calc_linen_signals(
                 ohlcv, vol_mult=_ln_vol_mult, vol_enabled=_ln_vol_en, ma20_filter=True,
                 debug_date=_ln_debug)
+            if _ln_debug:
+                # 額外印出 debug_date 前後各一根棒的原始數值，方便對照圖表
+                _dbg_idx = next((i for i in range(1, len(ohlcv))
+                                 if str(ohlcv.index[i])[:10] == str(_ln_debug)[:10]), None)
+                if _dbg_idx is not None:
+                    _prev = _dbg_idx - 1
+                    print(f'[RAW] {_ln_debug}  前收={ohlcv["Close"].iloc[_prev]:.2f}  '
+                          f'前MA100={ohlcv["MA100"].iloc[_prev]:.2f}  '
+                          f'當收={ohlcv["Close"].iloc[_dbg_idx]:.2f}  '
+                          f'當MA100={ohlcv["MA100"].iloc[_dbg_idx]:.2f}  '
+                          f'當MA20={ohlcv["MA20"].iloc[_dbg_idx]:.2f}  '
+                          f'前MA20={ohlcv["MA20"].iloc[_prev]:.2f}')
 
             # ── 進場標記 ─────────────────────────────────────────────────
             for idx, ep, sl, is_strong in ln_entries:
@@ -14286,31 +14306,42 @@ class StockApp(tk.Tk):
                                                 facecolor=_pbg,
                                                 edgecolor='none', alpha=0.92))
 
-            # ── 狀態資訊框 ────────────────────────────────────────────────
-            _ma100_now  = float(ohlcv['MA100'].iloc[-1])
-            _close_now  = float(ohlcv['Close'].iloc[-1])
-            _ln_st = ['✓ 股價 > MA100' if _close_now > _ma100_now else '✗ 股價 < MA100',
-                      f'MA100：{_ma100_now:.2f}']
-            if ln_entries:
-                _le = ln_entries[-1]
-                _still = not any(e > _le[0] for e in ln_exits)
-                _ln_st += [
-                    f'最近進場：{ohlcv.index[_le[0]].strftime("%m/%d")} @ {_le[1]:.2f}',
-                    f'停損：{_le[2]:.2f}',
-                    f'持倉：{"持有中" if _still else "已出場"}',
-                ]
-                if _still:
-                    _unr = (_close_now - _le[1]) / _le[1] * 100
-                    _ln_st.append(f'未實現：{_unr:+.1f}%')
-            ax_price.text(
-                0.99, 0.98,
-                '\n'.join(_ln_st),
-                ha='right', va='top',
-                transform=ax_price.transAxes,
-                fontsize=7.5, fontfamily=CHART_FONT, color='#dddddd',
-                bbox=dict(boxstyle='round,pad=0.45', facecolor='#1a1d2e',
-                          edgecolor='#7ec8e3', alpha=0.88),
-                zorder=10)
+            # 林恩如 hover tooltip 資料（取代固定文字框）
+            _ma100_now = float(ohlcv['MA100'].iloc[-1])
+            _close_now = float(ohlcv['Close'].iloc[-1])
+            _last_date = ohlcv.index[-1].strftime('%m/%d')
+
+            for _li, _lep, _lsl, _lis in ln_entries:
+                _l_date  = ohlcv.index[_li].strftime('%m/%d')
+                _l_still = not any(e > _li for e in ln_exits)
+                _l_y     = float(ohlcv['Low'].iloc[_li]) * 0.997
+                _l_lbl   = '強進場' if _lis else '進場'
+                _l_lines = [f'【林】{_l_lbl}', f'{_l_date} @ {_lep:.2f}', f'停損：{_lsl:.2f}']
+                if _l_still:
+                    _l_unr = (_close_now - _lep) / _lep * 100
+                    _l_lines += [f'持倉：持有中', f'未實現：{_l_unr:+.1f}%']
+                self._stk_marker_tooltips.append({
+                    'xi': _li, 'y': _l_y, 'text': '\n'.join(_l_lines),
+                    'edge': '#7ec8e3', 'xytext': (10, 12), 'ha': 'left', 'va': 'bottom'})
+
+            for _lxi in ln_exits:
+                _lx_date = ohlcv.index[_lxi].strftime('%m/%d')
+                _lx_y    = float(ohlcv['High'].iloc[_lxi]) * 1.003
+                _lx_prev = next((e for e in reversed(ln_entries) if e[0] < _lxi), None)
+                _lx_lines = [f'【林】出場', _lx_date]
+                if _lx_prev:
+                    _lx_pnl = (float(ohlcv['Close'].iloc[_lxi]) - _lx_prev[1]) / _lx_prev[1] * 100
+                    _lx_lines.append(f'損益：{_lx_pnl:+.1f}%')
+                self._stk_marker_tooltips.append({
+                    'xi': _lxi, 'y': _lx_y, 'text': '\n'.join(_lx_lines),
+                    'edge': '#ffa726', 'xytext': (10, -12), 'ha': 'left', 'va': 'top'})
+
+            # 最新 K 棒：MA100 狀態
+            _ln_ma_txt = '✓ 股價 > MA100' if _close_now > _ma100_now else '✗ 股價 < MA100'
+            self._stk_marker_tooltips.append({
+                'xi': n - 1, 'y': _close_now,
+                'text': f'【林】最新 {_last_date}\n{_ln_ma_txt}\nMA100：{_ma100_now:.2f}',
+                'edge': '#7ec8e3', 'xytext': (-10, -12), 'ha': 'right', 'va': 'top'})
 
         # ── 型態分析（偵測 + 按鈕高亮；疊加繪製只在型態 ON 時）────────────
         _pat_btns  = getattr(self, '_stk_pattern_btns', {})
@@ -14751,6 +14782,12 @@ class StockApp(tk.Tk):
         if ann is not None and ann.get_visible():
             ann.set_visible(False)
             self._stk_canvas.draw_idle()
+        _tt = getattr(self, '_stk_tt_frame', None)
+        if _tt is not None:
+            try:
+                _tt.place_forget()
+            except Exception:
+                pass
 
     def _on_stk_hover(self, event):
         """個股 K 線 hover：更新資訊列、十字游標（延伸至副圖）、右側價格標籤。"""
@@ -14825,9 +14862,43 @@ class StockApp(tk.Tk):
                 _kbar_ann.get_bbox_patch().set_edgecolor(_sig_fg)
                 _kbar_ann.set_visible(True)
         else:
-            self._stk_info_sig.config(text='')
+            # 無 K 棒訊號時：顯示該 bar 的 MA100 值（方便判斷穿越）
+            _ma100_row = row.get('MA100', None)
+            if _ma100_row is not None and not (isinstance(_ma100_row, float) and _ma100_row != _ma100_row):
+                _ma100_v = float(_ma100_row)
+                _vs = '↑' if c > _ma100_v else '↓'
+                _mc = '#70cc70' if c > _ma100_v else '#aaaaaa'
+                self._stk_info_sig.config(text=f'MA100 {_ma100_v:.2f} {_vs}', fg=_mc)
+            else:
+                self._stk_info_sig.config(text='')
             if _kbar_ann is not None:
                 _kbar_ann.set_visible(False)
+
+        # 進出場 marker 懸浮 tooltip（tkinter Label，不受圖區邊界限制）
+        _m_tooltips = getattr(self, '_stk_marker_tooltips', [])
+        _matches = [t for t in _m_tooltips if t['xi'] == xi]
+        if not hasattr(self, '_stk_tt_frame') or not self._stk_tt_frame.winfo_exists():
+            _cvs_wk = self._stk_canvas.get_tk_widget()
+            self._stk_tt_frame = tk.Frame(
+                _cvs_wk, bg='#1a1d2e',
+                highlightbackground='#7ec8e3', highlightthickness=1)
+            self._stk_tt_lbl = tk.Label(
+                self._stk_tt_frame, text='', bg='#1a1d2e', fg='#dddddd',
+                font=('Microsoft JhengHei', 8), justify='left', padx=6, pady=3)
+            self._stk_tt_lbl.pack()
+        if _matches:
+            _combined = '\n─────\n'.join(t['text'] for t in _matches)
+            _mt = _matches[0]
+            self._stk_tt_lbl.config(text=_combined)
+            self._stk_tt_frame.config(highlightbackground=_mt['edge'])
+            _fig_h = self._stk_fig.get_figheight() * self._stk_fig.get_dpi()
+            _ev_x  = int(event.x)
+            _ev_y  = int(_fig_h - event.y)
+            _cvs_w = self._stk_canvas.get_tk_widget().winfo_width()
+            _x = (_ev_x - 190) if (_ev_x + 190 > _cvs_w) else (_ev_x + 12)
+            self._stk_tt_frame.place(x=max(0, _x), y=max(0, _ev_y - 10))
+        else:
+            self._stk_tt_frame.place_forget()
 
         # 主圖游標線
         if self._stk_vline is not None:
