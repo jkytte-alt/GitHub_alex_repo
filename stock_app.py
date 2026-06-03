@@ -12119,7 +12119,7 @@ class StockApp(tk.Tk):
         # 指標
         self._stk_ind_state: dict[str, bool] = {
             'MA': True, 'BB': False, 'VOL': True,
-            'MACD': True, 'RSI': False, 'KD': True, 'TL': True}
+            'MACD': True, 'RSI': False, 'KD': True, 'TL': True, 'GAP': False}
         self._stk_ind_btns: dict[str, tk.Button] = {}
         tk.Label(kctrl, text='指標:', bg=_CTRL_BG, fg='#6677aa',
                  font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 4))
@@ -12129,7 +12129,7 @@ class StockApp(tk.Tk):
             _s6btn(self._stk_ind_btns[lbl], self._stk_ind_state[lbl])
             self._redraw_stk_kline()
 
-        for _il in ['MA', 'BB', 'VOL', 'MACD', 'RSI', 'KD', 'TL']:
+        for _il in ['MA', 'BB', 'VOL', 'MACD', 'RSI', 'KD', 'TL', 'GAP']:
             _on = self._stk_ind_state[_il]
             _b = tk.Button(kctrl, text=_il,
                            **(_BTN_ON if _on else _BTN_OFF),
@@ -13396,6 +13396,71 @@ class StockApp(tk.Tk):
 
         return up_line, down_line
 
+    def _calc_gap_signals(self, ohlcv):
+        """偵測跳空缺口與大量高低點。
+
+        Returns
+        -------
+        gaps : list of dict
+            {idx, direction('up'|'down'), top, bot,
+             fill_type('none'|'intraday'|'close')}
+            fill_type:
+              'close'   — 收盤價已穿越缺口邊界（不顯示）
+              'intraday'— 影線觸及但收盤未穿越（淡化）
+              'none'    — 尚未回補（正常顯示）
+        hvol_highs : list of (idx, price)
+        hvol_lows  : list of (idx, price)
+        """
+        hi    = ohlcv['High'].values.astype(float)
+        lo    = ohlcv['Low'].values.astype(float)
+        cl    = ohlcv['Close'].values.astype(float)
+        vol   = ohlcv.get('Volume', None)
+        n     = len(ohlcv)
+
+        # ── 跳空缺口 ──────────────────────────────────────────────────────
+        gaps = []
+        for i in range(1, n):
+            if lo[i] > hi[i - 1]:          # 向上跳空
+                top, bot = lo[i], hi[i - 1]
+                fill_type = 'none'
+                for j in range(i + 1, n):
+                    if cl[j] <= bot:        # 收盤已回補
+                        fill_type = 'close'
+                        break
+                    if lo[j] <= bot:        # 僅盤中回補
+                        fill_type = 'intraday'
+                        break
+                gaps.append({'idx': i, 'direction': 'up',
+                             'top': top, 'bot': bot, 'fill_type': fill_type})
+            elif hi[i] < lo[i - 1]:        # 向下跳空
+                top, bot = lo[i - 1], hi[i]
+                fill_type = 'none'
+                for j in range(i + 1, n):
+                    if cl[j] >= top:        # 收盤已回補
+                        fill_type = 'close'
+                        break
+                    if hi[j] >= top:        # 僅盤中回補
+                        fill_type = 'intraday'
+                        break
+                gaps.append({'idx': i, 'direction': 'down',
+                             'top': top, 'bot': bot, 'fill_type': fill_type})
+
+        # ── 大量高低點 ────────────────────────────────────────────────────
+        # 邏輯：先找成交量明顯放大的K棒，再標記那根K棒的最高與最低點
+        hvol_highs, hvol_lows = [], []
+        if vol is not None:
+            v = vol.values.astype(float)
+            for i in range(1, n - 1):
+                window = v[max(0, i - 20):i]
+                if len(window) == 0:
+                    continue
+                # 量 > 前20根均量的2倍，且比左右鄰棒都大（局部量峰）
+                if v[i] >= window.mean() * 2.0 and v[i] > v[i - 1] and v[i] > v[i + 1]:
+                    hvol_highs.append((i, hi[i]))  # 該K棒最高點
+                    hvol_lows.append((i, lo[i]))   # 該K棒最低點
+
+        return gaps, hvol_highs, hvol_lows
+
     def _calc_linen_signals(self, ohlcv, vol_mult=1.75, vol_enabled=True,
                             ma20_filter=True, profit_trail_pct=0.10,
                             ma100_slope_n=20, max_loss_pct=0.10,
@@ -14463,6 +14528,57 @@ class StockApp(tk.Tk):
                               edgecolor=_pc, linewidth=1.5,
                               alpha=min(_pa + 0.15, 1.0)))
 
+        # ── 跳空缺口 + 大量高低點 ──────────────────────────────────────────
+        self._stk_hvol_lines  = []   # 每次重繪重置，供 hover 控制虛線顯示
+        self._stk_hvol_pinned = set()  # 已釘選的大量K棒索引
+        if ind.get('GAP'):
+            _gaps, _hvol_hi, _hvol_lo = self._calc_gap_signals(ohlcv)
+
+            # 缺口：半透明水平色帶
+            # fill_type='close' → 不顯示；'intraday' → 淡化；'none' → 正常
+            for _g in _gaps:
+                _ft = _g['fill_type']
+                if _ft == 'close':
+                    continue
+                _gcol = '#ff9800' if _g['direction'] == 'up' else '#00bcd4'
+                _ga   = 0.10 if _ft == 'intraday' else 0.28
+                ax_price.axhspan(_g['bot'], _g['top'],
+                                 color=_gcol, alpha=_ga, zorder=1, linewidth=0)
+                _glabel  = '↑缺' if _g['direction'] == 'up' else '↓缺'
+                _gfx_txt = '(盤中補)' if _ft == 'intraday' else ''
+                ax_price.annotate(
+                    f'{_glabel}{_gfx_txt}',
+                    xy=(_g['idx'], (_g['top'] + _g['bot']) / 2),
+                    xytext=(3, 0), textcoords='offset points',
+                    ha='left', va='center',
+                    fontsize=6.5, fontfamily=CHART_FONT,
+                    color=_gcol, alpha=0.85, zorder=6,
+                    clip_on=True)
+
+            # 大量高點：橘色菱形 ◆ + 右延虛線（hover 靠近時才顯示）
+            for _hi_idx, _hi_price in _hvol_hi:
+                ax_price.scatter([_hi_idx], [_hi_price * 1.005],
+                                 marker='D', color='#ffb300',
+                                 s=30, zorder=7, linewidths=0, alpha=0.9)
+                _ln, = ax_price.plot([_hi_idx, n - 1], [_hi_price, _hi_price],
+                                     color='#ffb300', linewidth=1.2,
+                                     linestyle='--', alpha=0.80, zorder=6,
+                                     visible=False)
+                self._stk_hvol_lines.append(
+                    {'xi': _hi_idx, 'price': _hi_price, 'line': _ln})
+
+            # 大量低點：青色菱形 ◆ + 右延虛線（hover 靠近時才顯示）
+            for _lo_idx, _lo_price in _hvol_lo:
+                ax_price.scatter([_lo_idx], [_lo_price * 0.995],
+                                 marker='D', color='#00e5ff',
+                                 s=30, zorder=7, linewidths=0, alpha=0.9)
+                _ln, = ax_price.plot([_lo_idx, n - 1], [_lo_price, _lo_price],
+                                     color='#00e5ff', linewidth=1.2,
+                                     linestyle='--', alpha=0.80, zorder=6,
+                                     visible=False)
+                self._stk_hvol_lines.append(
+                    {'xi': _lo_idx, 'price': _lo_price, 'line': _ln})
+
         # ── Y 軸縮放 ─────────────────────────────────────────────────────
         _pvals = [ohlcv['High'].dropna().values, ohlcv['Low'].dropna().values]
         if 'BB_U' in ohlcv: _pvals.append(ohlcv['BB_U'].dropna().values)
@@ -14970,6 +15086,12 @@ class StockApp(tk.Tk):
             ann.get_bbox_patch().set_facecolor(clr)
             ann.set_visible(True)
 
+        # 大量高低點虛線：靠近菱形（±2根）或已釘選時顯示
+        _hvol_pinned = getattr(self, '_stk_hvol_pinned', set())
+        for _hl in getattr(self, '_stk_hvol_lines', []):
+            _hl['line'].set_visible(
+                _hl['xi'] in _hvol_pinned or abs(_hl['xi'] - xi) <= 2)
+
         self._stk_canvas.draw_idle()
 
     # ── 繪線工具 ──────────────────────────────────────────────────────────
@@ -15001,12 +15123,37 @@ class StockApp(tk.Tk):
                      highlightthickness=2 if c == color else 1)
 
     def _on_stk_click(self, event):
-        """處理 K 線圖上的繪線點擊。"""
-        if self._stk_draw_mode == 'none':
-            return
+        """處理 K 線圖上的點擊：釘選大量高低點虛線 或 繪線工具。"""
         if event.inaxes is not self._stk_ax:
             return
         if event.xdata is None or event.ydata is None:
+            return
+
+        # ── 大量高低點釘選切換（繪線工具未啟動時）────────────────────────
+        if self._stk_draw_mode == 'none' and event.button == 1:
+            _hvol_lines = getattr(self, '_stk_hvol_lines', [])
+            if _hvol_lines:
+                try:
+                    _xf = self._stk_ax.transData.inverted().transform(
+                        (event.x, event.y))[0]
+                    _xi = int(round(_xf))
+                except Exception:
+                    _xi = int(round(event.xdata))
+                _nearby = {_hl['xi'] for _hl in _hvol_lines
+                           if abs(_hl['xi'] - _xi) <= 2}
+                if _nearby:
+                    _pinned = self._stk_hvol_pinned
+                    for _bxi in _nearby:
+                        if _bxi in _pinned:
+                            _pinned.discard(_bxi)
+                        else:
+                            _pinned.add(_bxi)
+                    for _hl in _hvol_lines:
+                        _hl['line'].set_visible(_hl['xi'] in _pinned)
+                    self._stk_canvas.draw_idle()
+            return
+
+        if self._stk_draw_mode == 'none':
             return
         xi, yi = event.xdata, event.ydata
         mode = self._stk_draw_mode
