@@ -9273,7 +9273,7 @@ class StockApp(tk.Tk):
                             pnl = (close_arr[nx] - ep) / ep if nx is not None else (close_arr[-1] - ep) / ep
                             trades.append(pnl)
                     else:  # zhujia
-                        _, _, _, _, _, entries, exits, _ = self._calc_zhujia_signals(
+                        _, _, _, _, _, _, entries, exits, _ = self._calc_zhujia_signals(
                             ohlcv_bt, redk_enabled=True, redk_ratio=0.40,
                             vol_enabled=True, vol_mult=1.25)
                         exits_s = sorted(exits)
@@ -12889,7 +12889,7 @@ class StockApp(tk.Tk):
             mb.showinfo('回測', f'資料不足（{len(ohlcv_bt)} 根）')
             return
 
-        _, _, _, _, _, entries, exits, _ = self._calc_zhujia_signals(
+        _, _, _, _, _, _, entries, exits, _ = self._calc_zhujia_signals(
             ohlcv_bt, redk_enabled=redk_en, redk_ratio=redk_ratio,
             vol_enabled=vol_en, vol_mult=vol_mult)
 
@@ -13424,11 +13424,8 @@ class StockApp(tk.Tk):
                 top, bot = lo[i], hi[i - 1]
                 fill_type = 'none'
                 for j in range(i + 1, n):
-                    if cl[j] <= bot:        # 收盤已回補
-                        fill_type = 'close'
-                        break
-                    if lo[j] <= bot:        # 僅盤中回補
-                        fill_type = 'intraday'
+                    if lo[j] < top:         # 影線進入缺口區間
+                        fill_type = 'close' if cl[j] < top else 'intraday'
                         break
                 gaps.append({'idx': i, 'direction': 'up',
                              'top': top, 'bot': bot, 'fill_type': fill_type})
@@ -13436,11 +13433,8 @@ class StockApp(tk.Tk):
                 top, bot = lo[i - 1], hi[i]
                 fill_type = 'none'
                 for j in range(i + 1, n):
-                    if cl[j] >= top:        # 收盤已回補
-                        fill_type = 'close'
-                        break
-                    if hi[j] >= top:        # 僅盤中回補
-                        fill_type = 'intraday'
+                    if hi[j] > bot:         # 影線進入缺口區間
+                        fill_type = 'close' if cl[j] > bot else 'intraday'
                         break
                 gaps.append({'idx': i, 'direction': 'down',
                              'top': top, 'bot': bot, 'fill_type': fill_type})
@@ -13789,6 +13783,17 @@ class StockApp(tk.Tk):
             for i in range(n)
         ])
 
+        # ── 均線放寬多頭排列（MA5 > MA20 且 MA10 > MA20，且 MA10/MA20 向上）──
+        ma_bull_relaxed = np.array([
+            not (np.isnan(ma5[i]) or np.isnan(ma20[i])) and
+            i > 0 and
+            ma5[i]  > ma20[i] and
+            ma10[i] > ma20[i] and
+            ma10[i] > ma10[i - 1] and
+            ma20[i] > ma20[i - 1]
+            for i in range(n)
+        ])
+
         # ── 5 日均量基準 ──────────────────────────────────────────────────
         vol5 = np.array([
             np.mean(vol[max(0, i - 5):i]) if i > 0 else vol[i]
@@ -13818,7 +13823,7 @@ class StockApp(tk.Tk):
                 continue  # 持倉中不找新進場
 
             # ── 進場條件 ──────────────────────────────────────────────
-            if not trend[i] or not ma_bull[i]:
+            if not trend[i] or not (ma_bull[i] or ma_bull_relaxed[i]):
                 continue
 
             # 觸發條件：K線必須從MA5下方穿越（標準 或 跳空）
@@ -13935,7 +13940,7 @@ class StockApp(tk.Tk):
                                   'desc': '高檔空頭吞噬' + ('（量放大高見頂率）' if vol_ok else ''),
                                   'weekly_protected': wk_b})
 
-        return zz, ph, pl, trend, ma_bull, entries, exits, reversals
+        return zz, ph, pl, trend, ma_bull, ma_bull_relaxed, entries, exits, reversals
 
     def _draw_stk_kline(self, code: str, name: str):
         """繪製個股 K 線圖（邏輯與 ETF K 線完全相同）。"""
@@ -14272,7 +14277,7 @@ class StockApp(tk.Tk):
                 ohlcv['MA20'] = _c.rolling(20, min_periods=1).mean()
                 ohlcv['MA60'] = _c.rolling(60, min_periods=1).mean()
 
-            zz, ph, pl, trend, ma_bull, entries, exits, reversals = self._calc_zhujia_signals(
+            zz, ph, pl, trend, ma_bull, ma_bull_relaxed, entries, exits, reversals = self._calc_zhujia_signals(
                 ohlcv,
                 redk_enabled = getattr(self, '_stk_zhujia_redk', False),
                 redk_ratio   = _redk_ratio,
@@ -14374,10 +14379,16 @@ class StockApp(tk.Tk):
                         zorder=8, linewidths=0, clip_on=False)
 
             # 朱家泓 hover tooltip 資料（取代固定文字框）
-            _zj_trend_now   = bool(trend[-1])   if n > 0 else False
-            _zj_ma_bull_now = bool(ma_bull[-1]) if n > 0 else False
-            _zj_t = '✓ 多頭確認' if _zj_trend_now   else '✗ 未確認'
-            _zj_m = '✓ 多頭排列' if _zj_ma_bull_now else '✗ 未對齊'
+            _zj_trend_now         = bool(trend[-1])          if n > 0 else False
+            _zj_ma_bull_now       = bool(ma_bull[-1])        if n > 0 else False
+            _zj_ma_bull_relax_now = bool(ma_bull_relaxed[-1]) if n > 0 else False
+            _zj_t = '✓ 多頭確認' if _zj_trend_now else '✗ 未確認'
+            if _zj_ma_bull_now:
+                _zj_m = '✓ 多頭排列'
+            elif _zj_ma_bull_relax_now:
+                _zj_m = '✓ 多頭排列(放寬)'
+            else:
+                _zj_m = '✗ 未對齊'
 
             for _ei, _esl in entries:
                 _e_date  = ohlcv.index[_ei].strftime('%m/%d')
@@ -14557,7 +14568,7 @@ class StockApp(tk.Tk):
                 ohlcv['MA10'] = _c2.rolling(10, min_periods=1).mean()
                 ohlcv['MA20'] = _c2.rolling(20, min_periods=1).mean()
                 ohlcv['MA60'] = _c2.rolling(60, min_periods=1).mean()
-            _pzz, _pph, _ppl, _, _, _, _, _ = self._calc_zhujia_signals(
+            _pzz, _pph, _ppl, _, _, _, _, _, _ = self._calc_zhujia_signals(
                 ohlcv, False, 0.4, False, 1.0)
             _pat_pats = self._calc_patterns(ohlcv, _pzz, _pph, _ppl)
             self._stk_refresh_pat_btns({p['name'] for p in _pat_pats})
@@ -14593,7 +14604,7 @@ class StockApp(tk.Tk):
                                   color=_pc, linewidth=1.4, linestyle=':',
                                   alpha=_pa * 0.9, zorder=5)
 
-                # 突破K棒標記（大三角形標在訊號K棒上）
+                # 突破K棒標記（大三角形 + 垂直虛線 清楚指示訊號K棒）
                 _sb = _pat.get('signal_bar')
                 if _sb is not None and 0 <= _sb < n:
                     _is_buy = _pat['signal'] == '買入'
@@ -14603,6 +14614,8 @@ class StockApp(tk.Tk):
                     _mk_sym = '^' if _is_buy else 'v'
                     ax_price.scatter([_sb], [_mk_y], marker=_mk_sym,
                                      color=_pc, s=160, zorder=9, linewidths=0)
+                    ax_price.axvline(x=_sb, color=_pc, linewidth=1.2,
+                                     linestyle='--', alpha=0.55, zorder=4)
 
                 # 訊號標籤（買入=綠底, 賣出=紅底, 等待=灰底）
                 _lx, _ly = _pat['label_pos']
@@ -14624,20 +14637,16 @@ class StockApp(tk.Tk):
         if ind.get('GAP'):
             _gaps, _hvol_hi, _hvol_lo = self._calc_gap_signals(ohlcv)
 
-            # 缺口：半透明水平色帶
-            # fill_type='close' → 不顯示；'intraday' → 淡化；'none' → 正常
+            # 缺口：半透明水平色帶（只顯示尚未回補的缺口）
             for _g in _gaps:
-                _ft = _g['fill_type']
-                if _ft == 'close':
+                if _g['fill_type'] != 'none':
                     continue
                 _gcol = '#ff9800' if _g['direction'] == 'up' else '#00bcd4'
-                _ga   = 0.10 if _ft == 'intraday' else 0.28
                 ax_price.axhspan(_g['bot'], _g['top'],
-                                 color=_gcol, alpha=_ga, zorder=1, linewidth=0)
-                _glabel  = '↑缺' if _g['direction'] == 'up' else '↓缺'
-                _gfx_txt = '(盤中補)' if _ft == 'intraday' else ''
+                                 color=_gcol, alpha=0.28, zorder=1, linewidth=0)
+                _glabel = '↑缺' if _g['direction'] == 'up' else '↓缺'
                 ax_price.annotate(
-                    f'{_glabel}{_gfx_txt}',
+                    _glabel,
                     xy=(_g['idx'], (_g['top'] + _g['bot']) / 2),
                     xytext=(3, 0), textcoords='offset points',
                     ha='left', va='center',
