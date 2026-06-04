@@ -13461,6 +13461,73 @@ class StockApp(tk.Tk):
 
         return gaps, hvol_highs, hvol_lows
 
+    def _calc_consol_breakouts(self, ohlcv):
+        """偵測橫盤整理後大量突破，需搭配上升趨勢線。
+
+        Returns list of {'idx', 'type', 'price', 'desc', 'c_hi', 'c_lo', 'c_start'}
+        type = 'consol_break'
+        """
+        import numpy as np
+
+        # 必須有上升趨勢線才觸發訊號
+        tl_up, _ = self._calc_auto_trendlines(ohlcv, extend=0)
+        if tl_up is None:
+            return []
+
+        close = ohlcv['Close'].values.astype(float)
+        open_ = ohlcv.get('Open', ohlcv['Close']).values.astype(float)
+        high  = ohlcv.get('High', ohlcv['Close']).values.astype(float)
+        low   = ohlcv.get('Low',  ohlcv['Close']).values.astype(float)
+        vol_s = ohlcv.get('Volume', None)
+        n     = len(close)
+
+        if vol_s is None or n < 6:
+            return []
+
+        v     = vol_s.values.astype(float)
+        CMIN  = 4      # 最少橫盤根數
+        CMAX  = 15     # 最多橫盤根數
+        CPCT  = 0.07   # 橫盤振幅上限 7%
+        VMUL  = 1.5    # 突破量 > 橫盤均量 × 1.5
+
+        results  = []
+        seen_idx = set()
+
+        # 掃描每根 K 棒，以它為「突破棒」，往前找最長的橫盤區間
+        for bi in range(CMIN, n):
+            if bi in seen_idx:
+                continue
+            # 突破棒需為紅K
+            if close[bi] <= open_[bi]:
+                continue
+            for clen in range(CMAX, CMIN - 1, -1):
+                cs = bi - clen
+                if cs < 0:
+                    continue
+                c_hi = float(np.max(high[cs:bi]))
+                c_lo = float(np.min(low[cs:bi]))
+                if c_lo <= 0:
+                    continue
+                if (c_hi - c_lo) / c_lo > CPCT:
+                    continue
+                c_vol_avg = float(np.mean(v[cs:bi]))
+                if (close[bi] > c_hi
+                        and v[bi] >= c_vol_avg * VMUL):
+                    seen_idx.add(bi)
+                    results.append({
+                        'idx':   bi,
+                        'type':  'consol_break',
+                        'price': float(close[bi]),
+                        'desc':  f'橫盤{clen}根後大量突破（上升趨勢中）',
+                        'c_hi':  c_hi,
+                        'c_lo':  c_lo,
+                        'c_start': cs,
+                        'weekly_protected': False,
+                    })
+                    break  # 找到最長橫盤即停，跳下一根突破棒
+
+        return results
+
     def _calc_linen_signals(self, ohlcv, vol_mult=1.75, vol_enabled=True,
                             ma20_filter=True, profit_trail_pct=0.10,
                             ma100_slope_n=20, max_loss_pct=0.10,
@@ -13846,22 +13913,26 @@ class StockApp(tk.Tk):
                                   'desc': '高檔變盤確認（見頂）' + ('，週K多頭保護' if wk_b else ''),
                                   'weekly_protected': wk_b})
 
-            # 吞噬型態：今日實體完整包覆前日實體，且位於高低檔
+            # 吞噬型態：今日實體（影線不算）完整包覆前日實體
+            # 多頭吞噬：前黑K、今紅K，今開 ≤ 前收，今收 ≥ 前開
             if (prev_area == 'low'
-                    and close[i-1] < open_[i-1]
-                    and close[i]   > open_[i]
-                    and b > pb):
+                    and close[i-1] < open_[i-1]       # 前根黑K
+                    and close[i]   > open_[i]          # 今根紅K
+                    and open_[i]   <= close[i-1]       # 今開 ≤ 前收（包住下緣）
+                    and close[i]   >= open_[i-1]):     # 今收 ≥ 前開（包住上緣）
                 reversals.append({'idx': i, 'type': 'bull_engulf',
                                   'price': float(close[i]),
-                                  'desc': '低檔長紅吞噬' + ('（量放大）' if vol_ok else ''),
+                                  'desc': '低檔多頭吞噬' + ('（量放大）' if vol_ok else ''),
                                   'weekly_protected': False})
+            # 空頭吞噬：前紅K、今黑K，今開 ≥ 前收，今收 ≤ 前開
             if (prev_area == 'high'
-                    and close[i-1] > open_[i-1]
-                    and close[i]   < open_[i]
-                    and b > pb):
+                    and close[i-1] > open_[i-1]       # 前根紅K
+                    and close[i]   < open_[i]          # 今根黑K
+                    and open_[i]   >= close[i-1]       # 今開 ≥ 前收（包住上緣）
+                    and close[i]   <= open_[i-1]):     # 今收 ≤ 前開（包住下緣）
                 reversals.append({'idx': i, 'type': 'bear_engulf',
                                   'price': float(close[i]),
-                                  'desc': '高檔長黑吞噬' + ('（量放大高見頂率）' if vol_ok else ''),
+                                  'desc': '高檔空頭吞噬' + ('（量放大高見頂率）' if vol_ok else ''),
                                   'weekly_protected': wk_b})
 
         return zz, ph, pl, trend, ma_bull, entries, exits, reversals
@@ -14180,6 +14251,7 @@ class StockApp(tk.Tk):
 
         # 進出場 marker hover tooltip 資料（朱家泓 + 林恩如共用，每次重繪重置）
         self._stk_marker_tooltips = []
+        self._stk_reversals = []   # 每次重繪重置，zhujia/consol_break 均 extend 進來
 
         # ── 朱家泓老師技術分析訊號疊加 ────────────────────────────────────
         if getattr(self, '_stk_zhujia_on', False):
@@ -14268,7 +14340,7 @@ class StockApp(tk.Tk):
                                  marker='v', zorder=7, linewidths=0)
 
             # K棒組合變盤訊號
-            self._stk_reversals = reversals   # 供 hover 查詢
+            self._stk_reversals.extend(reversals)   # 供 hover 查詢
             if getattr(self, '_stk_kbar_on', False) and reversals:
                 from matplotlib.transforms import blended_transform_factory
                 _strip_trans = blended_transform_factory(
@@ -14278,6 +14350,7 @@ class StockApp(tk.Tk):
                     'bull_engulf':   '#00ff88',
                     'bear_reversal': '#ff6644',
                     'bear_engulf':   '#ff3333',
+                    'consol_break':  '#ffd700',
                 }
                 # C：K棒背景高亮（半透明，不擋K棒）
                 for _rv in reversals:
@@ -14455,6 +14528,23 @@ class StockApp(tk.Tk):
                 'xi': n - 1, 'y': _close_now,
                 'text': f'【林】最新 {_last_date}\n{_ln_ma_txt}\nMA100：{_ma100_now:.2f}',
                 'edge': '#7ec8e3', 'xytext': (-10, -12), 'ha': 'right', 'va': 'top'})
+
+        # ── 橫盤突破訊號（K棒組合，需有上升趨勢線）──────────────────────────
+        if getattr(self, '_stk_kbar_on', False):
+            _cb_list = self._calc_consol_breakouts(ohlcv)
+            if _cb_list:
+                self._stk_reversals.extend(_cb_list)
+                from matplotlib.transforms import blended_transform_factory as _btf
+                _cb_trans = _btf(ax_price.transData, ax_price.transAxes)
+                for _cv in _cb_list:
+                    _ri = _cv['idx']
+                    # 金色背景高亮
+                    ax_price.axvspan(_ri - 0.45, _ri + 0.45,
+                                     color='#ffd700', alpha=0.10, zorder=1)
+                    # 底部金色 ▲ 訊號條
+                    ax_price.scatter(_ri, 0.022, color='#ffd700', s=90,
+                                     marker='^', transform=_cb_trans,
+                                     zorder=8, linewidths=0, clip_on=False)
 
         # ── 型態分析（偵測 + 按鈕高亮；疊加繪製只在型態 ON 時）────────────
         _pat_btns  = getattr(self, '_stk_pattern_btns', {})
@@ -15001,10 +15091,12 @@ class StockApp(tk.Tk):
         _rev_label_map = {
             'bull_reversal': '止跌變盤', 'bull_engulf': '長紅吞噬',
             'bear_reversal': '見頂變盤', 'bear_engulf': '長黑吞噬',
+            'consol_break':  '橫盤突破',
         }
         _rev_fg_map = {
             'bull_reversal': '#00e5ff', 'bull_engulf': '#00ff88',
             'bear_reversal': '#ff6644', 'bear_engulf': '#ff3333',
+            'consol_break':  '#ffd700',
         }
         _bar_sigs  = [r for r in getattr(self, '_stk_reversals', []) if r['idx'] == xi]
         _kbar_ann  = getattr(self, '_stk_kbar_ann', None)
