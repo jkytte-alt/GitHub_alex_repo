@@ -1064,23 +1064,23 @@ def _fetch_twse_industry_map() -> dict[str, str]:
     return result
 
 
-_TPEX_INDUSTRY_CACHE: dict[str, str] = {}
+_TPEX_INDUSTRY_CACHE: dict[str, str] | None = None
 
 def _fetch_tpex_industry_map() -> dict[str, str]:
     """回傳 {上櫃股票代號: 產業別} 對照表（TPEx 上櫃公司基本資料）。"""
     global _TPEX_INDUSTRY_CACHE
-    if _TPEX_INDUSTRY_CACHE:
+    if _TPEX_INDUSTRY_CACHE is not None:
         return _TPEX_INDUSTRY_CACHE
     result: dict[str, str] = {}
     try:
         data = _cffi_get_json(
-            'https://www.tpex.org.tw/openapi/v1/tpex_mainboard_listed_companies',
+            'https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O',
             timeout=12)
         for row in data:
             code = str(row.get('SecuritiesCompanyCode', '')).strip()
-            ind  = str(row.get('IndustryGroup', row.get('IndustryGroupCode', ''))).strip()
+            ind  = str(row.get('SecuritiesIndustryCode', '')).strip()
             if code and ind:
-                result[code] = ind
+                result[code] = _TWSE_IND_CODE_MAP.get(ind, ind)
         if result:
             print(f'[TPEX industry] {len(result)} 筆')
     except Exception as e:
