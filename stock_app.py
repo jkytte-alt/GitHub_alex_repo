@@ -2754,8 +2754,7 @@ class StockApp(tk.Tk):
             self._schedule_tm_refresh()
         elif idx == 1 and prev != 1:
             self._update_stock_list()
-        elif idx == 4 and prev != 4:
-            self._draw_market_map()
+        # idx == 4 台股總覽：不自動更新，由使用者按「更新」按鈕觸發
         elif idx == 6 and prev != 6:
             self._draw_us_market_map()
         elif idx == 5 and prev != 5:
@@ -10099,7 +10098,7 @@ class StockApp(tk.Tk):
         _mode_cb.pack(side='left', padx=(0, 6))
         _mode_cb.bind('<<ComboboxSelected>>', lambda e: self._on_mkt_mode_change())
 
-        self._mkt_status = tk.StringVar(value='切換至此頁面自動更新')
+        self._mkt_status = tk.StringVar(value='點擊「更新」載入資料')
         ttk.Label(ctrl, textvariable=self._mkt_status,
                   foreground=C_FG2, font=('Microsoft JhengHei', 9)).pack(side='left', padx=14)
 
