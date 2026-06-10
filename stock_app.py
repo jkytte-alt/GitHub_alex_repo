@@ -2541,6 +2541,7 @@ class StockApp(tk.Tk):
         ('🇹🇼', '台股總覽'),
         ('📉', '個股分析'),
         ('🇺🇸', '美股總覽'),
+        ('🔍', '選股池'),
     ]
     _SIDEBAR_EXP = 200   # expanded width px
     _SIDEBAR_COL = 54    # collapsed width px
@@ -2590,7 +2591,8 @@ class StockApp(tk.Tk):
         self.tab5 = tk.Frame(self._content, bg=C_BG)
         self.tab6 = tk.Frame(self._content, bg=C_BG)
         self.tab7 = tk.Frame(self._content, bg=C_BG)
-        for f in (self.tab1, self.tab2, self.tab3, self.tab4, self.tab5, self.tab6, self.tab7):
+        self.tab8 = tk.Frame(self._content, bg=C_BG)
+        for f in (self.tab1, self.tab2, self.tab3, self.tab4, self.tab5, self.tab6, self.tab7, self.tab8):
             f.place(relx=0, rely=0, relwidth=1, relheight=1)
 
         self._build_sidebar()
@@ -2603,6 +2605,7 @@ class StockApp(tk.Tk):
         self._build_tab5()
         self._build_tab6()
         self._build_tab7()
+        self._build_tab8()
 
         self._current_page = -1
         self._show_page(0)
@@ -2719,7 +2722,7 @@ class StockApp(tk.Tk):
             w.config(bg=bg)
 
     def _show_page(self, idx):
-        pages = [self.tab2, self.tab3, self.tab4, self.tab1, self.tab5, self.tab6, self.tab7]
+        pages = [self.tab2, self.tab3, self.tab4, self.tab1, self.tab5, self.tab6, self.tab7, self.tab8]
         pages[idx].tkraise()
 
         # Update nav highlight
@@ -16260,6 +16263,698 @@ class StockApp(tk.Tk):
 
         self._chip_canvas.draw()
         self._chip_status.set(f'{code}  {name}  ─  資料載入完成')
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Tab 8：選股池
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    _SCR_WATCHLIST_PATH = os.path.join(BASE_DIR, '.screener_watchlist.json')
+    _SCR_RESULT_PATH    = os.path.join(BASE_DIR, '.screener_last.json')
+
+    # 欄位定義 (col_id, header, width, anchor)
+    _SCR_COLS = [
+        ('sel',        '☑',        28, 'center'),
+        ('code',       '代號',      52, 'center'),
+        ('name',       '名稱',      80, 'w'),
+        ('industry',   '產業',      68, 'center'),
+        ('rev_yoy',    'YoY%',      58, 'e'),
+        ('rev_consec', '連季',      38, 'center'),
+        ('rev_latest', '季收(億)',  68, 'e'),
+        ('ma_bull',    'MA排列',    55, 'center'),
+        ('kd_gold',    'KD金叉',    55, 'center'),
+        ('macd_bull',  'MACD',      50, 'center'),
+        ('rsi_bull',   'RSI>50',    50, 'center'),
+        ('vol_surge',  '爆量',      45, 'center'),
+        ('tech_count', '滿足',      38, 'center'),
+        ('price',      '現價',      62, 'e'),
+        ('ma5',        'MA5',       60, 'e'),
+        ('ma20',       'MA20',      60, 'e'),
+        ('ma60',       'MA60',      60, 'e'),
+        ('kd_k',       'KD-K',      48, 'e'),
+        ('rsi',        'RSI',       48, 'e'),
+        ('linen',      '林恩如',    58, 'center'),
+        ('zhujia',     '朱家泓',    58, 'center'),
+        ('pattern',    '型態',      50, 'center'),
+    ]
+
+    def _build_tab8(self):
+        f = self.tab8
+        FONT9  = ('Microsoft JhengHei', 9)
+        FONT9B = ('Microsoft JhengHei', 9, 'bold')
+
+        # ── 控制列 ────────────────────────────────────────────────────────────
+        ctrl = ttk.Frame(f)
+        ctrl.pack(fill='x', padx=14, pady=(8, 4))
+        ttk.Label(ctrl, text='選股池', style='Hdr.TLabel').pack(side='left')
+        ttk.Button(ctrl, text='📂  載入', style='Nav.TButton',
+                   command=self._scr_load).pack(side='right', padx=(4, 0))
+        ttk.Button(ctrl, text='💾  存檔', style='Nav.TButton',
+                   command=self._scr_save).pack(side='right', padx=(4, 0))
+        self._scr_btn_stop = ttk.Button(ctrl, text='⏹  停止', style='Nav.TButton',
+                                        command=self._scr_cancel_scan, state='disabled')
+        self._scr_btn_stop.pack(side='right', padx=(4, 0))
+        self._scr_btn_start = ttk.Button(ctrl, text='🔍  開始掃描', style='Nav.TButton',
+                                         command=self._scr_start_scan)
+        self._scr_btn_start.pack(side='right', padx=(4, 0))
+
+        # ── 設定面板 ──────────────────────────────────────────────────────────
+        sett = tk.Frame(f, bg=C_PANEL, padx=10, pady=6)
+        sett.pack(fill='x', padx=8, pady=(0, 3))
+
+        # 第一列：掃描範圍
+        r1 = tk.Frame(sett, bg=C_PANEL); r1.pack(fill='x', pady=1)
+        tk.Label(r1, text='掃描範圍：', bg=C_PANEL, fg=C_FG2, font=FONT9).pack(side='left')
+        self._scr_scope = tk.StringVar(value='全市場')
+        tk.Radiobutton(r1, text='全市場', variable=self._scr_scope, value='全市場',
+                       bg=C_PANEL, fg=C_FG, selectcolor=C_PANEL,
+                       activebackground=C_PANEL, font=FONT9,
+                       command=self._scr_on_scope_change).pack(side='left', padx=(0, 6))
+        tk.Radiobutton(r1, text='指定產業：', variable=self._scr_scope, value='指定',
+                       bg=C_PANEL, fg=C_FG, selectcolor=C_PANEL,
+                       activebackground=C_PANEL, font=FONT9,
+                       command=self._scr_on_scope_change).pack(side='left')
+        # 從 _TWSE_IND_CODE_MAP 取唯一產業清單
+        _ind_list = ['(全選)'] + sorted({v for v in _TWSE_IND_CODE_MAP.values()})
+        self._scr_ind_var = tk.StringVar(value='(全選)')
+        self._scr_ind_cb = ttk.Combobox(r1, textvariable=self._scr_ind_var,
+                                         values=_ind_list, state='disabled',
+                                         width=12, font=FONT9)
+        self._scr_ind_cb.pack(side='left', padx=(0, 12))
+
+        # 第二列：基本面條件
+        r2 = tk.Frame(sett, bg=C_PANEL); r2.pack(fill='x', pady=1)
+        tk.Label(r2, text='基本面：', bg=C_PANEL, fg=C_FG2, font=FONT9).pack(side='left')
+        tk.Label(r2, text='季YoY ≥', bg=C_PANEL, fg=C_FG, font=FONT9).pack(side='left')
+        self._scr_yoy_var = tk.StringVar(value='10')
+        ttk.Entry(r2, textvariable=self._scr_yoy_var, width=5).pack(side='left', padx=(2, 2))
+        tk.Label(r2, text='%  連續', bg=C_PANEL, fg=C_FG, font=FONT9).pack(side='left')
+        self._scr_consec_var = tk.StringVar(value='2')
+        ttk.Entry(r2, textvariable=self._scr_consec_var, width=3).pack(side='left', padx=(2, 2))
+        tk.Label(r2, text='季以上', bg=C_PANEL, fg=C_FG, font=FONT9).pack(side='left', padx=(0, 12))
+        self._scr_do_fundam = tk.BooleanVar(value=True)
+        tk.Checkbutton(r2, text='啟用基本面篩選', variable=self._scr_do_fundam,
+                       bg=C_PANEL, fg=C_FG, selectcolor='#2a3f6f',
+                       activebackground=C_PANEL, font=FONT9).pack(side='left', padx=(0, 12))
+        self._scr_skip_fin = tk.BooleanVar(value=True)
+        tk.Checkbutton(r2, text='略過金融保險', variable=self._scr_skip_fin,
+                       bg=C_PANEL, fg=C_FG, selectcolor='#2a3f6f',
+                       activebackground=C_PANEL, font=FONT9).pack(side='left')
+
+        # 第三列：技術面條件
+        r3 = tk.Frame(sett, bg=C_PANEL); r3.pack(fill='x', pady=1)
+        tk.Label(r3, text='技術面：', bg=C_PANEL, fg=C_FG2, font=FONT9).pack(side='left')
+        self._scr_chk_ma   = tk.BooleanVar(value=True)
+        self._scr_chk_kd   = tk.BooleanVar(value=True)
+        self._scr_chk_macd = tk.BooleanVar(value=True)
+        self._scr_chk_rsi  = tk.BooleanVar(value=True)
+        self._scr_chk_vol  = tk.BooleanVar(value=False)
+        for var, lbl in [(self._scr_chk_ma, 'MA多頭'), (self._scr_chk_kd, 'KD金叉'),
+                         (self._scr_chk_macd, 'MACD'), (self._scr_chk_rsi, 'RSI>50'),
+                         (self._scr_chk_vol, '爆量')]:
+            tk.Checkbutton(r3, text=lbl, variable=var,
+                           bg=C_PANEL, fg=C_FG, selectcolor='#2a3f6f',
+                           activebackground=C_PANEL, font=FONT9).pack(side='left', padx=(0, 6))
+        tk.Label(r3, text='  需滿足至少', bg=C_PANEL, fg=C_FG, font=FONT9).pack(side='left')
+        self._scr_min_tech_var = tk.StringVar(value='2')
+        ttk.Entry(r3, textvariable=self._scr_min_tech_var, width=3).pack(side='left', padx=(2, 2))
+        tk.Label(r3, text='項', bg=C_PANEL, fg=C_FG, font=FONT9).pack(side='left')
+
+        # ── 進度列 ────────────────────────────────────────────────────────────
+        prog_bar = tk.Frame(f, bg=C_BG); prog_bar.pack(fill='x', padx=8, pady=(0, 2))
+        self._scr_prog = ttk.Progressbar(prog_bar, mode='determinate', maximum=100)
+        self._scr_prog.pack(side='left', fill='x', expand=True, padx=(0, 8))
+        self._scr_status_var = tk.StringVar(value='尚未掃描')
+        tk.Label(prog_bar, textvariable=self._scr_status_var,
+                 bg=C_BG, fg=C_FG2, font=FONT9, width=30, anchor='w').pack(side='left')
+
+        # ── 操作列 ────────────────────────────────────────────────────────────
+        act_bar = tk.Frame(f, bg=C_BG); act_bar.pack(fill='x', padx=8, pady=(0, 3))
+        ttk.Button(act_bar, text='✚ 加入追蹤', style='Nav.TButton',
+                   command=self._scr_add_watchlist).pack(side='left', padx=(0, 4))
+        ttk.Button(act_bar, text='★ 載入追蹤清單', style='Nav.TButton',
+                   command=self._scr_load_watchlist).pack(side='left', padx=(0, 4))
+        ttk.Button(act_bar, text='🔄 掃描追蹤', style='Nav.TButton',
+                   command=self._scr_scan_watchlist).pack(side='left', padx=(0, 12))
+        ttk.Button(act_bar, text='全選', style='Nav.TButton',
+                   command=self._scr_select_all).pack(side='left', padx=(0, 4))
+        ttk.Button(act_bar, text='清除選取', style='Nav.TButton',
+                   command=self._scr_clear_sel).pack(side='left', padx=(0, 12))
+        self._scr_sel_lbl = tk.Label(act_bar, text='已選 0 筆', bg=C_BG, fg=C_FG2, font=FONT9)
+        self._scr_sel_lbl.pack(side='left')
+
+        # ── 結果表格 ──────────────────────────────────────────────────────────
+        tbl_frame = tk.Frame(f, bg=C_BG)
+        tbl_frame.pack(fill='both', expand=True, padx=8, pady=(0, 6))
+
+        col_ids = [c[0] for c in self._SCR_COLS]
+        self._scr_tv = ttk.Treeview(tbl_frame, columns=col_ids, show='headings',
+                                    selectmode='none')
+        for col_id, header, width, anchor in self._SCR_COLS:
+            self._scr_tv.heading(col_id, text=header,
+                                  command=lambda c=col_id: self._scr_sort_col(c))
+            self._scr_tv.column(col_id, width=width, minwidth=width,
+                                  anchor=anchor, stretch=False)
+
+        # 標籤色彩：依滿足條件數
+        self._scr_tv.tag_configure('hi5',  background='#1a3a1a', foreground='#90ee90')
+        self._scr_tv.tag_configure('hi3',  background='#1a2a1a', foreground='#c8e6c8')
+        self._scr_tv.tag_configure('norm', background=C_BG,      foreground=C_FG)
+        self._scr_tv.tag_configure('wtch', background='#1a1a35', foreground='#aab4ff')
+        self._scr_tv.tag_configure('sel',  background='#2a3f6f', foreground='#ffffff')
+
+        vsb = ttk.Scrollbar(tbl_frame, orient='vertical',   command=self._scr_tv.yview)
+        hsb = ttk.Scrollbar(tbl_frame, orient='horizontal',  command=self._scr_tv.xview)
+        self._scr_tv.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        self._scr_tv.grid(row=0, column=0, sticky='nsew')
+        vsb.grid(row=0, column=1, sticky='ns')
+        hsb.grid(row=1, column=0, sticky='ew')
+        tbl_frame.rowconfigure(0, weight=1)
+        tbl_frame.columnconfigure(0, weight=1)
+
+        self._scr_tv.bind('<Button-1>',        self._scr_on_click)
+        self._scr_tv.bind('<Double-Button-1>',  self._scr_on_dbl_click)
+
+        # 狀態變數
+        self._scr_gen      = 0          # 掃描世代，用於取消判斷
+        self._scr_data     = []         # [{col_id: value, ...}]
+        self._scr_selected = set()      # 已勾選的代號
+        self._scr_sort_key = ''
+        self._scr_sort_rev = False
+        self._scr_watchlist: list[dict] = []
+
+    def _scr_on_scope_change(self):
+        state = 'readonly' if self._scr_scope.get() == '指定' else 'disabled'
+        self._scr_ind_cb.config(state=state)
+
+    # ── 掃描控制 ──────────────────────────────────────────────────────────────
+
+    def _scr_start_scan(self):
+        self._scr_gen += 1
+        gen = self._scr_gen
+        self._scr_data = []
+        self._scr_selected.clear()
+        self._scr_clear_table()
+        self._scr_status_var.set('掃描中…')
+        self._scr_prog['value'] = 0
+        self._scr_btn_start.config(state='disabled')
+        self._scr_btn_stop.config(state='normal')
+        import threading
+        threading.Thread(target=self._scr_scan_worker,
+                         args=(gen, False), daemon=True).start()
+
+    def _scr_cancel_scan(self):
+        self._scr_gen += 1   # 讓 worker 感知到已取消
+        self._scr_btn_start.config(state='normal')
+        self._scr_btn_stop.config(state='disabled')
+        self._scr_status_var.set('已停止')
+
+    def _scr_scan_watchlist(self):
+        """只對追蹤清單做技術面快速掃描。"""
+        if not self._scr_watchlist:
+            import tkinter.messagebox as mb
+            mb.showinfo('追蹤清單', '追蹤清單是空的，請先加入股票。', parent=self)
+            return
+        self._scr_gen += 1
+        gen = self._scr_gen
+        self._scr_data = []
+        self._scr_selected.clear()
+        self._scr_clear_table()
+        self._scr_status_var.set('掃描追蹤清單…')
+        self._scr_prog['value'] = 0
+        self._scr_btn_start.config(state='disabled')
+        self._scr_btn_stop.config(state='normal')
+        import threading
+        threading.Thread(target=self._scr_scan_worker,
+                         args=(gen, True), daemon=True).start()
+
+    def _scr_get_universe(self, watchlist_only=False):
+        """回傳 [(code, industry, suffix), ...]"""
+        twse = _fetch_twse_industry_map()
+        tpex = _fetch_tpex_industry_map()
+        names = _load_twse_stock_names()
+        scope     = self._scr_scope.get()
+        ind_filter = self._scr_ind_var.get() if scope == '指定' else ''
+        skip_fin  = self._scr_skip_fin.get()
+        _FIN_INDS = {'金融', '保險', '銀行', '金融保險'}
+
+        if watchlist_only:
+            codes = []
+            for w in self._scr_watchlist:
+                c = w['code']
+                ind = twse.get(c) or tpex.get(c, '未知')
+                sfx = '.TW' if c in twse else '.TWO'
+                codes.append((c, ind, sfx))
+            return codes
+
+        universe = []
+        for code, ind in {**twse, **tpex}.items():
+            if not (code.isdigit() and len(code) == 4):
+                continue
+            if skip_fin and ind in _FIN_INDS:
+                continue
+            if ind_filter and ind_filter != '(全選)' and ind != ind_filter:
+                continue
+            sfx = '.TW' if code in twse else '.TWO'
+            universe.append((code, ind, sfx))
+        return universe
+
+    def _scr_scan_worker(self, gen: int, watchlist_only: bool):
+        import threading, numpy as np
+        import pandas as pd
+
+        universe = self._scr_get_universe(watchlist_only)
+        total    = len(universe)
+        do_fund  = self._scr_do_fundam.get() and not watchlist_only
+        min_yoy  = float(self._scr_yoy_var.get() or 10)
+        min_con  = int(self._scr_consec_var.get() or 2)
+        chk = {
+            'ma_bull':   self._scr_chk_ma.get(),
+            'kd_gold':   self._scr_chk_kd.get(),
+            'macd_bull': self._scr_chk_macd.get(),
+            'rsi_bull':  self._scr_chk_rsi.get(),
+            'vol_surge': self._scr_chk_vol.get(),
+        }
+        min_tech = max(1, int(self._scr_min_tech_var.get() or 1))
+
+        results = []
+        lock    = threading.Lock()
+        done    = [0]
+
+        def process(code, ind, sfx):
+            if self._scr_gen != gen:
+                return
+            r = self._scr_fetch_one(code, ind, sfx, do_fund, min_yoy, min_con, chk, min_tech)
+            with lock:
+                done[0] += 1
+                if r:
+                    results.append(r)
+            pct = done[0] / total * 100
+            self._ui_call(lambda p=pct, d=done[0], n=len(results):
+                          self._scr_update_progress(p, d, total, n, gen))
+
+        MAX_W = 20
+        for i in range(0, len(universe), MAX_W):
+            if self._scr_gen != gen:
+                break
+            batch   = universe[i:i + MAX_W]
+            threads = [threading.Thread(target=process, args=a, daemon=True) for a in batch]
+            for t in threads: t.start()
+            for t in threads: t.join(timeout=20)
+
+        if self._scr_gen == gen:
+            self._ui_call(lambda: self._scr_finish(results, gen))
+
+    def _scr_fetch_one(self, code, ind, sfx, do_fund, min_yoy, min_con, chk, min_tech):
+        """抓一檔股票的基本面+技術面資料，不符合條件回 None。"""
+        import numpy as np
+        import pandas as pd
+
+        # ── 基本面 ────────────────────────────────────────────────────────────
+        rev_yoy    = None
+        rev_consec = None
+        rev_latest = None
+        if do_fund:
+            try:
+                t    = yf.Ticker(code + sfx)
+                qfin = t.quarterly_financials
+                if qfin is None or qfin.empty:
+                    return None
+                rev = None
+                for lb in ('Total Revenue', 'Revenue'):
+                    if lb in qfin.index:
+                        rev = qfin.loc[lb].dropna().sort_index()
+                        break
+                if rev is None or len(rev) < 4:
+                    return None
+                latest   = rev.iloc[-1]
+                year_ago = rev.iloc[-5] if len(rev) >= 5 else rev.iloc[-4]
+                if year_ago <= 0 or latest <= 0:
+                    return None
+                rev_yoy = (latest / year_ago - 1) * 100
+                if rev_yoy < min_yoy:
+                    return None
+                consec = 0
+                for i in range(len(rev) - 1, 0, -1):
+                    if rev.iloc[i] > rev.iloc[i - 1]:
+                        consec += 1
+                    else:
+                        break
+                if consec < min_con:
+                    return None
+                rev_consec = consec
+                rev_latest = round(latest / 1e8, 1)
+            except Exception:
+                return None
+
+        # ── 技術面 ────────────────────────────────────────────────────────────
+        try:
+            t = yf.Ticker(code + sfx)
+            h = t.history(period='6mo', auto_adjust=False)
+            h = h.dropna(subset=['Close', 'Open', 'High', 'Low'])
+            if h.empty or len(h) < 65:
+                return None
+
+            close  = h['Close']
+            high_s = h['High']
+            low_s  = h['Low']
+            vol_s  = h['Volume']
+
+            # MA
+            ma5  = float(close.rolling(5).mean().iloc[-1])
+            ma20 = float(close.rolling(20).mean().iloc[-1])
+            ma60 = float(close.rolling(60).mean().iloc[-1])
+            price = float(close.iloc[-1])
+
+            # KD（RSV 週期 9，EWM com=2）
+            lmin = low_s.rolling(9).min()
+            hmax = high_s.rolling(9).max()
+            denom = hmax - lmin
+            rsv = pd.Series(
+                np.where(denom > 0, (close - lmin) / denom * 100, 50.0),
+                index=close.index)
+            k_s = rsv.ewm(com=2, adjust=False).mean()
+            d_s = k_s.ewm(com=2, adjust=False).mean()
+            kd_k = float(k_s.iloc[-1])
+            kd_d = float(d_s.iloc[-1])
+
+            # MACD（12/26/9）
+            ema12  = close.ewm(span=12, adjust=False).mean()
+            ema26  = close.ewm(span=26, adjust=False).mean()
+            macd   = ema12 - ema26
+            signal = macd.ewm(span=9, adjust=False).mean()
+
+            # RSI(14)
+            delta = close.diff()
+            gain  = delta.clip(lower=0).rolling(14).mean()
+            loss  = (-delta.clip(upper=0)).rolling(14).mean()
+            g_last = float(gain.iloc[-1])
+            l_last = float(loss.iloc[-1])
+            if np.isnan(g_last) or np.isnan(l_last):
+                rsi_val = None
+            elif l_last > 0:
+                rsi_val = float(100 - 100 / (1 + g_last / l_last))
+            else:
+                rsi_val = 100.0
+
+            # 技術指標判斷（nan 值視為不滿足）
+            ma_bull   = (not any(np.isnan(x) for x in (ma5, ma20, ma60, price))
+                         and ma5 > ma20 > ma60 and price > ma5)
+            kd_gold   = kd_k > kd_d and kd_k > 50
+            macd_bull = (float(macd.iloc[-1]) > float(signal.iloc[-1])
+                         and float(macd.iloc[-1]) > float(macd.iloc[-2]))
+            rsi_bull  = rsi_val is not None and rsi_val > 50
+            vol_avg20 = float(vol_s.iloc[-20:].mean())
+            vol_surge = float(vol_s.iloc[-1]) > vol_avg20 * 1.5 if vol_avg20 > 0 else False
+
+            # 統計啟用條件中的滿足數
+            tech_map = {
+                'ma_bull': ma_bull, 'kd_gold': kd_gold,
+                'macd_bull': macd_bull, 'rsi_bull': rsi_bull, 'vol_surge': vol_surge,
+            }
+            tech_count = sum(v for k, v in tech_map.items() if chk.get(k, False))
+            if tech_count < min_tech:
+                return None
+
+            # ── 林恩如 / 朱家泓 / 型態訊號（失敗不影響主結果）──────────────────
+            linen_sig   = False
+            zhujia_sig  = False
+            pattern_sig = False
+            try:
+                sig_n = len(h)
+                if sig_n >= 100:
+                    ln_entries, ln_exits = self._calc_linen_signals(h)
+                    if ln_entries:
+                        le = ln_entries[-1][0]
+                        lx = ln_exits[-1] if ln_exits else -1
+                        if le >= sig_n - 5 and lx < le:
+                            linen_sig = True
+                if sig_n >= 60:
+                    zj = self._calc_zhujia_signals(h, True, 0.4, False, 1.25)
+                    zz, ph, pl, _, _, _, zj_entries, zj_exits, _ = zj
+                    if zj_entries:
+                        ze = zj_entries[-1][0]
+                        zx = zj_exits[-1] if zj_exits else -1
+                        if ze >= sig_n - 5 and zx < ze:
+                            zhujia_sig = True
+                    if zz:
+                        pats = self._calc_patterns(h, zz, ph, pl)
+                        buy_pats = [p for p in pats if p.get('signal') == '買入'
+                                    and p.get('signal_bar') is not None]
+                        if buy_pats:
+                            if max(p['signal_bar'] for p in buy_pats) >= sig_n - 10:
+                                pattern_sig = True
+            except Exception:
+                pass
+
+        except Exception:
+            return None
+
+        names = _load_twse_stock_names()
+        return {
+            'code':       code,
+            'name':       names.get(code, code),
+            'industry':   ind,
+            'rev_yoy':    rev_yoy,
+            'rev_consec': rev_consec,
+            'rev_latest': rev_latest,
+            'ma_bull':    ma_bull,
+            'kd_gold':    kd_gold,
+            'macd_bull':  macd_bull,
+            'rsi_bull':   rsi_bull,
+            'vol_surge':  vol_surge,
+            'tech_count': tech_count,
+            'price':      price,
+            'ma5':        round(ma5, 2),
+            'ma20':       round(ma20, 2),
+            'ma60':       round(ma60, 2),
+            'kd_k':       round(kd_k, 1),
+            'rsi':        round(rsi_val, 1) if rsi_val is not None else None,
+            'linen':      linen_sig,
+            'zhujia':     zhujia_sig,
+            'pattern':    pattern_sig,
+        }
+
+    def _scr_update_progress(self, pct, done, total, found, gen):
+        if self._scr_gen != gen:
+            return
+        self._scr_prog['value'] = pct
+        self._scr_status_var.set(f'{done}/{total}  已篩出 {found} 筆')
+
+    def _scr_finish(self, results, gen):
+        if self._scr_gen != gen:
+            return
+        self._scr_data = results
+        self._scr_prog['value'] = 100
+        self._scr_status_var.set(f'完成  共 {len(results)} 筆')
+        self._scr_btn_start.config(state='normal')
+        self._scr_btn_stop.config(state='disabled')
+        self._scr_populate_table(results)
+
+    # ── 表格操作 ──────────────────────────────────────────────────────────────
+
+    def _scr_clear_table(self):
+        for item in self._scr_tv.get_children():
+            self._scr_tv.delete(item)
+
+    def _scr_populate_table(self, data):
+        self._scr_clear_table()
+        wl_codes = {w['code'] for w in self._scr_watchlist}
+
+        def _fmt(col_id, v):
+            import math
+            if v is None or (isinstance(v, float) and math.isnan(v)):
+                return '-'
+            if col_id in ('ma_bull', 'kd_gold', 'macd_bull', 'rsi_bull', 'vol_surge',
+                          'linen', 'zhujia', 'pattern'):
+                return '✓' if v else '✗'
+            if col_id == 'rev_yoy':
+                return f'{v:.1f}%'
+            if col_id == 'rev_consec':
+                return f'{int(v)}季'
+            if col_id in ('rev_latest', 'price', 'ma5', 'ma20', 'ma60'):
+                return f'{v:.2f}' if v >= 10 else f'{v:.3f}'
+            if col_id in ('kd_k', 'rsi'):
+                return f'{v:.1f}'
+            if col_id == 'tech_count':
+                return str(v)
+            return str(v)
+
+        for r in data:
+            tc = r.get('tech_count', 0)
+            tag = 'hi5' if tc >= 5 else 'hi3' if tc >= 3 else 'norm'
+            if r['code'] in wl_codes:
+                tag = 'wtch'
+            if r['code'] in self._scr_selected:
+                tag = 'sel'
+
+            sel_sym = '☑' if r['code'] in self._scr_selected else '☐'
+            vals = [sel_sym]
+            for col_id, *_ in self._SCR_COLS[1:]:
+                vals.append(_fmt(col_id, r.get(col_id)))
+            self._scr_tv.insert('', 'end', iid=r['code'], values=vals, tags=(tag,))
+
+    def _scr_sort_col(self, col):
+        if not self._scr_data:
+            return
+        rev = (self._scr_sort_key == col and not self._scr_sort_rev)
+        self._scr_sort_key = col
+        self._scr_sort_rev = rev
+
+        def _key(r):
+            v = r.get(col)
+            if v is None:
+                return (-1e18 if rev else 1e18)
+            if isinstance(v, bool):
+                return int(v)
+            if isinstance(v, (int, float)):
+                return v
+            return str(v).lower()
+
+        self._scr_data.sort(key=_key, reverse=rev)
+        self._scr_populate_table(self._scr_data)
+
+    def _scr_on_click(self, event):
+        region = self._scr_tv.identify_region(event.x, event.y)
+        if region not in ('cell', 'tree'):
+            return
+        row_id = self._scr_tv.identify_row(event.y)
+        if not row_id:
+            return
+        col = self._scr_tv.identify_column(event.x)
+        # 第一欄（#1）= checkbox toggle；其他欄位 = 也 toggle（方便點選）
+        code = row_id
+        if code in self._scr_selected:
+            self._scr_selected.discard(code)
+        else:
+            self._scr_selected.add(code)
+        self._scr_sel_lbl.config(text=f'已選 {len(self._scr_selected)} 筆')
+        # 更新該列顯示
+        self._scr_refresh_row(code)
+
+    def _scr_on_dbl_click(self, event):
+        row_id = self._scr_tv.identify_row(event.y)
+        if not row_id:
+            return
+        code = row_id
+        self._stk_code.set(code)
+        self._show_page(5)       # 切到「個股分析」(idx 5)
+        self._load_stk_chart()
+
+    def _scr_refresh_row(self, code):
+        if not self._scr_tv.exists(code):
+            return
+        r = next((x for x in self._scr_data if x['code'] == code), None)
+        if r is None:
+            return
+        wl_codes = {w['code'] for w in self._scr_watchlist}
+        tc  = r.get('tech_count', 0)
+        tag = 'hi5' if tc >= 5 else 'hi3' if tc >= 3 else 'norm'
+        if code in wl_codes:
+            tag = 'wtch'
+        if code in self._scr_selected:
+            tag = 'sel'
+
+        vals = self._scr_tv.item(code, 'values')
+        new_vals = ('☑' if code in self._scr_selected else '☐',) + tuple(vals[1:])
+        self._scr_tv.item(code, values=new_vals, tags=(tag,))
+
+    def _scr_select_all(self):
+        for r in self._scr_data:
+            self._scr_selected.add(r['code'])
+        self._scr_sel_lbl.config(text=f'已選 {len(self._scr_selected)} 筆')
+        self._scr_populate_table(self._scr_data)
+
+    def _scr_clear_sel(self):
+        self._scr_selected.clear()
+        self._scr_sel_lbl.config(text='已選 0 筆')
+        self._scr_populate_table(self._scr_data)
+
+    # ── 追蹤清單 ──────────────────────────────────────────────────────────────
+
+    def _scr_add_watchlist(self):
+        if not self._scr_selected:
+            import tkinter.messagebox as mb
+            mb.showinfo('追蹤清單', '請先勾選要加入的股票。', parent=self)
+            return
+        from datetime import date as _date
+        today = _date.today().strftime('%Y-%m-%d')
+        wl_codes = {w['code'] for w in self._scr_watchlist}
+        names = _load_twse_stock_names()
+        added = 0
+        for code in self._scr_selected:
+            if code not in wl_codes:
+                self._scr_watchlist.append({'code': code,
+                                            'name': names.get(code, code),
+                                            'added': today})
+                added += 1
+        self._scr_save_watchlist()
+        import tkinter.messagebox as mb
+        mb.showinfo('追蹤清單', f'已加入 {added} 筆（共 {len(self._scr_watchlist)} 筆）。', parent=self)
+
+    def _scr_load_watchlist(self):
+        try:
+            with open(self._SCR_WATCHLIST_PATH, encoding='utf-8') as fp:
+                self._scr_watchlist = _json.load(fp)
+        except FileNotFoundError:
+            import tkinter.messagebox as mb
+            mb.showinfo('追蹤清單', '尚未建立追蹤清單。', parent=self)
+            return
+        except Exception as e:
+            import tkinter.messagebox as mb
+            mb.showerror('錯誤', str(e), parent=self)
+            return
+        # 在表格中把已在追蹤清單的股票用藍色標示
+        self._scr_populate_table(self._scr_data)
+        wl_names = ', '.join(f"{w['code']} {w['name']}" for w in self._scr_watchlist[:5])
+        if len(self._scr_watchlist) > 5:
+            wl_names += f'… 共 {len(self._scr_watchlist)} 筆'
+        import tkinter.messagebox as mb
+        mb.showinfo('追蹤清單', f'已載入：\n{wl_names}', parent=self)
+
+    def _scr_save_watchlist(self):
+        try:
+            with open(self._SCR_WATCHLIST_PATH, 'w', encoding='utf-8') as fp:
+                _json.dump(self._scr_watchlist, fp, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    # ── 存檔 / 載入 ───────────────────────────────────────────────────────────
+
+    def _scr_save(self):
+        if not self._scr_data:
+            import tkinter.messagebox as mb
+            mb.showinfo('存檔', '目前沒有掃描結果可儲存。', parent=self)
+            return
+        from datetime import datetime as _dt
+        payload = {
+            'scan_time': _dt.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'results':   self._scr_data,
+        }
+        try:
+            with open(self._SCR_RESULT_PATH, 'w', encoding='utf-8') as fp:
+                _json.dump(payload, fp, ensure_ascii=False, indent=2)
+            self._scr_status_var.set(f'已存檔  {len(self._scr_data)} 筆')
+        except Exception as e:
+            import tkinter.messagebox as mb
+            mb.showerror('存檔失敗', str(e), parent=self)
+
+    def _scr_load(self):
+        try:
+            with open(self._SCR_RESULT_PATH, encoding='utf-8') as fp:
+                payload = _json.load(fp)
+            data = payload.get('results', [])
+            self._scr_data = data
+            self._scr_selected.clear()
+            self._scr_populate_table(data)
+            t = payload.get('scan_time', '')
+            self._scr_status_var.set(f'已載入  {len(data)} 筆  （{t}）')
+        except FileNotFoundError:
+            import tkinter.messagebox as mb
+            mb.showinfo('載入', '尚未有已存的掃描結果。', parent=self)
+        except Exception as e:
+            import tkinter.messagebox as mb
+            mb.showerror('載入失敗', str(e), parent=self)
+
 
 
 # ─── 修改交易對話框 ────────────────────────────────────────────────────────────
