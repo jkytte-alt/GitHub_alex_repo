@@ -14855,11 +14855,12 @@ class StockApp(tk.Tk):
                 'Accept':     'application/json',
             }
             result = None
+            # ── 主要來源：TWSE MIS ─────────────────────────────────────────
             for ex in ('tse', 'otc'):
                 url = (f'https://mis.twse.com.tw/stock/api/getStockInfo.jsp'
                        f'?ex_ch={ex}_{code}.tw')
                 try:
-                    data = _cffi_get_json(url, headers=hdrs, timeout=8)
+                    data = _cffi_get_json(url, headers=hdrs, timeout=6)
                     for s in data.get('msgArray', []):
                         if str(s.get('c', '')).strip() != code:
                             continue
@@ -14875,15 +14876,35 @@ class StockApp(tk.Tk):
                                 'open':  _flt('o'),
                                 'high':  _flt('h'),
                                 'low':   _flt('l'),
-                                'vol':   _flt('v'),    # 張
+                                'vol':   _flt('v'),
                             }
                         break
                 except Exception:
                     pass
                 if result:
                     break
+            # ── 備援：yfinance（MIS 失敗或開盤前無成交時使用）──────────────
+            if not result:
+                try:
+                    for s in ('.TW', '.TWO'):
+                        fi = yf.Ticker(code + s).fast_info
+                        p = getattr(fi, 'last_price', None)
+                        if p and p > 0:
+                            result = {
+                                'price': float(p),
+                                'prev':  getattr(fi, 'previous_close', None),
+                                'open':  getattr(fi, 'open', None),
+                                'high':  getattr(fi, 'day_high', None),
+                                'low':   getattr(fi, 'day_low', None),
+                                'vol':   None,
+                            }
+                            break
+                except Exception:
+                    pass
             if result:
                 self._ui_call(lambda r=result: self._stk_update_rt(code, r))
+            else:
+                self._ui_call(lambda: self._stk_status.set('⏳ 等待即時報價…'))
             # 若仍在盤中且目標股票未換，排程下次更新
             self._ui_call(lambda: self._stk_reschedule_rt(code))
         threading.Thread(target=_fetch, daemon=True).start()
