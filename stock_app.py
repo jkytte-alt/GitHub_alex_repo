@@ -534,9 +534,46 @@ def _setup_font():
     return 'DejaVu Sans'
 
 CHART_FONT  = _setup_font()
-BODY_FONT   = ('Microsoft JhengHei', 10)
-HDR_FONT    = ('Microsoft JhengHei', 13, 'bold')
-INPUT_FONT  = ('Microsoft JhengHei', 12)        # Tab 1 輸入區較大字體
+
+# ─── DPI 感知與全域 UI 縮放 ──────────────────────────────────────────────────
+def _enable_dpi_awareness() -> float:
+    """啟用 Windows DPI 感知（避免高解析螢幕模糊），回傳系統縮放倍率（1.0 = 100%）。
+    必須在建立 Tk 視窗之前呼叫。"""
+    if _sys.platform != 'win32':
+        return 1.0
+    import ctypes
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)   # System DPI aware
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            return 1.0
+    try:
+        hdc = ctypes.windll.user32.GetDC(0)
+        dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # 88 = LOGPIXELSX
+        ctypes.windll.user32.ReleaseDC(0, hdc)
+        return dpi / 96
+    except Exception:
+        return 1.0
+
+UI_SCALE = _enable_dpi_awareness()      # 例：150% 縮放 → 1.5
+# 注意：matplotlib TkAgg 後端（3.5+）會依 tk scaling 自動將 figure dpi 乘上
+# UI_SCALE（_update_device_pixel_ratio），因此 plt.Figure 一律維持 dpi=100，
+# 切勿再手動乘上縮放倍率，否則會被放大兩次導致圖表超出畫布。
+
+# ─── 全域字體集中管理 ────────────────────────────────────────────────────────
+UI_FONT_FAMILY = 'Microsoft JhengHei'
+UI_FONT_DELTA  = 0    # 全域字體微調（pt）：改成 +1 即所有文字加大 1pt
+
+def UIF(size: int, *styles: str) -> tuple:
+    """UI 字體工廠：UIF(9) 回傳 (UI_FONT_FAMILY, 9)；UIF(11, 'bold') 同理。
+    調整 UI_FONT_DELTA 可一次放大/縮小全程式字體。"""
+    return (UI_FONT_FAMILY, size + UI_FONT_DELTA, *styles)
+
+BODY_FONT   = UIF(10)
+HDR_FONT    = UIF(13, 'bold')
+INPUT_FONT  = UIF(12)        # Tab 1 輸入區較大字體
 
 plt.rcParams['axes.unicode_minus'] = False
 plt.rcParams['font.family']        = CHART_FONT
@@ -2472,7 +2509,7 @@ class DatePickerEntry(ttk.Frame):
             othermonthweforeground='#444', othermonthwebackground=C_BG,
             selectbackground=C_ACCENT, selectforeground='white',
             bordercolor=C_BORDER,
-            font=('Microsoft JhengHei', 10),
+            font=UIF(10),
         )
         cal.pack(padx=8, pady=8)
 
@@ -2551,8 +2588,13 @@ class StockApp(tk.Tk):
 
     def __init__(self):
         super().__init__()
+        # 依系統 DPI 設定 Tk 縮放（pt → px 換算），讓字體在高解析螢幕維持正確大小
+        # 注意：不手動設定 tk scaling。SetProcessDpiAwareness 已讓 OS 不模糊視窗，
+        # Tk 會依系統 DPI 正確換算 pt→px；若手動提高 scaling，matplotlib TkAgg 的
+        # _update_device_pixel_ratio 會把所有 Figure canvas 放大到 1.5×，
+        # 超出可用空間後 K 線指標面板等下方區域就被裁切消失。
         self.title(f'個人股票管理工具 v{APP_VERSION}')
-        self.geometry('1200x780')
+        self.geometry(f'{int(1200 * UI_SCALE)}x{int(780 * UI_SCALE)}')
         self.configure(bg=C_BG)
         self._apply_dark_theme()
         # 啟動時預設最大化（Windows）
@@ -2614,13 +2656,15 @@ class StockApp(tk.Tk):
 
     def _pump_ui_queue(self):
         """主執行緒每 50 ms 執行背景執行緒排隊的 UI 回呼"""
+        _processed = 0
         try:
-            while True:
+            while _processed < 20:
                 fn = self._ui_queue.get_nowait()
                 try:
                     fn()
                 except Exception:
                     pass
+                _processed += 1
         except Exception:
             pass
         self._pump_job = self.after(50, self._pump_ui_queue)
@@ -2658,12 +2702,12 @@ class StockApp(tk.Tk):
 
         self._sb_title = tk.Label(top, text='  股票管理', bg=SB,
                                    fg='#aecde8',
-                                   font=('Microsoft JhengHei', 12, 'bold'),
+                                   font=UIF(12, 'bold'),
                                    anchor='w')
         self._sb_title.pack(side='left', fill='x', expand=True)
 
         self._sb_toggle = tk.Button(top, text='◀', bg=SB, fg='#5a7fa8',
-                                     font=('Microsoft JhengHei', 11),
+                                     font=UIF(11),
                                      relief='flat', bd=0, cursor='hand2',
                                      activebackground=SB, activeforeground='#aecde8',
                                      command=self._toggle_sidebar)
@@ -2687,7 +2731,7 @@ class StockApp(tk.Tk):
             icon_lbl.pack(side='left', padx=(8, 4), pady=8)
 
             txt_lbl = tk.Label(row, text=label, bg=SB, fg='#9090a0',
-                                font=('Microsoft JhengHei', 11),
+                                font=UIF(11),
                                 anchor='w', cursor='hand2')
             txt_lbl.pack(side='left', fill='x', expand=True, pady=8)
 
@@ -2753,7 +2797,11 @@ class StockApp(tk.Tk):
             self._cancel_tm_refresh()
         if idx == 0:
             if prev != 0:
-                self._draw_treemap()
+                # 初次載入（prev==-1）延遲 250ms，讓視窗 <Map> 事件先觸發，
+                # 確保 matplotlib _update_device_pixel_ratio 完成後再畫，
+                # 避免 DPI 未更新就算出錯誤的 pixel→dataunit 換算比例。
+                delay = 250 if prev == -1 else 0
+                self.after(delay, self._draw_treemap)
             self._schedule_tm_refresh()
         elif idx == 1 and prev != 1:
             self._update_stock_list()
@@ -2802,7 +2850,7 @@ class StockApp(tk.Tk):
             background=C_BG, bordercolor=C_BORDER, tabmargins=[2, 5, 0, 0])
         style.configure('TNotebook.Tab',
             background=C_PANEL, foreground=C_FG2,
-            padding=[14, 6], font=('Microsoft JhengHei', 11, 'bold'))
+            padding=[14, 6], font=UIF(11, 'bold'))
         style.map('TNotebook.Tab',
             background=[('selected', C_BG),    ('active', '#303030')],
             foreground=[('selected', C_FG),     ('active', C_FG)])
@@ -2832,8 +2880,8 @@ class StockApp(tk.Tk):
 
         style.configure('Treeview',
             background=C_PANEL, foreground=C_FG,
-            fieldbackground=C_PANEL, rowheight=26,
-            font=('Microsoft JhengHei UI', 10),
+            fieldbackground=C_PANEL, rowheight=int(26 * UI_SCALE),
+            font=UIF(10),
             bordercolor=C_BORDER, relief='flat')
         style.configure('Treeview.Heading',
             background='#333333', foreground=C_FG,
@@ -2889,7 +2937,7 @@ class StockApp(tk.Tk):
         style.configure('Nav.TButton',
             background='#1e1e2e', foreground=C_FG,
             bordercolor='#2a2a3a', relief='flat',
-            padding=[12, 7], font=('Microsoft JhengHei', 10))
+            padding=[12, 7], font=UIF(10))
         style.map('Nav.TButton',
             background=[('active', '#252538'), ('pressed', '#1a253a')],
             foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
@@ -2988,11 +3036,11 @@ class StockApp(tk.Tk):
                   width=14, style='In.TEntry').pack(side='left')
         _tick_btn_frame = tk.Frame(_price_frame, bg=C_INPUT)
         _tick_btn_frame.pack(side='left', padx=(4, 0))
-        tk.Button(_tick_btn_frame, text='▲', font=('Microsoft JhengHei', 8, 'bold'),
+        tk.Button(_tick_btn_frame, text='▲', font=UIF(8, 'bold'),
                   bg=C_INPUT, fg=C_FG, activebackground=C_BORDER, relief='flat',
                   bd=0, width=2, cursor='hand2',
                   command=lambda: self._adjust_price(+1)).pack(side='top')
-        tk.Button(_tick_btn_frame, text='▼', font=('Microsoft JhengHei', 8, 'bold'),
+        tk.Button(_tick_btn_frame, text='▼', font=UIF(8, 'bold'),
                   bg=C_INPUT, fg=C_FG, activebackground=C_BORDER, relief='flat',
                   bd=0, width=2, cursor='hand2',
                   command=lambda: self._adjust_price(-1)).pack(side='top')
@@ -3017,7 +3065,7 @@ class StockApp(tk.Tk):
         # Row 5: 狀態列 + 按鈕
         self._status_var = tk.StringVar(value='')
         ttk.Label(box, textvariable=self._status_var,
-                  foreground=C_FG2, font=('Microsoft JhengHei', 10)
+                  foreground=C_FG2, font=UIF(10)
                   ).grid(row=5, column=0, columnspan=3, sticky='w', padx=14)
 
         btn_f = ttk.Frame(box)
@@ -3436,7 +3484,7 @@ class StockApp(tk.Tk):
         ttk.Label(ctrl, text='庫存現值分佈', style='Hdr.TLabel').pack(side='left')
         self._tm_status = tk.StringVar(value='切換至此頁面自動更新 | 也可手動點擊更新')
         ttk.Label(ctrl, textvariable=self._tm_status,
-                  foreground=C_FG2, font=('Microsoft JhengHei', 9)).pack(side='left', padx=14)
+                  foreground=C_FG2, font=UIF(9)).pack(side='left', padx=14)
         ttk.Button(ctrl, text='💾  另存圖檔', style='Nav.TButton', command=self._save_treemap).pack(side='right', padx=(4, 0))
         ttk.Button(ctrl, text='🔄  更新報價', style='Nav.TButton', command=self._draw_treemap).pack(side='right')
         self._tm_view_mode = 'profit'
@@ -3456,10 +3504,10 @@ class StockApp(tk.Tk):
         _top = tk.Frame(card, bg='#1a1a2e')
         _top.pack(fill='x')
         tk.Label(_top, text='庫存總市值', bg='#1a1a2e',
-                 fg='#6a8faf', font=('Microsoft JhengHei', 13)).pack(side='left')
+                 fg='#6a8faf', font=UIF(13)).pack(side='left')
         self._sv_count = tk.StringVar(value='—')
         tk.Label(_top, textvariable=self._sv_count, bg='#1a1a2e',
-                 fg='#6a8faf', font=('Microsoft JhengHei', 11)).pack(side='right')
+                 fg='#6a8faf', font=UIF(11)).pack(side='right')
 
         # 市值 + 右側三項並排
         _mid = tk.Frame(card, bg='#1a1a2e')
@@ -3468,18 +3516,18 @@ class StockApp(tk.Tk):
         # 左：大字總市值
         self._sv_mktval = tk.StringVar(value='—')
         tk.Label(_mid, textvariable=self._sv_mktval, bg='#1a1a2e',
-                 fg=C_FG, font=('Microsoft JhengHei', 30, 'bold')).pack(side='left', padx=(0, 24))
+                 fg=C_FG, font=UIF(30, 'bold')).pack(side='left', padx=(0, 24))
 
         # 右：損益試算 / 報酬率 / 總付出成本
         def _sub(parent, title):
             fr = tk.Frame(parent, bg='#1a1a2e', padx=16)
             fr.pack(side='left', anchor='center')
             tlbl = tk.Label(fr, text=title, bg='#1a1a2e',
-                     fg='#6a8faf', font=('Microsoft JhengHei', 9))
+                     fg='#6a8faf', font=UIF(9))
             tlbl.pack(anchor='w')
             var = tk.StringVar(value='—')
             lbl = tk.Label(fr, textvariable=var, bg='#1a1a2e',
-                           fg=C_FG, font=('Microsoft JhengHei', 16, 'bold'))
+                           fg=C_FG, font=UIF(16, 'bold'))
             lbl.pack(anchor='w')
             return var, lbl, tlbl
 
@@ -3586,7 +3634,7 @@ class StockApp(tk.Tk):
             self._tm_tip_widgets = {}
             for key in ('title', 'price', 'today_chg', 'qty', 'mktval', 'ratio', 'avgcost', 'pnl'):
                 lbl = tk.Label(inner, bg='#252526',
-                               font=('Microsoft JhengHei', 10), anchor='w')
+                               font=UIF(10), anchor='w')
                 lbl.pack(fill='x')
                 self._tm_tip_widgets[key] = lbl
             self._tm_tooltip = tip
@@ -3605,7 +3653,7 @@ class StockApp(tk.Tk):
         prev_p = data.get('prev_price')
 
         w['title'].config(text=f'{code}  {name}  ({cat})',
-                          fg='#8ab4d4', font=('Microsoft JhengHei', 11, 'bold'))
+                          fg='#8ab4d4', font=UIF(11, 'bold'))
         w['price'].config(text=f'現價：{"—" if not price else f"{price:,.2f} 元"}',
                           fg='#cccccc')
         # 今日漲跌
@@ -3741,7 +3789,7 @@ class StockApp(tk.Tk):
             self._tm_tip_widgets = {}
             for key in ('title', 'price', 'qty', 'mktval', 'ratio', 'avgcost', 'pnl'):
                 lbl = tk.Label(inner, bg='#252526',
-                               font=('Microsoft JhengHei', 10), anchor='w')
+                               font=UIF(10), anchor='w')
                 lbl.pack(fill='x')
                 self._tm_tip_widgets[key] = lbl
             self._tm_tooltip = tip
@@ -3750,7 +3798,7 @@ class StockApp(tk.Tk):
         sign = '+' if cat['pnl_amt'] >= 0 else ''
         pnl_fg = '#f07070' if cat['pnl_amt'] >= 0 else '#4ec94e'
         w['title'].config(text=cat['cat_name'],
-                          fg='#aecde8', font=('Microsoft JhengHei', 11, 'bold'))
+                          fg='#aecde8', font=UIF(11, 'bold'))
         w['price'].config(text=f"持股標的：{cat['count']} 檔", fg='#cccccc')
         w['qty'].config(  text=f"市值：{cat['value']:,.0f} 元",  fg='#cccccc')
         w['mktval'].config(text=f"成本：{cat['cost']:,.0f} 元",  fg='#cccccc')
@@ -3831,6 +3879,10 @@ class StockApp(tk.Tk):
             return
         self._tm_fetching = True
         self._tm_status.set('更新中…')
+        # 同步圖表尺寸（主執行緒，Tk-safe）：確保背景執行緒讀到的 dpi 與
+        # get_size_inches() 已反映實際畫布大小，避免 _px_per_uy 算錯導致
+        # 分類標題 hdr_h 在 data-unit 空間過大，造成 squarify 排版比例錯誤。
+        _fit_fig_to_canvas(self._tm_fig, self._tm_canvas)
         import threading as _th
         _th.Thread(target=self._draw_treemap_bg, daemon=True).start()
 
@@ -3839,7 +3891,7 @@ class StockApp(tk.Tk):
             self._draw_treemap_impl()
         except Exception as e:
             import traceback; traceback.print_exc()
-            self._ui_call(lambda: self._tm_status.set(f'繪製錯誤：{e}'))
+            self._ui_call(lambda msg=str(e): self._tm_status.set(f'繪製錯誤：{msg}'))
         finally:
             self._tm_fetching = False
 
@@ -4329,7 +4381,7 @@ class StockApp(tk.Tk):
         self._stock_combo.pack(side='left', padx=4)
         self._stock_combo.bind('<Return>', lambda _: self._draw_analysis())
         ttk.Label(ctrl, text='（↵ 或點按鈕）',
-                  foreground=C_FG2, font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 6))
+                  foreground=C_FG2, font=UIF(8)).pack(side='left', padx=(0, 6))
         ttk.Button(ctrl, text='📊  繪製圖表', style='Nav.TButton', command=self._draw_analysis).pack(side='left')
         ttk.Button(ctrl, text='💾  另存圖檔', style='Nav.TButton', command=self._save_analysis).pack(side='left', padx=(6, 0))
         self._adj_var = tk.BooleanVar(value=False)
@@ -4479,7 +4531,7 @@ class StockApp(tk.Tk):
             self._an_tip_widgets = {}
             for key in ('title', 'price', 'qty', 'fee', 'tax', 'net', 'avg'):
                 lbl = tk.Label(inner, bg='#252526',
-                               font=('Microsoft JhengHei', 10), anchor='w')
+                               font=UIF(10), anchor='w')
                 lbl.pack(fill='x')
                 self._an_tip_widgets[key] = lbl
             self._an_tooltip = tip
@@ -4493,7 +4545,7 @@ class StockApp(tk.Tk):
             side_color = C_SELL_FG
         w['title'].config(
             text=f"{data['date']}　{data['side']}　({data['category']})",
-            fg=side_color, font=('Microsoft JhengHei', 11, 'bold'))
+            fg=side_color, font=UIF(11, 'bold'))
         w['price'].config(text=f"成交價：{data['price']:,.2f} 元", fg='#cccccc')
         w['qty'].config(  text=f"數　量：{data['qty']:,.0f} 股",   fg='#cccccc')
         w['fee'].config(  text=f"手續費：{data['fee']:,.0f} 元",   fg='#cccccc')
@@ -4999,7 +5051,7 @@ class StockApp(tk.Tk):
                            ('active_analysis', '主動型ETF成分股分析')]:
             btn = tk.Label(sub_bar, text=slbl,
                            bg='#1a1a2e', fg='#9090a0',
-                           font=('Microsoft JhengHei', 10, 'bold'),
+                           font=UIF(10, 'bold'),
                            padx=18, pady=7, cursor='hand2')
             btn.pack(side='left')
             btn.bind('<Button-1>', lambda e, s=sid: self._show_etf_sub(s))
@@ -5098,7 +5150,7 @@ class StockApp(tk.Tk):
         self._etf_combo.bind('<Return>', _on_combo_select)
 
         ttk.Label(ctrl, text='或輸入代號：',
-                  foreground=C_FG2, font=('Microsoft JhengHei', 9)).pack(side='left', padx=(10, 4))
+                  foreground=C_FG2, font=UIF(9)).pack(side='left', padx=(10, 4))
         self._etf_code_var = tk.StringVar()
         etf_entry = ttk.Entry(ctrl, textvariable=self._etf_code_var, width=10)
         etf_entry.pack(side='left', padx=4)
@@ -5125,7 +5177,7 @@ class StockApp(tk.Tk):
         status_bar = tk.Frame(f, bg=C_BG)
         status_bar.pack(fill='x', padx=14, pady=(0, 2))
         ttk.Label(status_bar, textvariable=self._etf_status,
-                  foreground=C_FG2, font=('Microsoft JhengHei', 9),
+                  foreground=C_FG2, font=UIF(9),
                   wraplength=1100, justify='left').pack(anchor='w')
 
         # ── 摘要列（兩行卡片）────────────────────────────────────────────────
@@ -5141,10 +5193,10 @@ class StockApp(tk.Tk):
             fr = tk.Frame(parent, bg='#1a1a2e', padx=14, pady=5)
             fr.pack(side='left', fill='x', expand=True, padx=3)
             tk.Label(fr, text=title, bg='#1a1a2e',
-                     fg='#6a8faf', font=('Microsoft JhengHei', 8)).pack(anchor='w')
+                     fg='#6a8faf', font=UIF(8)).pack(anchor='w')
             var = tk.StringVar(value='—')
             lbl = tk.Label(fr, textvariable=var, bg='#1a1a2e',
-                           fg=C_FG, font=('Microsoft JhengHei', 11, 'bold'))
+                           fg=C_FG, font=UIF(11, 'bold'))
             lbl.pack(anchor='w')
             return var, lbl
 
@@ -5198,13 +5250,13 @@ class StockApp(tk.Tk):
 
         _CTRL_BG = '#1c1c28'
         _BTN_OFF = dict(bg='#e8e8ee', fg='#222233',
-                        font=('Microsoft JhengHei', 8, 'bold'),
+                        font=UIF(8, 'bold'),
                         relief='flat', bd=0, padx=10, pady=3,
                         cursor='hand2',
                         highlightbackground='#aaaacc', highlightthickness=1,
                         activebackground='#d0d0e0', activeforeground='#111122')
         _BTN_ON  = dict(bg='#3a5fcd', fg='#ffffff',
-                        font=('Microsoft JhengHei', 8, 'bold'),
+                        font=UIF(8, 'bold'),
                         relief='flat', bd=0, padx=10, pady=3,
                         cursor='hand2',
                         highlightbackground='#2a4fbd', highlightthickness=1,
@@ -5218,7 +5270,7 @@ class StockApp(tk.Tk):
         self._kline_period_btns: dict[str, tk.Button] = {}
 
         tk.Label(kctrl, text='區間:', bg=_CTRL_BG, fg='#8899cc',
-                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(8, 4))
+                 font=UIF(8, 'bold')).pack(side='left', padx=(8, 4))
 
         def _set_period(lbl: str) -> None:
             self._kline_period = lbl
@@ -5243,7 +5295,7 @@ class StockApp(tk.Tk):
         self._kline_ind_btns: dict[str, tk.Button] = {}
 
         tk.Label(kctrl, text='指標:', bg=_CTRL_BG, fg='#8899cc',
-                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(0, 4))
+                 font=UIF(8, 'bold')).pack(side='left', padx=(0, 4))
 
         def _toggle_ind(lbl: str) -> None:
             self._kline_ind_state[lbl] = not self._kline_ind_state[lbl]
@@ -5298,16 +5350,16 @@ class StockApp(tk.Tk):
             _DIFF_BG = '#111111'
             _BAR_BG  = '#1c1c28'
             _BTN_OFF = dict(bg='#2a2a3a', fg='#9090a0', padx=8, pady=3,
-                            font=('Microsoft JhengHei', 8), cursor='hand2',
+                            font=UIF(8), cursor='hand2',
                             relief='flat', bd=0, activebackground='#3a3a4a')
             _BTN_ON  = dict(bg='#2a3f6f', fg='#ffffff', padx=8, pady=3,
-                            font=('Microsoft JhengHei', 8, 'bold'), cursor='hand2',
+                            font=UIF(8, 'bold'), cursor='hand2',
                             relief='flat', bd=0, activebackground='#3a5090')
             _VS_OFF  = dict(bg='#1c1c28', fg='#6699ff', padx=8, pady=3,
-                            font=('Microsoft JhengHei', 8), cursor='hand2',
+                            font=UIF(8), cursor='hand2',
                             relief='flat', bd=0, activebackground='#2a2a3a')
             _VS_ON   = dict(bg='#1a3a5a', fg='#99ccff', padx=8, pady=3,
-                            font=('Microsoft JhengHei', 8, 'bold'), cursor='hand2',
+                            font=UIF(8, 'bold'), cursor='hand2',
                             relief='flat', bd=0, activebackground='#2a4a6a')
 
             diff_outer = tk.Frame(self._etf_inner, bg=_DIFF_BG)
@@ -5327,7 +5379,7 @@ class StockApp(tk.Tk):
             row1.pack(fill='x')
             row1.bind('<MouseWheel>', _mw)
             _lbl_date = tk.Label(row1, text='日期', bg=_BAR_BG, fg='#8899cc',
-                                 font=('Microsoft JhengHei', 9, 'bold'),
+                                 font=UIF(9, 'bold'),
                                  width=_LBL_W, anchor='e')
             _lbl_date.pack(side='left', padx=(10, 6))
             _lbl_date.bind('<MouseWheel>', _mw)
@@ -5350,7 +5402,7 @@ class StockApp(tk.Tk):
             row2.pack(fill='x')
             row2.bind('<MouseWheel>', _mw)
             _lbl_vs = tk.Label(row2, text='vs', bg=_BAR_BG, fg='#666688',
-                               font=('Microsoft JhengHei', 9, 'bold'),
+                               font=UIF(9, 'bold'),
                                width=_LBL_W, anchor='e')
             _lbl_vs.pack(side='left', padx=(10, 6))
             _lbl_vs.bind('<MouseWheel>', _mw)
@@ -5421,38 +5473,38 @@ class StockApp(tk.Tk):
             badge_bar.pack(fill='x', padx=4, pady=(4, 2))
             badge_bar.bind('<MouseWheel>', _mw)
             self._aetf_badge_add = tk.Label(badge_bar, text='', bg='#0a2010', fg='#60e060',
-                                            font=('Microsoft JhengHei', 9, 'bold'),
+                                            font=UIF(9, 'bold'),
                                             padx=10, pady=3)
             self._aetf_badge_add.pack(side='left', padx=4)
             self._aetf_badge_add.bind('<MouseWheel>', _mw)
             self._aetf_badge_inc = tk.Label(badge_bar, text='', bg='#2e0808', fg='#ff7070',
-                                            font=('Microsoft JhengHei', 9, 'bold'),
+                                            font=UIF(9, 'bold'),
                                             padx=10, pady=3)
             self._aetf_badge_inc.pack(side='left', padx=4)
             self._aetf_badge_inc.bind('<MouseWheel>', _mw)
             self._aetf_badge_dec = tk.Label(badge_bar, text='', bg='#1a1a1a', fg='#909090',
-                                            font=('Microsoft JhengHei', 9, 'bold'),
+                                            font=UIF(9, 'bold'),
                                             padx=10, pady=3)
             self._aetf_badge_dec.pack(side='left', padx=4)
             self._aetf_badge_dec.bind('<MouseWheel>', _mw)
             self._aetf_fetch_lbl = tk.Label(badge_bar, text='', bg=_DIFF_BG, fg='#555577',
-                                            font=('Microsoft JhengHei', 8))
+                                            font=UIF(8))
             self._aetf_fetch_lbl.pack(side='right', padx=8)
             self._aetf_fetch_lbl.bind('<MouseWheel>', _mw)
             # 批次回測按鈕
             tk.Label(badge_bar, text='回測年數：', bg=_DIFF_BG, fg='#b8a0e8',
-                     font=('Microsoft JhengHei', 8, 'bold')).pack(side='right', padx=(8, 2))
+                     font=UIF(8, 'bold')).pack(side='right', padx=(8, 2))
             self._aetf_bt_years_var = tk.IntVar(value=2)
             tk.Spinbox(badge_bar, from_=1, to=5, increment=1, width=2,
                        textvariable=self._aetf_bt_years_var,
                        bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
                        buttonbackground='#2a2a3e', relief='flat',
-                       font=('Microsoft JhengHei', 8)).pack(side='right', padx=2)
+                       font=UIF(8)).pack(side='right', padx=2)
             tk.Label(badge_bar, text='年', bg=_DIFF_BG, fg='#6677aa',
-                     font=('Microsoft JhengHei', 8)).pack(side='right')
+                     font=UIF(8)).pack(side='right')
             # 方法選擇
-            _ABT_ON  = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', font=('Microsoft JhengHei', 8, 'bold'), cursor='hand2', padx=5)
-            _ABT_OFF = dict(bg='#1e2133', fg='#6677aa', relief='flat', font=('Microsoft JhengHei', 8),         cursor='hand2', padx=5)
+            _ABT_ON  = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', font=UIF(8, 'bold'), cursor='hand2', padx=5)
+            _ABT_OFF = dict(bg='#1e2133', fg='#6677aa', relief='flat', font=UIF(8),         cursor='hand2', padx=5)
             self._aetf_bt_method = tk.StringVar(value='linen')
             self._aetf_bt_linen_btn  = tk.Button(badge_bar, text='林恩如', **_ABT_ON)
             self._aetf_bt_zhujia_btn = tk.Button(badge_bar, text='朱家泓', **_ABT_OFF)
@@ -5466,18 +5518,18 @@ class StockApp(tk.Tk):
             self._aetf_bt_zhujia_btn.pack(side='right', padx=(0, 2))
             tk.Button(badge_bar, text='批次回測',
                       bg='#2d3561', fg='#a0b4e8', relief='flat',
-                      font=('Microsoft JhengHei', 8), cursor='hand2',
+                      font=UIF(8), cursor='hand2',
                       activebackground='#3d4571', activeforeground='#c0d0f0',
                       command=self._run_aetf_batch_backtest
                       ).pack(side='right', padx=(4, 2))
 
             # ── 熱力圖模式切換列 ───────────────────────────────────────────
             _HM_SEL   = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', bd=0,
-                              font=('Microsoft JhengHei', 8, 'bold'),
+                              font=UIF(8, 'bold'),
                               padx=10, pady=3, cursor='hand2',
                               activebackground='#3a5090')
             _HM_UNSEL = dict(bg='#1a1a2e', fg='#7a8aaa', relief='flat', bd=0,
-                              font=('Microsoft JhengHei', 8),
+                              font=UIF(8),
                               padx=10, pady=3, cursor='hand2',
                               activebackground='#2a2a3e')
 
@@ -5485,7 +5537,7 @@ class StockApp(tk.Tk):
             hm_ctrl.pack(fill='x', pady=(2, 0))
             hm_ctrl.bind('<MouseWheel>', _mw)
             _hm_lbl = tk.Label(hm_ctrl, text='熱力圖', bg='#1a1a2e', fg='#555577',
-                                font=('Microsoft JhengHei', 8))
+                                font=UIF(8))
             _hm_lbl.pack(side='left', padx=8)
             _hm_lbl.bind('<MouseWheel>', _mw)
 
@@ -5559,7 +5611,7 @@ class StockApp(tk.Tk):
             self._aetf_hm_pchg_btn .pack(side='left', padx=2)
             tk.Frame(hm_ctrl, bg='#333355', width=1, height=16).pack(side='left', padx=6)
             tk.Label(hm_ctrl, text='分組', bg='#1a1a2e', fg='#666680',
-                     font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 2))
+                     font=UIF(8)).pack(side='left', padx=(0, 2))
             self._aetf_hm_flat_btn  .pack(side='left', padx=2)
             self._aetf_hm_sector_btn.pack(side='left', padx=2)
             for _b in [self._aetf_hm_today_btn, self._aetf_hm_wchg_btn, self._aetf_hm_pchg_btn,
@@ -5597,7 +5649,7 @@ class StockApp(tk.Tk):
                 ('schg',   '張數變化', 100, 'e'),
                 ('pchg',   '個股變化', 100, 'e'),
             ]
-            ttk.Style().configure('AEtf.Treeview', rowheight=22)
+            ttk.Style().configure('AEtf.Treeview', rowheight=int(22 * UI_SCALE))
             self._aetf_tv = ttk.Treeview(tv_fr,
                                           columns=[c for c, *_ in _cols],
                                           show='headings', height=14,
@@ -5616,7 +5668,7 @@ class StockApp(tk.Tk):
             self._aetf_tv.tag_configure('inc', background='#1a0909', foreground='#ff7070')
             self._aetf_tv.tag_configure('dec', background='#131313', foreground='#909090')
             self._aetf_tv.tag_configure('hdr', background='#1a1a2e', foreground='#aaaacc',
-                                         font=('Microsoft JhengHei', 9, 'bold'))
+                                         font=UIF(9, 'bold'))
 
             self._aetf_date_btns   = {}   # YYYYMMDD → tk.Button (base 列)
             self._aetf_vs_btns     = {}   # YYYYMMDD → tk.Button (vs 列)
@@ -5707,11 +5759,11 @@ class StockApp(tk.Tk):
         preset_bar = tk.Frame(f, bg='#0d0d1a')
         preset_bar.pack(fill='x', padx=8, pady=(0, 2))
         tk.Label(preset_bar, text='快選分類：', bg='#0d0d1a', fg='#6a8faf',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(4, 4), pady=4)
+                 font=UIF(8)).pack(side='left', padx=(4, 4), pady=4)
         for p_name, p_etfs in _CMP_PRESETS:
             btn = tk.Label(preset_bar, text=p_name,
                            bg='#1e2d4e', fg='#aecde8',
-                           font=('Microsoft JhengHei', 8),
+                           font=UIF(8),
                            padx=10, pady=3, cursor='hand2', relief='flat')
             btn.pack(side='left', padx=2, pady=3)
             # capture by value
@@ -5730,12 +5782,12 @@ class StockApp(tk.Tk):
         tag_frame_outer = tk.Frame(f, bg=C_PNL)
         tag_frame_outer.pack(fill='x', padx=8, pady=(0, 4))
         tk.Label(tag_frame_outer, text='比較清單：', bg=C_PNL, fg='#6a8faf',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(8, 4), pady=4)
+                 font=UIF(8)).pack(side='left', padx=(8, 4), pady=4)
         self._cmp_tag_frame = tk.Frame(tag_frame_outer, bg=C_PNL)
         self._cmp_tag_frame.pack(side='left', fill='x', expand=True, pady=4)
         self._cmp_status_var = tk.StringVar(value='請加入 ETF 後點擊「更新比較」')
         tk.Label(tag_frame_outer, textvariable=self._cmp_status_var,
-                 bg=C_PNL, fg='#6a8faf', font=('Microsoft JhengHei', 8)).pack(
+                 bg=C_PNL, fg='#6a8faf', font=UIF(8)).pack(
             side='right', padx=8)
 
         # ── 比較表格（可捲動）────────────────────────────────────────────────
@@ -5786,7 +5838,7 @@ class StockApp(tk.Tk):
         for w in self._cmp_inner.winfo_children():
             w.destroy()
         tk.Label(self._cmp_inner, text='請加入至少 2 個 ETF 後點擊「更新比較」',
-                 bg=C_BG, fg='#555577', font=('Microsoft JhengHei', 11)).pack(
+                 bg=C_BG, fg='#555577', font=UIF(11)).pack(
             pady=60, padx=40)
 
     # ── ETF 成分股變化子頁面 ──────────────────────────────────────────────────
@@ -5816,13 +5868,13 @@ class StockApp(tk.Tk):
         tier_bar = tk.Frame(f, bg=C_BG)
         tier_bar.pack(fill='x', padx=10, pady=(8, 0))
         tk.Label(tier_bar, text='快速切換：', bg=C_BG, fg=C_FG,
-                 font=('Microsoft JhengHei', 9)).pack(side='left', padx=(0, 4))
+                 font=UIF(9)).pack(side='left', padx=(0, 4))
 
         _TIER_ACT = dict(bg='#2a5c8f', fg='white', relief='flat', bd=0,
-                         font=('Microsoft JhengHei', 8, 'bold'), padx=9, pady=3,
+                         font=UIF(8, 'bold'), padx=9, pady=3,
                          cursor='hand2', activebackground='#3a6caf')
         _TIER_INS = dict(bg='#1e2030', fg='#6070a0', relief='flat', bd=0,
-                         font=('Microsoft JhengHei', 8), padx=9, pady=3,
+                         font=UIF(8), padx=9, pady=3,
                          cursor='hand2', activebackground='#2a2a3e')
         self._chg_tier_btns  = {}
         self._chg_tier_styles = (_TIER_ACT, _TIER_INS)
@@ -5840,7 +5892,7 @@ class StockApp(tk.Tk):
         etf_bar = tk.Frame(f, bg=C_BG)
         etf_bar.pack(fill='x', padx=10, pady=(4, 2))
         tk.Label(etf_bar, text='主動型 ETF：', bg=C_BG, fg=C_FG,
-                 font=('Microsoft JhengHei', 10)).pack(side='left', padx=(0, 6))
+                 font=UIF(10)).pack(side='left', padx=(0, 6))
 
         _etf_canvas = tk.Canvas(etf_bar, bg=C_BG, height=30, highlightthickness=0)
         _etf_canvas.pack(side='left', fill='x', expand=True)
@@ -5897,7 +5949,7 @@ class StockApp(tk.Tk):
                 continue
             sep = tk.Label(_etf_inner, text=_TIER_DISP[tier_key],
                            bg=C_BG, fg=_TIER_SEP_FG[tier_key],
-                           font=('Microsoft JhengHei', 7), padx=3, pady=4)
+                           font=UIF(7), padx=3, pady=4)
             sep.pack(side='left', padx=(6, 1))
             sep.bind('<ButtonPress-1>', _pan_press)
             sep.bind('<B1-Motion>',     _pan_move)
@@ -5915,11 +5967,11 @@ class StockApp(tk.Tk):
 
         # ── 操作列 ────────────────────────────────────────────────────────────
         _SEL   = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', bd=0,
-                      font=('Microsoft JhengHei', 9, 'bold'),
+                      font=UIF(9, 'bold'),
                       padx=10, pady=3, cursor='hand2',
                       activebackground='#3a5090')
         _UNSEL = dict(bg='#1a1a2e', fg='#7a8aaa', relief='flat', bd=0,
-                      font=('Microsoft JhengHei', 9),
+                      font=UIF(9),
                       padx=10, pady=3, cursor='hand2',
                       activebackground='#2a2a3e')
 
@@ -5927,7 +5979,7 @@ class StockApp(tk.Tk):
         ctrl.pack(fill='x', padx=10, pady=(4, 6))
 
         tk.Label(ctrl, text='期間：', bg=C_BG, fg=C_FG,
-                 font=('Microsoft JhengHei', 9)).pack(side='left')
+                 font=UIF(9)).pack(side='left')
 
         _period_btns = {}
         def _set_period(val):
@@ -5945,13 +5997,13 @@ class StockApp(tk.Tk):
         # ── 分組按鈕 ──────────────────────────────────────────────────────
         tk.Frame(ctrl, bg='#333355', width=1, height=16).pack(side='left', padx=(10, 4))
         tk.Label(ctrl, text='分組：', bg=C_BG, fg='#666680',
-                 font=('Microsoft JhengHei', 8)).pack(side='left')
+                 font=UIF(8)).pack(side='left')
 
         _HM_SEL   = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', bd=0,
-                         font=('Microsoft JhengHei', 8, 'bold'), padx=8, pady=2,
+                         font=UIF(8, 'bold'), padx=8, pady=2,
                          cursor='hand2', activebackground='#3a5090')
         _HM_UNSEL = dict(bg='#1a1a2e', fg='#7a8aaa', relief='flat', bd=0,
-                         font=('Microsoft JhengHei', 8), padx=8, pady=2,
+                         font=UIF(8), padx=8, pady=2,
                          cursor='hand2', activebackground='#2a2a3e')
 
         self._chg_flat_btn   = tk.Button(ctrl, text='依占比', **_HM_UNSEL)
@@ -5981,7 +6033,7 @@ class StockApp(tk.Tk):
         # ── 大小模式按鈕 ─────────────────────────────────────────────
         tk.Frame(ctrl, bg='#333355', width=1, height=16).pack(side='left', padx=(10, 4))
         tk.Label(ctrl, text='大小：', bg=C_BG, fg='#666680',
-                 font=('Microsoft JhengHei', 8)).pack(side='left')
+                 font=UIF(8)).pack(side='left')
 
         self._chg_shares_btn = tk.Button(ctrl, text='依異動量', **_HM_SEL)
         self._chg_volume_btn = tk.Button(ctrl, text='依成交量', **_HM_UNSEL)
@@ -6037,7 +6089,7 @@ class StockApp(tk.Tk):
         bot_pane.grid(row=1, column=0, sticky='nsew')
         tk.Label(bot_pane, text='ETF 成分股異動統計（依活躍程度排序）',
                  bg='#2a3f6f', fg='white',
-                 font=('Microsoft JhengHei', 10, 'bold'), pady=4
+                 font=UIF(10, 'bold'), pady=4
                  ).pack(fill='x')
         tv_fr = tk.Frame(bot_pane, bg=C_PNL)
         tv_fr.pack(fill='both', expand=True)
@@ -6046,7 +6098,7 @@ class StockApp(tk.Tk):
                  ('buy_etfs',  '買入 ETF（比例/張數）', 280, 'w'),
                  ('sell_etfs', '賣出 ETF（比例/張數）', 280, 'w'),
                  ('net', '淨變化', 120, 'center')]
-        ttk.Style().configure('Chg.Treeview', rowheight=20)
+        ttk.Style().configure('Chg.Treeview', rowheight=int(20 * UI_SCALE))
         self._chg_sum_tv = ttk.Treeview(tv_fr,
                                          columns=[c for c, _n, _w, _a in _cols],
                                          show='headings', height=8,
@@ -6880,7 +6932,7 @@ class StockApp(tk.Tk):
                     self._chg_tip_w[key] = fr
                 else:
                     lbl = tk.Label(inner, bg='#252526',
-                                   font=('Microsoft JhengHei', 10), anchor='w')
+                                   font=UIF(10), anchor='w')
                     lbl.pack(fill='x')
                     self._chg_tip_w[key] = lbl
             self._chg_hm_tooltip = tip
@@ -6889,7 +6941,7 @@ class StockApp(tk.Tk):
         net_s = (f"{net/1000:+.1f}張" if abs(net) >= 100 else f"{net:+,}股")
         fg_net = '#f07070' if net >= 0 else '#4ec94e'
         w['title'].config(text=f'{data["name"]}  {data["code"]}',
-                          fg='#8ab4d4', font=('Microsoft JhengHei', 11, 'bold'))
+                          fg='#8ab4d4', font=UIF(11, 'bold'))
         w['line1'].config(text=f'活躍度：{data["weight"]:.1f}張（|買|+|賣|）',
                           fg='#cccccc')
         w['line2'].config(text=f'淨異動：{net_s}', fg=fg_net)
@@ -6899,11 +6951,11 @@ class StockApp(tk.Tk):
             child.destroy()
         for etf, _, s in sorted(data.get('buy_etfs', []), key=lambda x: -x[2])[:4]:
             tk.Label(fr, bg='#252526', fg='#80e080', anchor='w',
-                     font=('Microsoft JhengHei', 9),
+                     font=UIF(9),
                      text=f'  {etf}  買入 {s//1000:.0f}張').pack(fill='x')
         for etf, _, s in sorted(data.get('sell_etfs', []), key=lambda x: -x[2])[:4]:
             tk.Label(fr, bg='#252526', fg='#e08080', anchor='w',
-                     font=('Microsoft JhengHei', 9),
+                     font=UIF(9),
                      text=f'  {etf}  賣出 {s//1000:.0f}張').pack(fill='x')
         self._place_tooltip(tip, sx, sy)
         tip.deiconify()
@@ -6924,7 +6976,7 @@ class StockApp(tk.Tk):
             self._chg_sec_tip_w = {}
             for key in ('title', 'act', 'net', 'count', 'sep'):
                 lbl = tk.Label(inner, bg='#1c1c2c',
-                               font=('Microsoft JhengHei', 10), anchor='w')
+                               font=UIF(10), anchor='w')
                 lbl.pack(fill='x')
                 self._chg_sec_tip_w[key] = lbl
             sf = tk.Frame(inner, bg='#1c1c2c'); sf.pack(fill='x')
@@ -6936,7 +6988,7 @@ class StockApp(tk.Tk):
         fg_net = '#f07070' if net >= 0 else '#4ec94e'
         title  = data.get('display_name', data['sector'])
         w['title'].config(text=title,
-                          fg='#f0c060', font=('Microsoft JhengHei', 12, 'bold'))
+                          fg='#f0c060', font=UIF(12, 'bold'))
         w['act'].config(text=f'類股活躍度：{data["total_sw"]:.1f}張', fg='#cccccc')
         w['net'].config(text=f'淨異動：{net_s}', fg=fg_net)
         expand_hint = '點擊展開查看子類股' if data.get('_is_other') else '點擊展開'
@@ -6952,7 +7004,7 @@ class StockApp(tk.Tk):
             net_rs = (f"{net_r/1000:+.1f}張" if abs(net_r) >= 100
                       else f"{net_r:+,}股")
             tk.Label(sf, bg='#1c1c2c', fg=fg_r, anchor='w',
-                     font=('Microsoft JhengHei', 9),
+                     font=UIF(9),
                      text=f'  {row["name"]}  {net_rs}').pack(fill='x')
         self._place_tooltip(tip, sx, sy)
         tip.deiconify()
@@ -6972,7 +7024,7 @@ class StockApp(tk.Tk):
                 canvas.create_text(cw // 2, ch // 2,
                                    text='此期間無持股異動',
                                    fill='#555566',
-                                   font=('Microsoft JhengHei', 14))
+                                   font=UIF(14))
             return
         if cw < 10 or ch < 10:
             return
@@ -7010,7 +7062,7 @@ class StockApp(tk.Tk):
                 canvas.create_text((x1 + x2) / 2, cy + 9,
                                     text=names.get(code, '')[:5],
                                     fill='#b0f0b0' if side == 'buy' else '#f0b0b0',
-                                    font=('Microsoft JhengHei', 7), anchor='center')
+                                    font=UIF(7), anchor='center')
             if bw > 38 and bh > 48:
                 val_txt = f'{total_w:,.0f}張' if is_shares else f'{total_w:.2f}%'
                 canvas.create_text((x1 + x2) / 2, cy + 22,
@@ -7056,7 +7108,7 @@ class StockApp(tk.Tk):
             self._chg_tip_win.attributes('-topmost', True)
             self._chg_tip_lbl = tk.Label(
                 self._chg_tip_win, bg='#1c2a3a', fg='#c0d8f0',
-                font=('Microsoft JhengHei', 9), justify='left',
+                font=UIF(9), justify='left',
                 padx=10, pady=8, relief='solid', bd=1)
             self._chg_tip_lbl.pack()
         self._chg_tip_lbl.config(text=text)
@@ -7125,7 +7177,7 @@ class StockApp(tk.Tk):
                     'sell' if sl and not bl else 'both')
             rows.append((code, names.get(code, code), buy_str, sell_str, nstr, tag))
 
-        ttk.Style().configure('Chg.Treeview', rowheight=max_lines * 20)
+        ttk.Style().configure('Chg.Treeview', rowheight=max_lines * int(20 * UI_SCALE))
         for code, name, buy_str, sell_str, nstr, tag in rows:
             tv.insert('', 'end',
                       values=(code, name, buy_str, sell_str, nstr),
@@ -7171,9 +7223,9 @@ class StockApp(tk.Tk):
                            padx=6, pady=2, relief='flat')
             tag.pack(side='left', padx=3, pady=2)
             tk.Label(tag, text=f'{code} {name}', bg='#2a3f6f', fg='white',
-                     font=('Microsoft JhengHei', 8)).pack(side='left')
+                     font=UIF(8)).pack(side='left')
             _x = tk.Label(tag, text=' ×', bg='#2a3f6f', fg='#f07070',
-                          font=('Microsoft JhengHei', 9, 'bold'), cursor='hand2')
+                          font=UIF(9, 'bold'), cursor='hand2')
             _x.pack(side='left', padx=(2, 0))
             _x.bind('<Button-1>', lambda e, c=code: self._cmp_remove_etf(c))
             self._cmp_tags.append(tag)
@@ -7287,9 +7339,9 @@ class StockApp(tk.Tk):
         C_ROW1 = '#111122'
         C_ROW2 = '#0e0e1a'
         C_SEP  = '#2a2a3e'
-        FNT    = ('Microsoft JhengHei', 9)
-        FNT_B  = ('Microsoft JhengHei', 9, 'bold')
-        FNT_H  = ('Microsoft JhengHei', 8)
+        FNT    = UIF(9)
+        FNT_B  = UIF(9, 'bold')
+        FNT_H  = UIF(8)
 
         codes   = [c for c, _ in etf_pairs]
         ordered = [results[c] for c in codes if c in results]
@@ -7435,7 +7487,7 @@ class StockApp(tk.Tk):
             _b = tk.Button(_period_frame, text=_plbl,
                            bg='#4a6fa5' if _pid == '1Y' else '#2a2a4e',
                            fg='white' if _pid == '1Y' else '#8899cc',
-                           font=('Microsoft JhengHei', 9),
+                           font=UIF(9),
                            relief='flat', padx=10, pady=3, cursor='hand2')
             _b.pack(side='left', padx=3)
             _period_btns.append(_b)
@@ -7550,7 +7602,7 @@ class StockApp(tk.Tk):
         self._cmp_tip_labels = []
         for _ci in range(_TIP_COLS):
             _lbl = tk.Label(_tip_inner, text='', bg='#252538', fg=C_FG,
-                            font=('Microsoft JhengHei', 9),
+                            font=UIF(9),
                             justify='left', anchor='nw', padx=6)
             _lbl.grid(row=0, column=_ci, sticky='nw')
             if _ci < _TIP_COLS - 1:
@@ -7905,7 +7957,7 @@ class StockApp(tk.Tk):
             s = tk.Frame(self._cmp_inner, bg='#1a1a2e')
             s.pack(fill='x')
             tk.Label(s, text=f'  {title}', bg='#1a1a2e', fg='#6a8faf',
-                     font=('Microsoft JhengHei', 8, 'bold'),
+                     font=UIF(8, 'bold'),
                      anchor='w', pady=3).pack(fill='x')
             tk.Frame(self._cmp_inner, bg='#2a2a4e', height=1).pack(fill='x')
 
@@ -8988,7 +9040,7 @@ class StockApp(tk.Tk):
         hdr.pack(fill='x', pady=(4, 0))
         tk.Label(hdr, text=f'成分股異動  {d_old_fmt} → {d_new_fmt}',
                  bg=C_HDR, fg='#9ab8d8',
-                 font=('Microsoft JhengHei', 10, 'bold')).pack(side='left', padx=10)
+                 font=UIF(10, 'bold')).pack(side='left', padx=10)
 
         def _section(title, rows, title_color):
             if not rows:
@@ -8996,12 +9048,12 @@ class StockApp(tk.Tk):
             sf = tk.Frame(outer, bg=C_TBL, pady=2)
             sf.pack(fill='x', pady=(2, 0))
             tk.Label(sf, text=title, bg=C_TBL, fg=title_color,
-                     font=('Microsoft JhengHei', 9, 'bold')).grid(
+                     font=UIF(9, 'bold')).grid(
                 row=0, column=0, columnspan=4, sticky='w', padx=8, pady=(4, 2))
             for ri, row in enumerate(rows, start=1):
                 for ci, (txt, anchor, width) in enumerate(row):
                     tk.Label(sf, text=txt, bg=C_TBL, fg='#cccccc',
-                             font=('Microsoft JhengHei', 9),
+                             font=UIF(9),
                              anchor=anchor, width=width).grid(
                         row=ri, column=ci, sticky='w', padx=(8 if ci == 0 else 4), pady=1)
 
@@ -9158,12 +9210,12 @@ class StockApp(tk.Tk):
         # 狀態列
         _status_var = tk.StringVar(value='準備中...')
         tk.Label(win, textvariable=_status_var, bg='#12142a', fg='#8899cc',
-                 font=('Microsoft JhengHei', 8)).pack(anchor='w', padx=10, pady=(8, 2))
+                 font=UIF(8)).pack(anchor='w', padx=10, pady=(8, 2))
 
         # 摘要列
         _sum_var = tk.StringVar(value='')
         tk.Label(win, textvariable=_sum_var, bg='#12142a', fg='#c8d8f0',
-                 font=('Microsoft JhengHei', 9, 'bold')).pack(anchor='w', padx=10)
+                 font=UIF(9, 'bold')).pack(anchor='w', padx=10)
 
         # 取中文名稱對照表
         _name_table = _load_twse_stock_names()
@@ -9853,7 +9905,7 @@ class StockApp(tk.Tk):
             self._aetf_hm_tip_widgets = {}
             for key in ('title', 'weight', 'line3', 'line4', 'line5'):
                 lbl = tk.Label(inner, bg='#252526',
-                               font=('Microsoft JhengHei', 10), anchor='w')
+                               font=UIF(10), anchor='w')
                 lbl.pack(fill='x')
                 self._aetf_hm_tip_widgets[key] = lbl
             hist_sep   = tk.Label(inner, bg='#252526', fg='#3a3a4a',
@@ -9869,7 +9921,7 @@ class StockApp(tk.Tk):
         mode = data.get('mode', 'wchg')
         w['title'].config(
             text=f'{data["name"]}  {data["code"]}',
-            fg='#8ab4d4', font=('Microsoft JhengHei', 11, 'bold'))
+            fg='#8ab4d4', font=UIF(11, 'bold'))
         w['weight'].config(
             text=f'ETF 占比：{data["weight"]:.4f}%', fg='#cccccc')
 
@@ -9937,7 +9989,7 @@ class StockApp(tk.Tk):
                     line_txt = f'{date_fmt}  {shares_s}  @{price:,.0f}元'
                     fg_h = '#f07070' if delta > 0 else '#4ec94e'
                     tk.Label(hist_frame, text=line_txt, bg='#252526', fg=fg_h,
-                             font=('Microsoft JhengHei', 9), anchor='w').pack(fill='x')
+                             font=UIF(9), anchor='w').pack(fill='x')
             else:
                 hist_sep.config(text='')
 
@@ -9971,7 +10023,7 @@ class StockApp(tk.Tk):
             self._aetf_sec_tip_w = {}
             for key in ('title', 'weight', 'change', 'count', 'sep'):
                 lbl = tk.Label(inner, bg='#1c1c2c',
-                               font=('Microsoft JhengHei', 10), anchor='w')
+                               font=UIF(10), anchor='w')
                 lbl.pack(fill='x')
                 self._aetf_sec_tip_w[key] = lbl
             sf = tk.Frame(inner, bg='#1c1c2c')
@@ -9986,7 +10038,7 @@ class StockApp(tk.Tk):
         fg_val     = '#f07070' if sec_val >= 0 else '#4ec94e'
 
         w['title'].config(text=data['sector'],
-                          fg='#f0c060', font=('Microsoft JhengHei', 12, 'bold'))
+                          fg='#f0c060', font=UIF(12, 'bold'))
         w['weight'].config(text=f'類股比重：{data["total_sw"]:.2f}%', fg='#cccccc')
         w['change'].config(text=f'{color_lbl}（加權平均）：{sec_val:+.2f}%', fg=fg_val)
         w['count'].config(
@@ -10001,7 +10053,7 @@ class StockApp(tk.Tk):
             val  = row.get(color_mode) or 0
             fg_s = '#f07070' if val >= 0 else '#4ec94e'
             tk.Label(sf, bg='#1c1c2c', fg=fg_s, anchor='w',
-                     font=('Microsoft JhengHei', 9),
+                     font=UIF(9),
                      text=f'  {row["name"]}  {row["weight"]:.2f}%  {val:+.1f}%'
                      ).pack(fill='x')
 
@@ -10037,7 +10089,7 @@ class StockApp(tk.Tk):
             self._etf_tip_widgets = {}
             for key in ('title', 'weight', 'price', 'change'):
                 lbl = tk.Label(inner, bg='#252526',
-                               font=('Microsoft JhengHei', 10), anchor='w')
+                               font=UIF(10), anchor='w')
                 lbl.pack(fill='x')
                 self._etf_tip_widgets[key] = lbl
             self._etf_tooltip = tip
@@ -10047,7 +10099,7 @@ class StockApp(tk.Tk):
         fg   = '#f07070' if pct >= 0 else '#4ec94e'
         sign = '+' if pct >= 0 else ''
         w['title'].config(text=f'{data["name"]}  {data["code"]}',
-                          fg='#8ab4d4', font=('Microsoft JhengHei', 11, 'bold'))
+                          fg='#8ab4d4', font=UIF(11, 'bold'))
         price_txt = '—' if data['price'] is None else f'{data["price"]:,.2f} 元'
         w['weight'].config(text=f'ETF 占比：{data["weight"]:.4f}%', fg='#cccccc')
         w['price'].config(text=f'現價：{price_txt}', fg='#cccccc')
@@ -10091,30 +10143,30 @@ class StockApp(tk.Tk):
 
         # ── 分類模式下拉選單 ───────────────────────────────────────────────────
         ttk.Label(ctrl, text='分類方式：',
-                  font=('Microsoft JhengHei', 9), foreground=C_FG2).pack(side='left', padx=(18, 2))
+                  font=UIF(9), foreground=C_FG2).pack(side='left', padx=(18, 2))
         self._mkt_group_mode = tk.StringVar(value='上市類股')
         _mode_cb = ttk.Combobox(
             ctrl, textvariable=self._mkt_group_mode,
             values=['上市類股', '上市+上櫃類股', '細分類', '概念股'],
             state='readonly', width=12,
-            font=('Microsoft JhengHei', 9))
+            font=UIF(9))
         _mode_cb.pack(side='left', padx=(0, 6))
         _mode_cb.bind('<<ComboboxSelected>>', lambda e: self._on_mkt_mode_change())
 
         self._mkt_status = tk.StringVar(value='點擊「更新」載入資料')
         ttk.Label(ctrl, textvariable=self._mkt_status,
-                  foreground=C_FG2, font=('Microsoft JhengHei', 9)).pack(side='left', padx=14)
+                  foreground=C_FG2, font=UIF(9)).pack(side='left', padx=14)
 
         # ── 期間選擇 ──────────────────────────────────────────────────────────
         period_bar = tk.Frame(f, bg=C_BG)
         period_bar.pack(fill='x', padx=14, pady=(0, 4))
         tk.Label(period_bar, text='期間：', bg=C_BG, fg=C_FG2,
-                 font=('Microsoft JhengHei', 9)).pack(side='left')
+                 font=UIF(9)).pack(side='left')
         self._mkt_period     = '1D'
         self._mkt_period_btns: dict[str, tk.Label] = {}
         for pid, plbl in [('RT', '即時'), ('1D', '1日'), ('5D', '5日'), ('10D', '10日'), ('1M', '1月')]:
             btn = tk.Label(period_bar, text=plbl, bg='#1a1a2e', fg=C_FG2,
-                           font=('Microsoft JhengHei', 9), padx=10, pady=3,
+                           font=UIF(9), padx=10, pady=3,
                            relief='flat', cursor='hand2')
             btn.pack(side='left', padx=2)
             btn.bind('<Button-1>', lambda e, p=pid: self._set_mkt_period(p))
@@ -10129,10 +10181,10 @@ class StockApp(tk.Tk):
             fr = tk.Frame(parent, bg='#1a1a2e', padx=14, pady=6)
             fr.pack(side='left', padx=3)
             tk.Label(fr, text=title, bg='#1a1a2e', fg='#6a8faf',
-                     font=('Microsoft JhengHei', 8)).pack(anchor='w')
+                     font=UIF(8)).pack(anchor='w')
             var = tk.StringVar(value='—')
             lbl = tk.Label(fr, textvariable=var, bg='#1a1a2e',
-                           fg=C_FG, font=('Microsoft JhengHei', 11, 'bold'))
+                           fg=C_FG, font=UIF(11, 'bold'))
             lbl.pack(anchor='w')
             return var, lbl
 
@@ -10146,10 +10198,10 @@ class StockApp(tk.Tk):
         self._mkt_hot_frame = tk.Frame(stats_bar, bg='#1a1a2e')
         self._mkt_hot_frame.pack(side='left', fill='both', expand=True, padx=(8, 4), pady=3)
         tk.Label(self._mkt_hot_frame, text='強勢類股', bg='#1a1a2e', fg='#6a8faf',
-                 font=('Microsoft JhengHei', 8)).pack(anchor='nw', padx=8, pady=(4, 0))
+                 font=UIF(8)).pack(anchor='nw', padx=8, pady=(4, 0))
         self._mkt_hot_lbl = tk.Label(
             self._mkt_hot_frame, text='', bg='#1a1a2e', fg='#f07070',
-            font=('Microsoft JhengHei', 11, 'bold'),
+            font=UIF(11, 'bold'),
             anchor='w', justify='left', padx=8, pady=0)
         self._mkt_hot_lbl.pack(fill='x', expand=True)
         self._mkt_hot_chip_labels: list[tk.Label] = []  # 保留，避免舊參照錯誤
@@ -10170,7 +10222,7 @@ class StockApp(tk.Tk):
         self._mkt_tooltip.configure(bg='#1a1a2e')
         self._mkt_tt_lbl = tk.Label(
             self._mkt_tooltip, bg='#1a1a2e', fg=C_FG,
-            font=('Microsoft JhengHei', 9), justify='left', padx=8, pady=6)
+            font=UIF(9), justify='left', padx=8, pady=6)
         self._mkt_tt_lbl.pack()
 
         # ── 內部狀態 ──────────────────────────────────────────────────────────
@@ -10351,16 +10403,34 @@ class StockApp(tk.Tk):
                 except Exception:
                     pass
 
-            # 加權指數（1日漲跌）
+            # 加權指數（優先使用 TWSE MIS 即時 API，避免 yfinance 在盤中取到昨日資料）
             taiex_price = taiex_chg = None
             try:
-                hist = yf.Ticker('^TWII').history(period='5d')
-                if len(hist) >= 2:
-                    taiex_price = float(hist['Close'].iloc[-1])
-                    taiex_chg   = (hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) \
-                                  / hist['Close'].iloc[-2] * 100
+                _taiex_data = _cffi_get_json(
+                    'https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_t00.tw',
+                    headers={'Referer': 'https://mis.twse.com.tw/stock/fibest.jsp'},
+                    timeout=8)
+                for _s in _taiex_data.get('msgArray', []):
+                    if str(_s.get('c', '')).strip() == 't00':
+                        _z = str(_s.get('z', '-')).strip()
+                        _y = str(_s.get('y', '')).strip()
+                        if _z and _z != '-' and _y:
+                            taiex_price = float(_z)
+                            _prev = float(_y)
+                            if _prev > 0:
+                                taiex_chg = (taiex_price - _prev) / _prev * 100
+                        break
             except Exception:
                 pass
+            if not taiex_price:
+                try:
+                    hist = yf.Ticker('^TWII').history(period='5d')
+                    if len(hist) >= 2:
+                        taiex_price = float(hist['Close'].iloc[-1])
+                        taiex_chg   = (hist['Close'].iloc[-1] - hist['Close'].iloc[-2]) \
+                                      / hist['Close'].iloc[-2] * 100
+                except Exception:
+                    pass
 
             # ── 整理 1D 基礎資料（個股今日漲跌，成交金額）─────────────────────
             base_stocks: dict[str, dict] = {}
@@ -11392,18 +11462,18 @@ class StockApp(tk.Tk):
 
         self._us_mkt_status = tk.StringVar(value='切換至此頁面自動更新')
         ttk.Label(ctrl, textvariable=self._us_mkt_status,
-                  foreground=C_FG2, font=('Microsoft JhengHei', 9)).pack(side='left', padx=14)
+                  foreground=C_FG2, font=UIF(9)).pack(side='left', padx=14)
 
         # ── 期間選擇 ──────────────────────────────────────────────────────────
         period_bar = tk.Frame(f, bg=C_BG)
         period_bar.pack(fill='x', padx=14, pady=(0, 4))
         tk.Label(period_bar, text='期間：', bg=C_BG, fg=C_FG2,
-                 font=('Microsoft JhengHei', 9)).pack(side='left')
+                 font=UIF(9)).pack(side='left')
         self._us_mkt_period = '1D'
         self._us_mkt_period_btns: dict[str, tk.Label] = {}
         for pid, plbl in [('1D', '1日'), ('5D', '5日'), ('1M', '1月'), ('3M', '3月')]:
             btn = tk.Label(period_bar, text=plbl, bg='#1a1a2e', fg=C_FG2,
-                           font=('Microsoft JhengHei', 9), padx=10, pady=3,
+                           font=UIF(9), padx=10, pady=3,
                            relief='flat', cursor='hand2')
             btn.pack(side='left', padx=2)
             btn.bind('<Button-1>', lambda e, p=pid: self._set_us_mkt_period(p))
@@ -11418,10 +11488,10 @@ class StockApp(tk.Tk):
             fr = tk.Frame(parent, bg='#1a1a2e', padx=14, pady=6)
             fr.pack(side='left', padx=3)
             tk.Label(fr, text=title, bg='#1a1a2e', fg='#6a8faf',
-                     font=('Microsoft JhengHei', 8)).pack(anchor='w')
+                     font=UIF(8)).pack(anchor='w')
             var = tk.StringVar(value='—')
             lbl = tk.Label(fr, textvariable=var, bg='#1a1a2e',
-                           fg=C_FG, font=('Microsoft JhengHei', 11, 'bold'))
+                           fg=C_FG, font=UIF(11, 'bold'))
             lbl.pack(anchor='w')
             return var, lbl
 
@@ -11436,10 +11506,10 @@ class StockApp(tk.Tk):
         self._us_hot_frame = tk.Frame(stats_bar, bg='#1a1a2e')
         self._us_hot_frame.pack(side='left', fill='both', expand=True, padx=(8, 4), pady=3)
         tk.Label(self._us_hot_frame, text='強勢類股', bg='#1a1a2e', fg='#6a8faf',
-                 font=('Microsoft JhengHei', 8)).pack(anchor='nw', padx=8, pady=(4, 0))
+                 font=UIF(8)).pack(anchor='nw', padx=8, pady=(4, 0))
         self._us_hot_lbl = tk.Label(
             self._us_hot_frame, text='', bg='#1a1a2e', fg='#4ec94e',
-            font=('Microsoft JhengHei', 11, 'bold'),
+            font=UIF(11, 'bold'),
             anchor='w', justify='left', padx=8, pady=0)
         self._us_hot_lbl.pack(fill='x', expand=True)
 
@@ -11459,7 +11529,7 @@ class StockApp(tk.Tk):
         self._us_mkt_tooltip.configure(bg='#1a1a2e')
         self._us_mkt_tt_lbl = tk.Label(
             self._us_mkt_tooltip, bg='#1a1a2e', fg=C_FG,
-            font=('Microsoft JhengHei', 9), justify='left', padx=8, pady=6)
+            font=UIF(9), justify='left', padx=8, pady=6)
         self._us_mkt_tt_lbl.pack()
 
         # ── 內部狀態 ──────────────────────────────────────────────────────────
@@ -11980,7 +12050,7 @@ class StockApp(tk.Tk):
         ttk.Label(ctrl, text='個股分析', style='Hdr.TLabel').pack(side='left')
 
         ttk.Label(ctrl, text='股票代號：',
-                  foreground=C_FG2, font=('Microsoft JhengHei', 9)).pack(side='left', padx=(20, 4))
+                  foreground=C_FG2, font=UIF(9)).pack(side='left', padx=(20, 4))
         self._stk_code = tk.StringVar()
         stk_entry = ttk.Entry(ctrl, textvariable=self._stk_code, width=10)
         stk_entry.pack(side='left', padx=4)
@@ -11993,55 +12063,55 @@ class StockApp(tk.Tk):
 
         self._stk_name_lbl = tk.Label(ctrl, text='', bg=C_BG,
                                        fg='#e8e8f8',
-                                       font=('Microsoft JhengHei', 15, 'bold'))
+                                       font=UIF(15, 'bold'))
         self._stk_name_lbl.pack(side='left', padx=(20, 0))
 
         # ── 快速選股列（ctrl 正下方）────────────────────────────────────
         _CTRL_BG2 = '#1c1c28'
-        _QB = dict(bg='#2a2a3e', fg='#8899cc', font=('Microsoft JhengHei', 8),
+        _QB = dict(bg='#2a2a3e', fg='#8899cc', font=UIF(8),
                    relief='flat', padx=7, pady=2, cursor='hand2',
                    highlightthickness=0, activebackground='#3a3a5e',
                    activeforeground='#aaaaee')
         qpick_bar = tk.Frame(f, bg=_CTRL_BG2, pady=3)
         qpick_bar.pack(fill='x', padx=8, pady=(2, 0))
         tk.Label(qpick_bar, text='快速選股：', bg=_CTRL_BG2, fg='#7fb3d3',
-                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(8, 6))
+                 font=UIF(8, 'bold')).pack(side='left', padx=(8, 6))
 
         tk.Label(qpick_bar, text='最近：', bg=_CTRL_BG2, fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 2))
+                 font=UIF(8)).pack(side='left', padx=(0, 2))
         self._stk_recent_var = tk.StringVar()
         self._stk_recent_cb  = ttk.Combobox(qpick_bar, textvariable=self._stk_recent_var,
                                              width=16, state='readonly',
-                                             font=('Microsoft JhengHei', 8))
+                                             font=UIF(8))
         self._stk_recent_cb.pack(side='left', padx=(0, 4))
         self._stk_recent_cb.bind('<<ComboboxSelected>>', self._on_stk_recent_select)
 
         tk.Label(qpick_bar, text='│', bg=_CTRL_BG2, fg='#333355').pack(side='left', padx=4)
 
         tk.Label(qpick_bar, text='庫存：', bg=_CTRL_BG2, fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 2))
+                 font=UIF(8)).pack(side='left', padx=(0, 2))
         self._stk_holding_var = tk.StringVar()
         self._stk_holding_cb  = ttk.Combobox(qpick_bar, textvariable=self._stk_holding_var,
                                               width=16, state='readonly',
-                                              font=('Microsoft JhengHei', 8))
+                                              font=UIF(8))
         self._stk_holding_cb.pack(side='left', padx=(0, 4))
         self._stk_holding_cb.bind('<<ComboboxSelected>>', self._on_stk_holding_select)
 
         tk.Label(qpick_bar, text='│', bg=_CTRL_BG2, fg='#333355').pack(side='left', padx=4)
 
         tk.Label(qpick_bar, text='群組：', bg=_CTRL_BG2, fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 2))
+                 font=UIF(8)).pack(side='left', padx=(0, 2))
         self._stk_group_name_var = tk.StringVar()
         self._stk_group_name_cb  = ttk.Combobox(qpick_bar, textvariable=self._stk_group_name_var,
                                                  width=10, state='readonly',
-                                                 font=('Microsoft JhengHei', 8))
+                                                 font=UIF(8))
         self._stk_group_name_cb.pack(side='left', padx=(0, 2))
         self._stk_group_name_cb.bind('<<ComboboxSelected>>', self._on_stk_group_name_select)
 
         self._stk_group_stock_var = tk.StringVar()
         self._stk_group_stock_cb  = ttk.Combobox(qpick_bar, textvariable=self._stk_group_stock_var,
                                                   width=16, state='readonly',
-                                                  font=('Microsoft JhengHei', 8))
+                                                  font=UIF(8))
         self._stk_group_stock_cb.pack(side='left', padx=(0, 4))
         self._stk_group_stock_cb.bind('<<ComboboxSelected>>', self._on_stk_group_stock_select)
 
@@ -12060,7 +12130,7 @@ class StockApp(tk.Tk):
         status_bar = tk.Frame(f, bg=C_BG)
         status_bar.pack(fill='x', padx=14, pady=(0, 2))
         ttk.Label(status_bar, textvariable=self._stk_status,
-                  foreground='#6677aa', font=('Microsoft JhengHei', 9)).pack(anchor='w')
+                  foreground='#6677aa', font=UIF(9)).pack(anchor='w')
 
         # ── 單一捲動區域：K線 + 財報連續顯示 ───────────────────────────────
         _CTRL_BG = '#1c1c28'
@@ -12070,13 +12140,13 @@ class StockApp(tk.Tk):
         kctrl.pack(fill='x', padx=8, pady=(0, 2))
 
         _BTN_OFF = dict(bg='#2a2a3e', fg='#8899cc',
-                        font=('Microsoft JhengHei', 8, 'bold'),
+                        font=UIF(8, 'bold'),
                         relief='flat', bd=0, padx=9, pady=3,
                         cursor='hand2',
                         highlightbackground='#3a3a5e', highlightthickness=1,
                         activebackground='#3a3a5e', activeforeground='#aaaaee')
         _BTN_ON  = dict(bg='#3a5fcd', fg='#ffffff',
-                        font=('Microsoft JhengHei', 8, 'bold'),
+                        font=UIF(8, 'bold'),
                         relief='flat', bd=0, padx=9, pady=3,
                         cursor='hand2',
                         highlightbackground='#2a4fbd', highlightthickness=1,
@@ -12089,7 +12159,7 @@ class StockApp(tk.Tk):
         self._stk_period = '3M'
         self._stk_period_btns: dict[str, tk.Button] = {}
         tk.Label(kctrl, text='區間:', bg=_CTRL_BG, fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(8, 4))
+                 font=UIF(8)).pack(side='left', padx=(8, 4))
 
         def _set_stk_period(lbl):
             self._stk_period = lbl
@@ -12108,7 +12178,7 @@ class StockApp(tk.Tk):
 
         # 縮放按鈕
         tk.Label(kctrl, text='縮放:', bg=_CTRL_BG, fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 4))
+                 font=UIF(8)).pack(side='left', padx=(0, 4))
         tk.Button(kctrl, text='＋', **_BTN_OFF,
                   command=lambda: self._stk_zoom(0.6)).pack(side='left', padx=2)
         tk.Button(kctrl, text='－', **_BTN_OFF,
@@ -12124,7 +12194,7 @@ class StockApp(tk.Tk):
             'MACD': True, 'RSI': False, 'KD': True, 'TL': True, 'GAP': False}
         self._stk_ind_btns: dict[str, tk.Button] = {}
         tk.Label(kctrl, text='指標:', bg=_CTRL_BG, fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 4))
+                 font=UIF(8)).pack(side='left', padx=(0, 4))
 
         def _toggle_stk_ind(lbl):
             self._stk_ind_state[lbl] = not self._stk_ind_state[lbl]
@@ -12146,8 +12216,8 @@ class StockApp(tk.Tk):
             command=self._open_wantgoo_kline)
         self._wg_open_btn.pack(side='left', padx=2)
 
-        _FI  = ('Microsoft JhengHei', 9)
-        _FIP = ('Microsoft JhengHei', 20, 'bold')
+        _FI  = UIF(9)
+        _FIP = UIF(20, 'bold')
         self._stk_rt_job  = None
         self._stk_rt_code = None
 
@@ -12155,16 +12225,16 @@ class StockApp(tk.Tk):
         draw_bar = tk.Frame(f, bg='#1c1c28', pady=3)
         draw_bar.pack(fill='x', padx=8, pady=(2, 0))
         tk.Label(draw_bar, text='繪線：', bg='#1c1c28', fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(8, 4))
+                 font=UIF(8)).pack(side='left', padx=(8, 4))
         self._stk_draw_mode  = 'none'
         self._stk_draw_start = None
         self._stk_drawings   = []
         self._stk_draw_btns  = {}
-        _DB_OFF = dict(bg='#2a2a3e', fg='#8899cc', font=('Microsoft JhengHei', 9),
+        _DB_OFF = dict(bg='#2a2a3e', fg='#8899cc', font=UIF(9),
                        relief='flat', padx=8, pady=2, cursor='hand2',
                        highlightthickness=0, activebackground='#3a3a5e',
                        activeforeground='#aaaaee')
-        _DB_ON  = dict(bg='#3a5fcd', fg='white', font=('Microsoft JhengHei', 9),
+        _DB_ON  = dict(bg='#3a5fcd', fg='white', font=UIF(9),
                        relief='flat', padx=8, pady=2, cursor='hand2',
                        highlightthickness=0, activebackground='#4a70e0',
                        activeforeground='white')
@@ -12180,7 +12250,7 @@ class StockApp(tk.Tk):
         # 顏色選擇
         tk.Label(draw_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=6)
         tk.Label(draw_bar, text='顏色：', bg='#1c1c28', fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 4))
+                 font=UIF(8)).pack(side='left', padx=(0, 4))
         self._stk_draw_color = '#f0c060'   # 預設黃色
         self._stk_color_btns = {}
         _COLORS = [
@@ -12206,7 +12276,7 @@ class StockApp(tk.Tk):
         zhujia_bar = tk.Frame(f, bg='#1c1c28', pady=3)
         zhujia_bar.pack(fill='x', padx=8, pady=(2, 0))
         tk.Label(zhujia_bar, text='朱家泓老師技術分析：', bg='#1c1c28', fg='#d4af37',
-                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(8, 6))
+                 font=UIF(8, 'bold')).pack(side='left', padx=(8, 6))
 
         self._stk_zhujia_on         = False
         self._stk_zhujia_redk       = True
@@ -12227,7 +12297,7 @@ class StockApp(tk.Tk):
 
         tk.Label(zhujia_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=6)
         tk.Label(zhujia_bar, text='選項：', bg='#1c1c28', fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 4))
+                 font=UIF(8)).pack(side='left', padx=(0, 4))
 
         def _toggle_zhujia_redk():
             self._stk_zhujia_redk = not self._stk_zhujia_redk
@@ -12244,11 +12314,11 @@ class StockApp(tk.Tk):
             textvariable=self._stk_zhujia_redk_var,
             bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
             buttonbackground='#2a2a3e', relief='flat',
-            font=('Microsoft JhengHei', 8),
+            font=UIF(8),
             command=self._redraw_stk_kline)
         _redk_sb.pack(side='left', padx=(1, 0))
         tk.Label(zhujia_bar, text='%', bg='#1c1c28', fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(1, 8))
+                 font=UIF(8)).pack(side='left', padx=(1, 8))
 
         def _toggle_zhujia_vol():
             self._stk_zhujia_vol = not self._stk_zhujia_vol
@@ -12265,11 +12335,11 @@ class StockApp(tk.Tk):
             textvariable=self._stk_zhujia_vol_var,
             bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
             buttonbackground='#2a2a3e', relief='flat',
-            font=('Microsoft JhengHei', 8),
+            font=UIF(8),
             command=self._redraw_stk_kline)
         _vol_sb.pack(side='left', padx=(1, 0))
         tk.Label(zhujia_bar, text='x', bg='#1c1c28', fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(1, 0))
+                 font=UIF(8)).pack(side='left', padx=(1, 0))
 
         tk.Label(zhujia_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=6)
 
@@ -12289,7 +12359,7 @@ class StockApp(tk.Tk):
         # ── 林恩如 超簡單（合併至朱家泓列） ─────────────────────────────
         tk.Label(zhujia_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=6)
         tk.Label(zhujia_bar, text='林恩如 超簡單：', bg='#1c1c28', fg='#7ec8e3',
-                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(0, 6))
+                 font=UIF(8, 'bold')).pack(side='left', padx=(0, 6))
 
         self._stk_linen_on      = False
         self._stk_linen_vol_on  = True
@@ -12323,27 +12393,27 @@ class StockApp(tk.Tk):
             textvariable=self._stk_linen_vol_var,
             bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
             buttonbackground='#2a2a3e', relief='flat',
-            font=('Microsoft JhengHei', 8),
+            font=UIF(8),
             command=self._redraw_stk_kline)
         _linen_vol_sb.pack(side='left', padx=(1, 0))
         tk.Label(zhujia_bar, text='x', bg='#1c1c28', fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(1, 0))
+                 font=UIF(8)).pack(side='left', padx=(1, 0))
 
         tk.Label(zhujia_bar, text='│', bg='#1c1c28', fg='#444466',
-                 font=('Microsoft JhengHei', 9)).pack(side='left', padx=4)
+                 font=UIF(9)).pack(side='left', padx=4)
         tk.Label(zhujia_bar, text='回測：', bg='#1c1c28', fg='#b8a0e8',
-                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left')
+                 font=UIF(8, 'bold')).pack(side='left')
         self._bt_years_var = tk.IntVar(value=2)
         tk.Spinbox(zhujia_bar, from_=1, to=5, increment=1, width=2,
                    textvariable=self._bt_years_var,
                    bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
                    buttonbackground='#2a2a3e', relief='flat',
-                   font=('Microsoft JhengHei', 8)).pack(side='left', padx=(2, 0))
+                   font=UIF(8)).pack(side='left', padx=(2, 0))
         tk.Label(zhujia_bar, text='年', bg='#1c1c28', fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(1, 4))
+                 font=UIF(8)).pack(side='left', padx=(1, 4))
         # 方法選擇
-        _BT_ON  = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', font=('Microsoft JhengHei', 8, 'bold'), cursor='hand2', padx=6)
-        _BT_OFF = dict(bg='#2a2a3e', fg='#8899cc', relief='flat', font=('Microsoft JhengHei', 8),         cursor='hand2', padx=6)
+        _BT_ON  = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', font=UIF(8, 'bold'), cursor='hand2', padx=6)
+        _BT_OFF = dict(bg='#2a2a3e', fg='#8899cc', relief='flat', font=UIF(8),         cursor='hand2', padx=6)
         self._bt_method = tk.StringVar(value='linen')
         self._bt_linen_btn  = tk.Button(zhujia_bar, text='林恩如', **_BT_ON,
                                         command=lambda: self._bt_switch('linen'))
@@ -12353,7 +12423,7 @@ class StockApp(tk.Tk):
         self._bt_zhujia_btn.pack(side='left', padx=(0, 4))
         tk.Button(zhujia_bar, text='執行回測',
                   bg='#2d3561', fg='#a0b4e8', relief='flat',
-                  font=('Microsoft JhengHei', 8),
+                  font=UIF(8),
                   activebackground='#3d4571', activeforeground='#c0d0f0',
                   cursor='hand2',
                   command=self._run_backtest).pack(side='left', padx=2)
@@ -12362,7 +12432,7 @@ class StockApp(tk.Tk):
         pat_bar = tk.Frame(f, bg='#1c1c28', pady=3)
         pat_bar.pack(fill='x', padx=8, pady=(2, 0))
         tk.Label(pat_bar, text='型態分析：', bg='#1c1c28', fg='#b8a0e8',
-                 font=('Microsoft JhengHei', 8, 'bold')).pack(side='left', padx=(8, 6))
+                 font=UIF(8, 'bold')).pack(side='left', padx=(8, 6))
 
         self._stk_pattern_on    = True   # 預設開啟偵測（按鈕高亮），但個別型態預設不顯示
         self._stk_pattern_state = {
@@ -12384,7 +12454,7 @@ class StockApp(tk.Tk):
 
         tk.Label(pat_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=4)
         tk.Label(pat_bar, text='反轉：', bg='#1c1c28', fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 2))
+                 font=UIF(8)).pack(side='left', padx=(0, 2))
 
         def _toggle_pat(key):
             self._stk_pattern_state[key] = not self._stk_pattern_state[key]
@@ -12398,7 +12468,7 @@ class StockApp(tk.Tk):
 
         tk.Label(pat_bar, text='│', bg='#1c1c28', fg='#333355').pack(side='left', padx=4)
         tk.Label(pat_bar, text='整理/突破：', bg='#1c1c28', fg='#6677aa',
-                 font=('Microsoft JhengHei', 8)).pack(side='left', padx=(0, 2))
+                 font=UIF(8)).pack(side='left', padx=(0, 2))
 
         for _pk in ['對稱△', '上升△', '下降△', '旗形', '箱型']:
             _b = tk.Button(pat_bar, text=_pk, **_DB_OFF,
@@ -12410,7 +12480,7 @@ class StockApp(tk.Tk):
         info_bar = tk.Frame(f, bg='#0d0f17', pady=4)
         info_bar.pack(fill='x', padx=8, pady=(2, 0))
         self._stk_info_title = tk.Label(info_bar, text='', bg='#0d0f17',
-                                         fg='#c8d0e8', font=('Microsoft JhengHei', 11, 'bold'))
+                                         fg='#c8d0e8', font=UIF(11, 'bold'))
         self._stk_info_title.pack(side='left', padx=(8, 14))
         tk.Label(info_bar, text='│', bg='#0d0f17', fg='#333355', font=_FI).pack(side='left', padx=4)
         self._stk_info_date   = tk.Label(info_bar, text='—', bg='#0d0f17', fg='#777788', font=_FI)
@@ -12426,10 +12496,10 @@ class StockApp(tk.Tk):
             _w.pack(side='left', padx=(0, 4))
             setattr(self, _attr, _w)
         self._stk_info_sig = tk.Label(info_bar, text='', bg='#0d0f17',
-                                       fg='#00e5ff', font=('Microsoft JhengHei', 9, 'bold'))
+                                       fg='#00e5ff', font=UIF(9, 'bold'))
         self._stk_info_sig.pack(side='left', padx=(12, 4))
         self._stk_info_rt = tk.Label(info_bar, text='', bg='#0d0f17',
-                                      fg='#ff6644', font=('Microsoft JhengHei', 8))
+                                      fg='#ff6644', font=UIF(8))
         self._stk_info_rt.pack(side='right', padx=(0, 8))
 
         # ── 共用捲動區域（K線 + 財報連續） ──────────────────────────────
@@ -12456,6 +12526,12 @@ class StockApp(tk.Tk):
             # 只同步寬度，不限高度，讓 scroll_inner 可依內容自然展高（財報等區塊才能捲動）
             try:
                 _sc.itemconfig(_win, width=e.width)
+                # K線 widget 在 shrink-wrap 的 scroll_inner 內，pack expand 無效，
+                # 必須主動把其請求尺寸設為可視區域大小，圖表才會真正填滿視窗
+                # （財報等其餘內容仍在下方靠捲動檢視）
+                wk = getattr(self, '_stk_wk', None)
+                if wk is not None:
+                    wk.config(width=e.width, height=max(e.height - 2, 100))
             except Exception:
                 pass
         self._stk_sc.bind('<Configure>', _sc_cfg)
@@ -12469,26 +12545,14 @@ class StockApp(tk.Tk):
         self._stk_fig = plt.Figure(figsize=(14, 9), dpi=100, facecolor=CHART_BG)
         self._stk_canvas = FigureCanvasTkAgg(self._stk_fig, master=scroll_inner)
         wk = self._stk_canvas.get_tk_widget()
+        self._stk_wk = wk  # 供 _sc_cfg 同步可視尺寸用
         wk.configure(bg=CHART_BG)
         # 讓 K 線圖元件可隨可視空間放大縮小
         wk.pack(fill='both', expand=True, pady=(0, 2))
         wk.bind('<MouseWheel>', _wheel)   # 滾輪還原為捲動頁面
-        # 當 widget 大小改變時，動態調整 Matplotlib Figure 尺寸以填滿空間
-        self._stk_resize_job = None
-        def _on_wk_cfg(ev, _fig=self._stk_fig, _canvas=self._stk_canvas, _wk=wk):
-            # winfo_width/height() 比 ev.width/height 更可靠（DPI 縮放下 ev 可能不準）
-            try:
-                w = _wk.winfo_width()
-                h = _wk.winfo_height()
-                if w < 50 or h < 50:
-                    return
-                _fig.set_size_inches(w / _fig.get_dpi(), h / _fig.get_dpi(), forward=False)
-                if self._stk_resize_job:
-                    self.after_cancel(self._stk_resize_job)
-                self._stk_resize_job = self.after(200, _canvas.draw)
-            except Exception:
-                pass
-        wk.bind('<Configure>', _on_wk_cfg)
+        # 注意：不可自行 wk.bind('<Configure>', ...) 覆蓋 matplotlib TkAgg 原生
+        # 的 resize 處理器 —— 原生 resize 除了調整 figure 尺寸外，還會同步放大
+        # 內部 Tk PhotoImage 緩衝區；若被覆蓋，繪圖永遠被裁切在初始 figsize 像素。
         self._stk_canvas.mpl_connect('button_press_event',  self._on_stk_btn_press)
         self._stk_canvas.mpl_connect('button_release_event', self._on_stk_btn_release)
         self._stk_canvas.mpl_connect('motion_notify_event', self._on_stk_pan_move)
@@ -12506,7 +12570,7 @@ class StockApp(tk.Tk):
         self._bt_title_var = tk.StringVar(value='林恩如回測結果')
         tk.Label(_bt_hdr, textvariable=self._bt_title_var,
                  bg='#1a1d3a', fg='#b8a0e8',
-                 font=('Microsoft JhengHei', 9, 'bold')).pack(side='left', padx=10, pady=4)
+                 font=UIF(9, 'bold')).pack(side='left', padx=10, pady=4)
         def _bt_clear():
             for attr in ('_bt_s_total','_bt_s_closed','_bt_s_winrate',
                          '_bt_s_avg_win','_bt_s_avg_loss','_bt_s_ev'):
@@ -12517,7 +12581,7 @@ class StockApp(tk.Tk):
             self._bt_text.insert('end', '  選擇方法（林恩如 / 朱家泓）後點擊「執行回測」\n', 'hdr')
             self._bt_text.config(state='disabled')
         tk.Button(_bt_hdr, text='清除', bg='#1a1d3a', fg='#667799', relief='flat',
-                  font=('Microsoft JhengHei', 8), cursor='hand2',
+                  font=UIF(8), cursor='hand2',
                   command=_bt_clear).pack(side='right', padx=6)
         # 統計摘要列
         _bt_stat = tk.Frame(self._bt_frame, bg='#12142a')
@@ -12534,11 +12598,11 @@ class StockApp(tk.Tk):
             _col = tk.Frame(_bt_stat, bg='#12142a')
             _col.pack(side='left', padx=12)
             tk.Label(_col, text=_lbl, bg='#12142a', fg='#667799',
-                     font=('Microsoft JhengHei', 7)).pack()
+                     font=UIF(7)).pack()
             _var = tk.StringVar(value='--')
             setattr(self, _attr, _var)
             tk.Label(_col, textvariable=_var, bg='#12142a', fg='#c8d8f0',
-                     font=('Microsoft JhengHei', 10, 'bold')).pack()
+                     font=UIF(10, 'bold')).pack()
         # 交易明細（Text + Scrollbar）
         _bt_list_frame = tk.Frame(self._bt_frame, bg='#12142a')
         _bt_list_frame.pack(fill='both', expand=True, padx=10, pady=(2, 8))
@@ -12566,7 +12630,7 @@ class StockApp(tk.Tk):
         self._fin_status = tk.StringVar(value='財報走勢（查詢後顯示）')
         ttk.Label(fin_status_bar, textvariable=self._fin_status,
                   foreground='#6a8faf',
-                  font=('Microsoft JhengHei', 8)).pack(side='left', padx=10)
+                  font=UIF(8)).pack(side='left', padx=10)
 
         self._fin_fig = plt.Figure(figsize=(14, 10), dpi=100, facecolor=CHART_BG)
         self._fin_canvas = FigureCanvasTkAgg(self._fin_fig, master=scroll_inner)
@@ -12607,11 +12671,11 @@ class StockApp(tk.Tk):
         """根據偵測到的型態更新按鈕顏色：黃=有偵測到，藍/灰=無。"""
         _btns  = getattr(self, '_stk_pattern_btns', {})
         _state = getattr(self, '_stk_pattern_state', {})
-        _YON  = dict(bg='#b8860b', fg='#fffde7', font=('Microsoft JhengHei', 9),
+        _YON  = dict(bg='#b8860b', fg='#fffde7', font=UIF(9),
                      relief='flat', padx=8, pady=2, cursor='hand2',
                      highlightthickness=0, activebackground='#d4a000',
                      activeforeground='#fffde7')
-        _YOFF = dict(bg='#2a2400', fg='#c8a000', font=('Microsoft JhengHei', 9),
+        _YOFF = dict(bg='#2a2400', fg='#c8a000', font=UIF(9),
                      relief='flat', padx=8, pady=2, cursor='hand2',
                      highlightthickness=0, activebackground='#3a3400',
                      activeforeground='#e0bc00')
@@ -12768,6 +12832,8 @@ class StockApp(tk.Tk):
         """從樹狀圖右鍵呼叫：切換到個股分析並載入。"""
         self._stk_code.set(code)
         self._show_page(5)
+        self.update_idletasks()
+        _fit_fig_to_canvas(self._stk_fig, self._stk_canvas)
         self._draw_stk_kline(code, name or code)
         self._fin_status.set(f'載入 {code} 財報資料中…')
         import threading
@@ -12823,15 +12889,18 @@ class StockApp(tk.Tk):
         self._stk_info_rt.config(text='')
         self._stk_status.set(f'載入 {code} 中…')
         self._fin_status.set(f'載入 {code} 財報資料中…')
-        self._draw_stk_kline(code, code)
+        # 主執行緒安全：確保背景執行緒使用的 figure 已預先調整為正確畫布大小
+        self.update_idletasks()
+        _fit_fig_to_canvas(self._stk_fig, self._stk_canvas)
         import threading
+        threading.Thread(target=self._draw_stk_kline, args=(code, code), daemon=True).start()
         threading.Thread(target=self._load_fin_data, args=(code,), daemon=True).start()
 
     def _bt_switch(self, method):
         """切換回測方法，更新按鈕高亮。"""
         self._bt_method.set(method)
-        _ON  = dict(bg='#2a3f6f', fg='#ffffff', font=('Microsoft JhengHei', 8, 'bold'))
-        _OFF = dict(bg='#2a2a3e', fg='#8899cc', font=('Microsoft JhengHei', 8))
+        _ON  = dict(bg='#2a3f6f', fg='#ffffff', font=UIF(8, 'bold'))
+        _OFF = dict(bg='#2a2a3e', fg='#8899cc', font=UIF(8))
         self._bt_linen_btn.config( **(_ON  if method == 'linen'  else _OFF))
         self._bt_zhujia_btn.config(**(_ON  if method == 'zhujia' else _OFF))
 
@@ -14803,10 +14872,7 @@ class StockApp(tk.Tk):
         is_up = last_close >= prev_close
         clr_txt = '#ef5350' if is_up else '#26a69a'
         arrow = '▲' if is_up else '▼'
-        self._stk_canvas.draw()
-        # 強制根據當前 widget 實際尺寸更新 Figure，確保初始加載時填滿可用空間
-        _fit_fig_to_canvas(self._stk_fig, self._stk_canvas)
-        self._stk_canvas.draw()
+        self._ui_call(self._stk_canvas.draw)
         self._stk_name_lbl.config(text=f'{code}  {name}')
         self._stk_info_title.config(text=f'{code}  {name}')
         self._stk_status.set('資料載入完成')
@@ -15173,7 +15239,7 @@ class StockApp(tk.Tk):
                 highlightbackground='#7ec8e3', highlightthickness=1)
             self._stk_tt_lbl = tk.Label(
                 self._stk_tt_frame, text='', bg='#1a1d2e', fg='#dddddd',
-                font=('Microsoft JhengHei', 8), justify='left', padx=6, pady=3)
+                font=UIF(8), justify='left', padx=6, pady=3)
             self._stk_tt_lbl.pack()
         if _matches:
             _combined = '\n─────\n'.join(t['text'] for t in _matches)
@@ -15631,7 +15697,7 @@ class StockApp(tk.Tk):
             self._fin_tooltip.configure(bg='#1a1a2e')
             self._fin_tt_lbl = tk.Label(
                 self._fin_tooltip, bg='#1a1a2e', fg='#e0e0e0',
-                font=('Microsoft JhengHei', 9), justify='left', padx=10, pady=7)
+                font=UIF(9), justify='left', padx=10, pady=7)
             self._fin_tt_lbl.pack()
 
         # ── 根據子圖組裝文字 ──────────────────────────────────────────────────
@@ -16303,8 +16369,8 @@ class StockApp(tk.Tk):
 
     def _build_tab8(self):
         f = self.tab8
-        FONT9  = ('Microsoft JhengHei', 9)
-        FONT9B = ('Microsoft JhengHei', 9, 'bold')
+        FONT9  = UIF(9)
+        FONT9B = UIF(9, 'bold')
 
         # ── 控制列 ────────────────────────────────────────────────────────────
         ctrl = ttk.Frame(f)
@@ -16409,6 +16475,15 @@ class StockApp(tk.Tk):
                        bg=C_PANEL, fg=C_FG, selectcolor='#2a3f6f',
                        activebackground=C_PANEL, font=FONT9).pack(side='left', padx=(0, 6))
         tk.Label(r4, text='（400張以上大戶合計，比對上週）', bg=C_PANEL, fg=C_FG2, font=FONT9).pack(side='left')
+        self._scr_chk_vol_min = tk.BooleanVar(value=False)
+        tk.Checkbutton(r4, text='  成交量 ≥', variable=self._scr_chk_vol_min,
+                       bg=C_PANEL, fg=C_FG, selectcolor='#2a3f6f',
+                       activebackground=C_PANEL, font=FONT9).pack(side='left', padx=(0, 3))
+        self._scr_vol_min_val = tk.IntVar(value=1000)
+        tk.Spinbox(r4, from_=100, to=99999, increment=100, textvariable=self._scr_vol_min_val,
+                   width=5, bg=C_PANEL, fg=C_FG, font=FONT9,
+                   buttonbackground=C_PANEL).pack(side='left')
+        tk.Label(r4, text='張', bg=C_PANEL, fg=C_FG, font=FONT9).pack(side='left')
 
         # ── 進度列 ────────────────────────────────────────────────────────────
         prog_bar = tk.Frame(f, bg=C_BG); prog_bar.pack(fill='x', padx=8, pady=(0, 2))
@@ -16671,6 +16746,8 @@ class StockApp(tk.Tk):
         chk_large    = self._scr_chk_large.get()
         large_min    = float(self._scr_large_min.get())
         chk_large_up = self._scr_chk_large_up.get()
+        chk_vol_min  = self._scr_chk_vol_min.get()
+        vol_min      = int(self._scr_vol_min_val.get())
         self._scr_prefetch_bulk(chk_tin, tin_days, chk_large or chk_large_up)
 
         results = []
@@ -16681,7 +16758,8 @@ class StockApp(tk.Tk):
             if self._scr_gen != gen:
                 return
             r = self._scr_fetch_one(code, ind, sfx, do_fund, min_yoy, min_con, chk, min_tech,
-                                    chk_tin, tin_days, chk_large, large_min, chk_large_up)
+                                    chk_tin, tin_days, chk_large, large_min, chk_large_up,
+                                    chk_vol_min, vol_min)
             with lock:
                 done[0] += 1
                 if r:
@@ -16704,7 +16782,7 @@ class StockApp(tk.Tk):
 
     def _scr_fetch_one(self, code, ind, sfx, do_fund, min_yoy, min_con, chk, min_tech,
                        chk_tin=False, tin_days=3, chk_large=False, large_min=30.0,
-                       chk_large_up=False):
+                       chk_large_up=False, chk_vol_min=False, vol_min=1000):
         """抓一檔股票的基本面+技術面資料，不符合條件回 None。"""
         import numpy as np
         import pandas as pd
@@ -16835,6 +16913,10 @@ class StockApp(tk.Tk):
             if chk_large_up:
                 if large_chg is None or large_chg <= 0:
                     return None
+
+            # ── 成交量過濾（yfinance Volume 單位為股，門檻單位為張）──────────
+            if chk_vol_min and float(vol_s.iloc[-1]) / 1000 < vol_min:
+                return None
 
             # ── 林恩如 / 朱家泓 / 型態訊號（失敗不影響主結果）──────────────────
             linen_sig   = False
@@ -17212,7 +17294,7 @@ class EditDialog(tk.Toplevel):
 
         # 自動重算淨額提示
         self._note = ttk.Label(f, text='交易稅與淨金額將依買賣方向自動重新計算',
-                               foreground=C_FG2, font=('Microsoft JhengHei', 8))
+                               foreground=C_FG2, font=UIF(8))
         self._note.grid(row=8, column=0, columnspan=2, pady=(4, 0))
 
         # 按鈕

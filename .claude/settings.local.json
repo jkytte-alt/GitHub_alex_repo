@@ -136,7 +136,21 @@
       "Bash(curl -s -H \"User-Agent: Mozilla/5.0\" -H \"Referer: https://www.fundclear.com.tw/\" \"https://www.fundclear.com.tw/api/etf/holdings/00981A\")",
       "Bash(python3 -c \"import sys, json; data=json.load\\(sys.stdin\\); print\\(json.dumps\\(data, indent=2, ensure_ascii=False\\)\\)\")",
       "Bash(curl -s -i -H \"User-Agent: Mozilla/5.0\" \"https://www.fundclear.com.tw/api/etf/holdings/00981A\")",
-      "Bash(python -c \"import json; d=json.load\\(open\\('.etf_holdings_hist_00994A.json'\\)\\); keys=sorted\\(d.keys\\(\\),reverse=True\\)[:10]; print\\('\\\\n'.join\\(keys\\)\\)\")"
+      "Bash(python -c \"import json; d=json.load\\(open\\('.etf_holdings_hist_00994A.json'\\)\\); keys=sorted\\(d.keys\\(\\),reverse=True\\)[:10]; print\\('\\\\n'.join\\(keys\\)\\)\")",
+      "PowerShell(\\(Get-Content stock_app.py | Measure-Object -Line\\).Lines)",
+      "PowerShell(python -m py_compile stock_app.py)",
+      "PowerShell(if \\($?\\) { 'compile OK' })",
+      "PowerShell(pip install ruff --quiet 2>$null)",
+      "PowerShell(python -m ruff check stock_app.py --select E9,F --output-format concise)",
+      "PowerShell($p = Start-Process python -ArgumentList 'stock_app.py' -PassThru; Start-Sleep -Seconds 10; if \\($p.HasExited\\) { \"EXITED code=$\\($p.ExitCode\\)\" } else { 'still running OK'; Stop-Process -Id $p.Id -Force -Confirm:$false })",
+      "PowerShell(python -c \"import matplotlib; print\\(matplotlib.__version__\\)\")",
+      "PowerShell(python -m py_compile stock_app.py; if \\($?\\) { $p = Start-Process python -ArgumentList 'stock_app.py' -PassThru; Start-Sleep -Seconds 12; if \\($p.HasExited\\) { \"EXITED code=$\\($p.ExitCode\\)\" } else { 'still running OK'; Stop-Process -Id $p.Id -Force -Confirm:$false } })",
+      "Bash(git -C \"d:/python/GitHub_alex_repo\" diff HEAD -- stock_app.py)",
+      "Bash(git -C \"d:/python/GitHub_alex_repo\" log --oneline -5)",
+      "Bash(git -C \"d:/python/GitHub_alex_repo\" show bf515ad --name-only --oneline)",
+      "Bash(git -C \"d:/python/GitHub_alex_repo\" show bf515ad -- stock_app.py)",
+      "PowerShell(python -m py_compile \"d:\\\\python\\\\GitHub_alex_repo\\\\stock_app.py\")",
+      "PowerShell(if \\($?\\) { \"OK\" })"
     ]
   }
 }
