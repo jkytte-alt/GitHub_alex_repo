@@ -16268,8 +16268,9 @@ class StockApp(tk.Tk):
     # Tab 8：選股池
     # ═══════════════════════════════════════════════════════════════════════════
 
-    _SCR_WATCHLIST_PATH = os.path.join(BASE_DIR, '.screener_watchlist.json')
-    _SCR_RESULT_PATH    = os.path.join(BASE_DIR, '.screener_last.json')
+    _SCR_WATCHLIST_PATH  = os.path.join(BASE_DIR, '.screener_watchlist.json')
+    _SCR_RESULT_PATH     = os.path.join(BASE_DIR, '.screener_last.json')
+    _SCR_TDCC_CACHE_PATH = os.path.join(BASE_DIR, '.screener_tdcc_cache.json')
 
     # 欄位定義 (col_id, header, width, anchor)
     _SCR_COLS = [
@@ -16292,6 +16293,9 @@ class StockApp(tk.Tk):
         ('ma60',       'MA60',      60, 'e'),
         ('kd_k',       'KD-K',      48, 'e'),
         ('rsi',        'RSI',       48, 'e'),
+        ('tin_net',    '投信(張)',  60, 'e'),
+        ('large_pct',  '大戶%',    52, 'e'),
+        ('large_chg',  '大戶↑↓',  58, 'center'),
         ('linen',      '林恩如',    58, 'center'),
         ('zhujia',     '朱家泓',    58, 'center'),
         ('pattern',    '型態',      50, 'center'),
@@ -16356,7 +16360,7 @@ class StockApp(tk.Tk):
                        bg=C_PANEL, fg=C_FG, selectcolor='#2a3f6f',
                        activebackground=C_PANEL, font=FONT9).pack(side='left', padx=(0, 12))
         self._scr_skip_fin = tk.BooleanVar(value=True)
-        tk.Checkbutton(r2, text='略過金融保險', variable=self._scr_skip_fin,
+        tk.Checkbutton(r2, text='略過金融/營建', variable=self._scr_skip_fin,
                        bg=C_PANEL, fg=C_FG, selectcolor='#2a3f6f',
                        activebackground=C_PANEL, font=FONT9).pack(side='left')
 
@@ -16378,6 +16382,33 @@ class StockApp(tk.Tk):
         self._scr_min_tech_var = tk.StringVar(value='2')
         ttk.Entry(r3, textvariable=self._scr_min_tech_var, width=3).pack(side='left', padx=(2, 2))
         tk.Label(r3, text='項', bg=C_PANEL, fg=C_FG, font=FONT9).pack(side='left')
+
+        # 第四列：法人/大戶條件
+        r4 = tk.Frame(sett, bg=C_PANEL); r4.pack(fill='x', pady=1)
+        tk.Label(r4, text='法人/大戶：', bg=C_PANEL, fg=C_FG2, font=FONT9).pack(side='left')
+        self._scr_chk_tin = tk.BooleanVar(value=False)
+        tk.Checkbutton(r4, text='投信連買', variable=self._scr_chk_tin,
+                       bg=C_PANEL, fg=C_FG, selectcolor='#2a3f6f',
+                       activebackground=C_PANEL, font=FONT9).pack(side='left', padx=(0, 3))
+        self._scr_tin_days = tk.IntVar(value=3)
+        tk.Spinbox(r4, from_=1, to=20, textvariable=self._scr_tin_days,
+                   width=3, bg=C_PANEL, fg=C_FG, font=FONT9,
+                   buttonbackground=C_PANEL).pack(side='left')
+        tk.Label(r4, text='天  ', bg=C_PANEL, fg=C_FG, font=FONT9).pack(side='left')
+        self._scr_chk_large = tk.BooleanVar(value=False)
+        tk.Checkbutton(r4, text='大戶持股 ≥', variable=self._scr_chk_large,
+                       bg=C_PANEL, fg=C_FG, selectcolor='#2a3f6f',
+                       activebackground=C_PANEL, font=FONT9).pack(side='left', padx=(0, 3))
+        self._scr_large_min = tk.IntVar(value=30)
+        tk.Spinbox(r4, from_=5, to=90, textvariable=self._scr_large_min,
+                   width=3, bg=C_PANEL, fg=C_FG, font=FONT9,
+                   buttonbackground=C_PANEL).pack(side='left')
+        tk.Label(r4, text='%', bg=C_PANEL, fg=C_FG, font=FONT9).pack(side='left', padx=(0, 4))
+        self._scr_chk_large_up = tk.BooleanVar(value=False)
+        tk.Checkbutton(r4, text='且持股增加', variable=self._scr_chk_large_up,
+                       bg=C_PANEL, fg=C_FG, selectcolor='#2a3f6f',
+                       activebackground=C_PANEL, font=FONT9).pack(side='left', padx=(0, 6))
+        tk.Label(r4, text='（400張以上大戶合計，比對上週）', bg=C_PANEL, fg=C_FG2, font=FONT9).pack(side='left')
 
         # ── 進度列 ────────────────────────────────────────────────────────────
         prog_bar = tk.Frame(f, bg=C_BG); prog_bar.pack(fill='x', padx=8, pady=(0, 2))
@@ -16487,6 +16518,105 @@ class StockApp(tk.Tk):
         threading.Thread(target=self._scr_scan_worker,
                          args=(gen, True), daemon=True).start()
 
+    def _scr_prefetch_bulk(self, need_tin: bool, tin_days: int, need_large: bool):
+        """掃描前一次性抓取三大法人(T86)與大戶持股(TDCC)，建立快取字典。"""
+        from datetime import datetime, timedelta
+
+        self._scr_tin_cache: dict[str, list[int]]          = {}  # {code: [newest→oldest 投信淨買(張)]}
+        self._scr_large_cache: dict[str, float]            = {}  # {code: 本週大戶佔比%}
+        self._scr_large_delta: dict[str, float | None]     = {}  # {code: 本週-上週 or None}
+
+        # ── 三大法人 (TWSE T86) ──────────────────────────────────────────────
+        if need_tin:
+            self._ui_call(lambda: self._scr_status_var.set('取得投信資料…'))
+            d       = datetime.now()
+            fetched = 0
+            tries   = 0
+            while fetched < tin_days and tries < 30:
+                tries += 1
+                if d.weekday() >= 5:
+                    d -= timedelta(days=1)
+                    continue
+                ds = d.strftime('%Y%m%d')
+                try:
+                    raw = _cffi_get_json(
+                        f'https://www.twse.com.tw/rwd/zh/fund/T86?date={ds}&response=json',
+                        timeout=15)
+                    if not raw or raw.get('stat') != 'OK' or not raw.get('data'):
+                        d -= timedelta(days=1)
+                        continue
+                    fields  = raw.get('fields', [])
+                    tin_idx = next((i for i, f in enumerate(fields)
+                                    if '投信' in f and '買賣超' in f), None)
+                    if tin_idx is None:
+                        d -= timedelta(days=1)
+                        continue
+                    for row in raw['data']:
+                        code = str(row[0]).strip()
+                        try:
+                            v = int(str(row[tin_idx]).replace(',', ''))
+                        except (ValueError, IndexError):
+                            v = 0
+                        self._scr_tin_cache.setdefault(code, []).append(v // 1000)  # 股→張
+                    fetched += 1
+                except Exception:
+                    pass
+                d -= timedelta(days=1)
+
+        # ── 大戶持股 (TDCC id=1-5) ──────────────────────────────────────────
+        if need_large:
+            self._ui_call(lambda: self._scr_status_var.set('取得大戶持股資料…'))
+            try:
+                raw = _cffi_get_json(
+                    'https://smart.tdcc.com.tw/opendata/getOD.ashx?id=1-5&l=zh',
+                    timeout=25)
+                if raw and isinstance(raw, list):
+                    # 取得本次資料日期（民國年格式，如 113/06/06）
+                    new_date = str(raw[0].get('資料日期', '')) if raw else ''
+
+                    # 加總 tier 12+(≈400張) 大戶佔比
+                    new_map: dict[str, float] = {}
+                    for row in raw:
+                        code = str(row.get('證券代號', '')).strip()
+                        tier_str = str(row.get('持股/單位數分級', '0')).strip()
+                        pct_str  = str(row.get('占集保庫存數比例', '0')).strip()
+                        try:
+                            tier = int(tier_str)
+                            pct  = float(pct_str)
+                        except ValueError:
+                            continue
+                        if tier >= 12:
+                            new_map[code] = new_map.get(code, 0.0) + pct
+                    self._scr_large_cache = new_map
+
+                    # 載入舊快取並計算增減
+                    old_map:  dict[str, float] = {}
+                    old_date: str              = ''
+                    try:
+                        with open(self._SCR_TDCC_CACHE_PATH, encoding='utf-8') as fp:
+                            saved = _json.load(fp)
+                        old_date = saved.get('tdcc_date', '')
+                        old_map  = saved.get('data', {})
+                    except Exception:
+                        pass
+
+                    for code, pct in new_map.items():
+                        if code in old_map:
+                            self._scr_large_delta[code] = round(pct - old_map[code], 2)
+                        else:
+                            self._scr_large_delta[code] = None  # 無歷史比對
+
+                    # 只在新週資料（日期不同）時更新快取，避免當週重複掃描洗掉比對基準
+                    if new_date and new_date != old_date:
+                        try:
+                            with open(self._SCR_TDCC_CACHE_PATH, 'w', encoding='utf-8') as fp:
+                                _json.dump({'tdcc_date': new_date, 'data': new_map},
+                                           fp, ensure_ascii=False)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
     def _scr_get_universe(self, watchlist_only=False):
         """回傳 [(code, industry, suffix), ...]"""
         twse = _fetch_twse_industry_map()
@@ -16495,7 +16625,7 @@ class StockApp(tk.Tk):
         scope     = self._scr_scope.get()
         ind_filter = self._scr_ind_var.get() if scope == '指定' else ''
         skip_fin  = self._scr_skip_fin.get()
-        _FIN_INDS = {'金融', '保險', '銀行', '金融保險'}
+        _FIN_INDS = {'金融', '保險', '銀行', '金融保險', '營建'}
 
         if watchlist_only:
             codes = []
@@ -16536,6 +16666,13 @@ class StockApp(tk.Tk):
         }
         min_tech = max(1, int(self._scr_min_tech_var.get() or 1))
 
+        chk_tin      = self._scr_chk_tin.get()
+        tin_days     = self._scr_tin_days.get()
+        chk_large    = self._scr_chk_large.get()
+        large_min    = float(self._scr_large_min.get())
+        chk_large_up = self._scr_chk_large_up.get()
+        self._scr_prefetch_bulk(chk_tin, tin_days, chk_large or chk_large_up)
+
         results = []
         lock    = threading.Lock()
         done    = [0]
@@ -16543,7 +16680,8 @@ class StockApp(tk.Tk):
         def process(code, ind, sfx):
             if self._scr_gen != gen:
                 return
-            r = self._scr_fetch_one(code, ind, sfx, do_fund, min_yoy, min_con, chk, min_tech)
+            r = self._scr_fetch_one(code, ind, sfx, do_fund, min_yoy, min_con, chk, min_tech,
+                                    chk_tin, tin_days, chk_large, large_min, chk_large_up)
             with lock:
                 done[0] += 1
                 if r:
@@ -16564,7 +16702,9 @@ class StockApp(tk.Tk):
         if self._scr_gen == gen:
             self._ui_call(lambda: self._scr_finish(results, gen))
 
-    def _scr_fetch_one(self, code, ind, sfx, do_fund, min_yoy, min_con, chk, min_tech):
+    def _scr_fetch_one(self, code, ind, sfx, do_fund, min_yoy, min_con, chk, min_tech,
+                       chk_tin=False, tin_days=3, chk_large=False, large_min=30.0,
+                       chk_large_up=False):
         """抓一檔股票的基本面+技術面資料，不符合條件回 None。"""
         import numpy as np
         import pandas as pd
@@ -16656,6 +16796,10 @@ class StockApp(tk.Tk):
             else:
                 rsi_val = 100.0
 
+            # 必要條件：股價必須在 MA20 之上
+            if np.isnan(ma20) or np.isnan(price) or price <= ma20:
+                return None
+
             # 技術指標判斷（nan 值視為不滿足）
             ma_bull   = (not any(np.isnan(x) for x in (ma5, ma20, ma60, price))
                          and ma5 > ma20 > ma60 and price > ma5)
@@ -16674,6 +16818,23 @@ class StockApp(tk.Tk):
             tech_count = sum(v for k, v in tech_map.items() if chk.get(k, False))
             if tech_count < min_tech:
                 return None
+
+            # ── 投信連買過濾 ──────────────────────────────────────────────────
+            tin_hist = getattr(self, '_scr_tin_cache', {}).get(code, [])
+            tin_val  = tin_hist[0] if tin_hist else None  # 最新一天（張）
+            if chk_tin:
+                if len(tin_hist) < tin_days or not all(v > 0 for v in tin_hist[:tin_days]):
+                    return None
+
+            # ── 大戶持股過濾 ──────────────────────────────────────────────────
+            large_pct = getattr(self, '_scr_large_cache', {}).get(code, None)
+            large_chg = getattr(self, '_scr_large_delta', {}).get(code, None)
+            if chk_large:
+                if large_pct is None or large_pct < large_min:
+                    return None
+            if chk_large_up:
+                if large_chg is None or large_chg <= 0:
+                    return None
 
             # ── 林恩如 / 朱家泓 / 型態訊號（失敗不影響主結果）──────────────────
             linen_sig   = False
@@ -16729,6 +16890,9 @@ class StockApp(tk.Tk):
             'ma60':       round(ma60, 2),
             'kd_k':       round(kd_k, 1),
             'rsi':        round(rsi_val, 1) if rsi_val is not None else None,
+            'tin_net':    tin_val,
+            'large_pct':  round(large_pct, 1) if large_pct is not None else None,
+            'large_chg':  round(large_chg, 2) if large_chg is not None else None,
             'linen':      linen_sig,
             'zhujia':     zhujia_sig,
             'pattern':    pattern_sig,
@@ -16773,8 +16937,12 @@ class StockApp(tk.Tk):
                 return f'{int(v)}季'
             if col_id in ('rev_latest', 'price', 'ma5', 'ma20', 'ma60'):
                 return f'{v:.2f}' if v >= 10 else f'{v:.3f}'
-            if col_id in ('kd_k', 'rsi'):
+            if col_id in ('kd_k', 'rsi', 'large_pct'):
                 return f'{v:.1f}'
+            if col_id == 'tin_net':
+                return f'+{v}' if v > 0 else str(v)
+            if col_id == 'large_chg':
+                return (f'↑+{v:.2f}%' if v > 0 else f'↓{v:.2f}%') if v != 0 else '－'
             if col_id == 'tech_count':
                 return str(v)
             return str(v)
