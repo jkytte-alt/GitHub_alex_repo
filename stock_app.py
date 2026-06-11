@@ -507,18 +507,118 @@ _CMONEY_CONCEPT_CACHE: dict[str, list[str]] = {}
 FEE_RATE = 0.001425
 TAX_RATE = 0.003
 
-# ─── 深色主題色盤 ─────────────────────────────────────────────────────────────
-C_BG      = '#1e1e1e'
-C_PANEL   = '#252526'
-C_INPUT   = '#2d2d2d'
-C_FG      = '#cccccc'
-C_FG2     = '#888888'
-C_ACCENT  = '#0078d4'
-C_BORDER  = '#3e3e3e'
-C_BUY_FG  = '#4ec94e'
-C_SELL_FG = '#f07070'
-C_BUY_BG  = '#1a2e1a'
-C_SELL_BG = '#2e1a1a'
+# ─── 主題色盤（深色/淺色，依 Windows 系統設定自動選擇）────────────────────────
+# 注意：matplotlib 圖表（K線/熱力圖/樹狀圖）刻意維持深色交易風格，不隨主題切換；
+#       與圖表緊鄰的控制列（'#1c1c28'、'#0d0f17' 等）也保持深色以與圖表協調。
+def _detect_windows_light_theme() -> bool:
+    """讀取 Windows「應用程式使用淺色主題」設定；失敗時回傳 False（深色）。
+    可用環境變數 STOCK_APP_THEME=light|dark 強制覆寫（測試用）。"""
+    import os as _os
+    _ov = _os.environ.get('STOCK_APP_THEME', '').strip().lower()
+    if _ov in ('light', 'dark'):
+        return _ov == 'light'
+    if _sys.platform != 'win32':
+        return False
+    try:
+        import winreg
+        with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize') as k:
+            val, _ = winreg.QueryValueEx(k, 'AppsUseLightTheme')
+            return bool(val)
+    except Exception:
+        return False
+
+_THEME_DARK = {
+    'BG':         '#15171f',   # 主背景（深藍黑，與圖表深色協調）
+    'PANEL':      '#1b1e29',   # 面板
+    'PANEL2':     '#222639',   # 較亮面板 / chip / 資訊卡
+    'INPUT':      '#262b3c',   # 輸入框
+    'FG':         '#d4d9e6',   # 主要文字
+    'FG2':        '#8e96ad',   # 次要文字
+    'FG3':        '#5d6478',   # 弱化文字 / 分隔符
+    'TITLE':      '#aecde8',   # 標題藍
+    'ACCENT':     '#0078d4',   # 強調色（按鈕）
+    'ACCENT_HOV': '#1a90e0',
+    'ACCENT_DN':  '#005ba1',
+    'ACCENT_BG':  '#2a3f6f',   # 選中狀態背景（toggle 鈕）
+    'BTN_BG':     '#262b3c',   # 一般深色按鈕
+    'BORDER':     '#2c3144',
+    'SEP':        '#262a3a',   # 分隔線
+    'TREE_HDR':   '#232737',   # Treeview 表頭
+    'UP_FG':      '#f07070',   # 上漲（台股紅漲）
+    'DN_FG':      '#4ec94e',   # 下跌（台股綠跌）
+    'BUY_FG':     '#4ec94e',
+    'SELL_FG':    '#f07070',
+    'BUY_BG':     '#1a2e1a',
+    'SELL_BG':    '#2e1a1a',
+    'SB_BG':      '#10131c',   # 側欄背景
+    'SB_SEL':     '#1f2d45',   # 側欄選中
+    'SB_HOV':     '#1a1f2e',   # 側欄 hover
+}
+
+_THEME_LIGHT = {
+    'BG':         '#f2f3f7',
+    'PANEL':      '#fafbfd',
+    'PANEL2':     '#e7eaf2',
+    'INPUT':      '#ffffff',
+    'FG':         '#222633',
+    'FG2':        '#5b6478',
+    'FG3':        '#9aa2b8',
+    'TITLE':      '#2b5fa8',
+    'ACCENT':     '#1976d2',
+    'ACCENT_HOV': '#3a8de0',
+    'ACCENT_DN':  '#1259a6',
+    'ACCENT_BG':  '#cfe0fa',
+    'BTN_BG':     '#e7eaf2',
+    'BORDER':     '#c9cfdd',
+    'SEP':        '#dde1ea',
+    'TREE_HDR':   '#e3e7f0',
+    'UP_FG':      '#d93025',
+    'DN_FG':      '#188038',
+    'BUY_FG':     '#188038',
+    'SELL_FG':    '#d93025',
+    'BUY_BG':     '#e6f4ea',
+    'SELL_BG':    '#fce8e6',
+    'SB_BG':      '#e9ecf4',
+    'SB_SEL':     '#cfe0fa',
+    'SB_HOV':     '#dfe4ef',
+}
+
+UI_LIGHT = _detect_windows_light_theme()
+_T = _THEME_LIGHT if UI_LIGHT else _THEME_DARK
+
+C_BG        = _T['BG']
+C_PANEL     = _T['PANEL']
+C_PANEL2    = _T['PANEL2']
+C_INPUT     = _T['INPUT']
+C_FG        = _T['FG']
+C_FG2       = _T['FG2']
+C_FG3       = _T['FG3']
+C_TITLE     = _T['TITLE']
+C_ACCENT    = _T['ACCENT']
+C_ACCENT_HOV = _T['ACCENT_HOV']
+C_ACCENT_DN  = _T['ACCENT_DN']
+C_ACCENT_BG  = _T['ACCENT_BG']
+C_BTN_BG    = _T['BTN_BG']
+C_BORDER    = _T['BORDER']
+C_SEP       = _T['SEP']
+C_TREE_HDR  = _T['TREE_HDR']
+C_UP_FG     = _T['UP_FG']
+C_DN_FG     = _T['DN_FG']
+C_BUY_FG    = _T['BUY_FG']
+C_SELL_FG   = _T['SELL_FG']
+C_BUY_BG    = _T['BUY_BG']
+C_SELL_BG   = _T['SELL_BG']
+C_SB_BG     = _T['SB_BG']
+C_SB_SEL    = _T['SB_SEL']
+C_SB_HOV    = _T['SB_HOV']
+
+
+def CT(dark: str, light: str) -> str:
+    """主題條件色：深色模式回傳 dark、淺色模式回傳 light。
+    用於少數無法歸入通用色盤的語意色（如表格列標籤底色）。"""
+    return light if UI_LIGHT else dark
 
 # ─── 中文字型 ────────────────────────────────────────────────────────────────
 def _setup_font():
@@ -2582,9 +2682,9 @@ class StockApp(tk.Tk):
     ]
     _SIDEBAR_EXP = 200   # expanded width px
     _SIDEBAR_COL = 54    # collapsed width px
-    _SB_BG       = '#16161e'
-    _SB_SEL      = '#1f2d45'
-    _SB_HOV      = '#1c2030'
+    _SB_BG       = C_SB_BG
+    _SB_SEL      = C_SB_SEL
+    _SB_HOV      = C_SB_HOV
 
     def __init__(self):
         super().__init__()
@@ -2620,7 +2720,7 @@ class StockApp(tk.Tk):
         self._sidebar.pack_propagate(False)
 
         # Thin separator line
-        tk.Frame(root_frame, bg='#2a2a3a', width=1).pack(side='left', fill='y')
+        tk.Frame(root_frame, bg=C_SEP, width=1).pack(side='left', fill='y')
 
         # Content area (stacked pages)
         self._content = tk.Frame(root_frame, bg=C_BG)
@@ -2701,20 +2801,20 @@ class StockApp(tk.Tk):
         top.pack(fill='x', padx=6, pady=(12, 6))
 
         self._sb_title = tk.Label(top, text='  股票管理', bg=SB,
-                                   fg='#aecde8',
+                                   fg=C_TITLE,
                                    font=UIF(12, 'bold'),
                                    anchor='w')
         self._sb_title.pack(side='left', fill='x', expand=True)
 
-        self._sb_toggle = tk.Button(top, text='◀', bg=SB, fg='#5a7fa8',
+        self._sb_toggle = tk.Button(top, text='◀', bg=SB, fg=C_FG2,
                                      font=UIF(11),
                                      relief='flat', bd=0, cursor='hand2',
-                                     activebackground=SB, activeforeground='#aecde8',
+                                     activebackground=SB, activeforeground=C_TITLE,
                                      command=self._toggle_sidebar)
         self._sb_toggle.pack(side='right', padx=4)
 
         # Divider
-        tk.Frame(self._sidebar, bg='#252535', height=1).pack(fill='x',
+        tk.Frame(self._sidebar, bg=C_SEP, height=1).pack(fill='x',
                                                                padx=8, pady=4)
 
         # ── 導覽項目 ────────────────────────────────────────────────────────
@@ -2730,7 +2830,7 @@ class StockApp(tk.Tk):
                                  cursor='hand2', width=2)
             icon_lbl.pack(side='left', padx=(8, 4), pady=8)
 
-            txt_lbl = tk.Label(row, text=label, bg=SB, fg='#9090a0',
+            txt_lbl = tk.Label(row, text=label, bg=SB, fg=C_FG2,
                                 font=UIF(11),
                                 anchor='w', cursor='hand2')
             txt_lbl.pack(side='left', fill='x', expand=True, pady=8)
@@ -2776,7 +2876,7 @@ class StockApp(tk.Tk):
                 fg_txt = C_FG
             else:
                 bg = self._SB_BG
-                fg_txt = '#9090a0'
+                fg_txt = C_FG2
             row.config(bg=bg)
             icon_lbl.config(bg=bg)
             txt_lbl.config(bg=bg, fg=fg_txt)
@@ -2826,10 +2926,16 @@ class StockApp(tk.Tk):
                         fontsize=13, fontproperties=fp, transform=ax.transAxes)
                 self._stk_canvas.draw_idle()
 
-    # ── 深色主題 ──────────────────────────────────────────────────────────────
+    # ── 主題（依 Windows 深淺色設定，色票見模組層級 _THEME_DARK/_THEME_LIGHT）──
     def _apply_dark_theme(self):
         style = ttk.Style()
         style.theme_use('clam')
+
+        # Combobox 下拉清單（tk Listbox，無法用 ttk style 控制）
+        self.option_add('*TCombobox*Listbox.background',         C_INPUT)
+        self.option_add('*TCombobox*Listbox.foreground',         C_FG)
+        self.option_add('*TCombobox*Listbox.selectBackground',   C_ACCENT)
+        self.option_add('*TCombobox*Listbox.selectForeground',   '#ffffff')
 
         style.configure('.',
             background=C_BG, foreground=C_FG,
@@ -2852,14 +2958,14 @@ class StockApp(tk.Tk):
             background=C_PANEL, foreground=C_FG2,
             padding=[14, 6], font=UIF(11, 'bold'))
         style.map('TNotebook.Tab',
-            background=[('selected', C_BG),    ('active', '#303030')],
+            background=[('selected', C_BG),    ('active', C_PANEL2)],
             foreground=[('selected', C_FG),     ('active', C_FG)])
 
         style.configure('TEntry',
             fieldbackground=C_INPUT, foreground=C_FG,
             insertcolor=C_FG, bordercolor=C_BORDER, relief='flat', padding=4)
         style.map('TEntry',
-            fieldbackground=[('focus', '#3a3a3a')],
+            fieldbackground=[('focus', C_PANEL2)],
             bordercolor=[('focus', C_ACCENT)])
 
         style.configure('TCombobox',
@@ -2876,7 +2982,7 @@ class StockApp(tk.Tk):
             background=C_ACCENT, foreground='white',
             bordercolor=C_ACCENT, relief='flat', padding=[10, 5])
         style.map('TButton',
-            background=[('active', '#1a90e0'), ('pressed', '#005ba1')])
+            background=[('active', C_ACCENT_HOV), ('pressed', C_ACCENT_DN)])
 
         style.configure('Treeview',
             background=C_PANEL, foreground=C_FG,
@@ -2884,7 +2990,7 @@ class StockApp(tk.Tk):
             font=UIF(10),
             bordercolor=C_BORDER, relief='flat')
         style.configure('Treeview.Heading',
-            background='#333333', foreground=C_FG,
+            background=C_TREE_HDR, foreground=C_FG,
             relief='flat', bordercolor=C_BORDER)
         style.map('Treeview',
             background=[('selected', C_ACCENT)],
@@ -2914,7 +3020,7 @@ class StockApp(tk.Tk):
             insertcolor=C_FG, bordercolor=C_BORDER,
             relief='flat', padding=5, font=INPUT_FONT)
         style.map('In.TEntry',
-            fieldbackground=[('focus', '#3a3a3a')],
+            fieldbackground=[('focus', C_PANEL2)],
             bordercolor=[('focus', C_ACCENT)])
 
         style.configure('In.TCombobox',
@@ -2932,15 +3038,15 @@ class StockApp(tk.Tk):
             bordercolor=C_ACCENT, relief='flat',
             padding=[12, 6], font=INPUT_FONT)
         style.map('In.TButton',
-            background=[('active', '#1a90e0'), ('pressed', '#005ba1')])
+            background=[('active', C_ACCENT_HOV), ('pressed', C_ACCENT_DN)])
 
         style.configure('Nav.TButton',
-            background='#1e1e2e', foreground=C_FG,
-            bordercolor='#2a2a3a', relief='flat',
+            background=C_BTN_BG, foreground=C_FG,
+            bordercolor=C_BORDER, relief='flat',
             padding=[12, 7], font=UIF(10))
         style.map('Nav.TButton',
-            background=[('active', '#252538'), ('pressed', '#1a253a')],
-            foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
+            background=[('active', C_PANEL2), ('pressed', C_ACCENT_BG)],
+            foreground=[('active', C_FG), ('pressed', C_FG)])
 
         style.configure('In.TCheckbutton',
             background=C_INPUT, foreground=C_FG,
@@ -3092,8 +3198,8 @@ class StockApp(tk.Tk):
             self._tree.column(col, width=w, anchor='center', stretch=False)
         self._tree.tag_configure('buy',  foreground=C_BUY_FG)
         self._tree.tag_configure('sell', foreground=C_SELL_FG)
-        self._tree.tag_configure('row_even', background='#252526')
-        self._tree.tag_configure('row_odd',  background='#202030')
+        self._tree.tag_configure('row_even', background=C_PANEL)
+        self._tree.tag_configure('row_odd',  background=CT('#202030', '#eaedf4'))
 
         # 損益子表格：獨立配色，紅底=獲利，綠底=虧損
         _PNL_COLS = ['損益(元)', '損益率(%)']
@@ -3104,10 +3210,12 @@ class StockApp(tk.Tk):
             self._tree_pnl.heading(col, text=col)
             self._tree_pnl.column(col, width=w, anchor='center', stretch=False,
                                    minwidth=w)
-        self._tree_pnl.tag_configure('pnl_gain', background='#6b0000', foreground='#ffffff')
-        self._tree_pnl.tag_configure('pnl_loss', background='#0a3d0a', foreground='#ffffff')
-        self._tree_pnl.tag_configure('row_even', background='#252526')
-        self._tree_pnl.tag_configure('row_odd',  background='#202030')
+        self._tree_pnl.tag_configure('pnl_gain', background=CT('#6b0000', '#f6cfd0'),
+                                     foreground=CT('#ffffff', '#8f1d18'))
+        self._tree_pnl.tag_configure('pnl_loss', background=CT('#0a3d0a', '#d5ecd6'),
+                                     foreground=CT('#ffffff', '#1c6b2a'))
+        self._tree_pnl.tag_configure('row_even', background=C_PANEL)
+        self._tree_pnl.tag_configure('row_odd',  background=CT('#202030', '#eaedf4'))
 
         def _ysync(*args):
             self._tree.yview(*args)
@@ -3496,37 +3604,37 @@ class StockApp(tk.Tk):
         summary_bar = tk.Frame(f, bg=C_PANEL)
         summary_bar.pack(fill='x', padx=8, pady=(0, 4))
 
-        card = tk.Frame(summary_bar, bg='#1a1a2e', padx=16, pady=10)
+        card = tk.Frame(summary_bar, bg=C_PANEL2, padx=16, pady=10)
         card.pack(fill='x')
         self._summary_card = card
 
         # 第一行：標題 + 持股檔數
-        _top = tk.Frame(card, bg='#1a1a2e')
+        _top = tk.Frame(card, bg=C_PANEL2)
         _top.pack(fill='x')
-        tk.Label(_top, text='庫存總市值', bg='#1a1a2e',
-                 fg='#6a8faf', font=UIF(13)).pack(side='left')
+        tk.Label(_top, text='庫存總市值', bg=C_PANEL2,
+                 fg=C_FG2, font=UIF(13)).pack(side='left')
         self._sv_count = tk.StringVar(value='—')
-        tk.Label(_top, textvariable=self._sv_count, bg='#1a1a2e',
-                 fg='#6a8faf', font=UIF(11)).pack(side='right')
+        tk.Label(_top, textvariable=self._sv_count, bg=C_PANEL2,
+                 fg=C_FG2, font=UIF(11)).pack(side='right')
 
         # 市值 + 右側三項並排
-        _mid = tk.Frame(card, bg='#1a1a2e')
+        _mid = tk.Frame(card, bg=C_PANEL2)
         _mid.pack(fill='x', pady=(4, 0))
 
         # 左：大字總市值
         self._sv_mktval = tk.StringVar(value='—')
-        tk.Label(_mid, textvariable=self._sv_mktval, bg='#1a1a2e',
+        tk.Label(_mid, textvariable=self._sv_mktval, bg=C_PANEL2,
                  fg=C_FG, font=UIF(30, 'bold')).pack(side='left', padx=(0, 24))
 
         # 右：損益試算 / 報酬率 / 總付出成本
         def _sub(parent, title):
-            fr = tk.Frame(parent, bg='#1a1a2e', padx=16)
+            fr = tk.Frame(parent, bg=C_PANEL2, padx=16)
             fr.pack(side='left', anchor='center')
-            tlbl = tk.Label(fr, text=title, bg='#1a1a2e',
-                     fg='#6a8faf', font=UIF(9))
+            tlbl = tk.Label(fr, text=title, bg=C_PANEL2,
+                     fg=C_FG2, font=UIF(9))
             tlbl.pack(anchor='w')
             var = tk.StringVar(value='—')
-            lbl = tk.Label(fr, textvariable=var, bg='#1a1a2e',
+            lbl = tk.Label(fr, textvariable=var, bg=C_PANEL2,
                            fg=C_FG, font=UIF(16, 'bold'))
             lbl.pack(anchor='w')
             return var, lbl, tlbl
@@ -3625,15 +3733,15 @@ class StockApp(tk.Tk):
             tip = tk.Toplevel(self)
             tip.overrideredirect(True)
             tip.attributes('-topmost', True)
-            tip.configure(bg='#1e1e1e')
+            tip.configure(bg=C_PANEL)
             # thin border frame
-            border = tk.Frame(tip, bg='#3e3e3e', padx=1, pady=1)
+            border = tk.Frame(tip, bg=C_BORDER, padx=1, pady=1)
             border.pack(fill='both', expand=True)
-            inner = tk.Frame(border, bg='#252526', padx=10, pady=8)
+            inner = tk.Frame(border, bg=C_PANEL, padx=10, pady=8)
             inner.pack(fill='both', expand=True)
             self._tm_tip_widgets = {}
             for key in ('title', 'price', 'today_chg', 'qty', 'mktval', 'ratio', 'avgcost', 'pnl'):
-                lbl = tk.Label(inner, bg='#252526',
+                lbl = tk.Label(inner, bg=C_PANEL,
                                font=UIF(10), anchor='w')
                 lbl.pack(fill='x')
                 self._tm_tip_widgets[key] = lbl
@@ -3653,9 +3761,9 @@ class StockApp(tk.Tk):
         prev_p = data.get('prev_price')
 
         w['title'].config(text=f'{code}  {name}  ({cat})',
-                          fg='#8ab4d4', font=UIF(11, 'bold'))
+                          fg=C_TITLE, font=UIF(11, 'bold'))
         w['price'].config(text=f'現價：{"—" if not price else f"{price:,.2f} 元"}',
-                          fg='#cccccc')
+                          fg=C_FG)
         # 今日漲跌
         if prev_p and price:
             chg_amt = (price - prev_p) * qty
@@ -3667,11 +3775,11 @@ class StockApp(tk.Tk):
             chg_fg = '#888888'
             chg_txt = '今日：— (無昨收資料)'
         w['today_chg'].config(text=chg_txt, fg=chg_fg)
-        w['qty'].config(text=f'持股：{qty:,.0f} 股', fg='#cccccc')
-        w['mktval'].config(text=f'市值：{val:,.0f} 元', fg='#cccccc')
+        w['qty'].config(text=f'持股：{qty:,.0f} 股', fg=C_FG)
+        w['mktval'].config(text=f'市值：{val:,.0f} 元', fg=C_FG)
         portfolio_pct = data.get('portfolio_pct', 0.0)
-        w['ratio'].config(text=f'占比：{portfolio_pct:.2f}%', fg='#cccccc')
-        w['avgcost'].config(text=f'均價：{avg:,.2f} 元', fg='#cccccc')
+        w['ratio'].config(text=f'占比：{portfolio_pct:.2f}%', fg=C_FG)
+        w['avgcost'].config(text=f'均價：{avg:,.2f} 元', fg=C_FG)
         pnl_color_tip = '#f07070' if pct >= 0 else '#4ec94e'
         sign = '+' if pct >= 0 else ''
         pnl_txt = (f'損益：{sign}{pnl_a:,.0f} 元  ({sign}{pct:.2f}%)'
@@ -3781,14 +3889,14 @@ class StockApp(tk.Tk):
             tip = tk.Toplevel(self)
             tip.overrideredirect(True)
             tip.attributes('-topmost', True)
-            tip.configure(bg='#1e1e1e')
-            border = tk.Frame(tip, bg='#3e3e3e', padx=1, pady=1)
+            tip.configure(bg=C_PANEL)
+            border = tk.Frame(tip, bg=C_BORDER, padx=1, pady=1)
             border.pack(fill='both', expand=True)
-            inner = tk.Frame(border, bg='#252526', padx=10, pady=8)
+            inner = tk.Frame(border, bg=C_PANEL, padx=10, pady=8)
             inner.pack(fill='both', expand=True)
             self._tm_tip_widgets = {}
             for key in ('title', 'price', 'qty', 'mktval', 'ratio', 'avgcost', 'pnl'):
-                lbl = tk.Label(inner, bg='#252526',
+                lbl = tk.Label(inner, bg=C_PANEL,
                                font=UIF(10), anchor='w')
                 lbl.pack(fill='x')
                 self._tm_tip_widgets[key] = lbl
@@ -3798,12 +3906,12 @@ class StockApp(tk.Tk):
         sign = '+' if cat['pnl_amt'] >= 0 else ''
         pnl_fg = '#f07070' if cat['pnl_amt'] >= 0 else '#4ec94e'
         w['title'].config(text=cat['cat_name'],
-                          fg='#aecde8', font=UIF(11, 'bold'))
-        w['price'].config(text=f"持股標的：{cat['count']} 檔", fg='#cccccc')
-        w['qty'].config(  text=f"市值：{cat['value']:,.0f} 元",  fg='#cccccc')
-        w['mktval'].config(text=f"成本：{cat['cost']:,.0f} 元",  fg='#cccccc')
-        w['ratio'].config(text='', fg='#cccccc')
-        w['avgcost'].config(text='', fg='#cccccc')
+                          fg=C_TITLE, font=UIF(11, 'bold'))
+        w['price'].config(text=f"持股標的：{cat['count']} 檔", fg=C_FG)
+        w['qty'].config(  text=f"市值：{cat['value']:,.0f} 元",  fg=C_FG)
+        w['mktval'].config(text=f"成本：{cat['cost']:,.0f} 元",  fg=C_FG)
+        w['ratio'].config(text='', fg=C_FG)
+        w['avgcost'].config(text='', fg=C_FG)
         w['pnl'].config(
             text=f"損益：{sign}{cat['pnl_amt']:,.0f} 元  ({sign}{cat['pnl_pct']:.2f}%)",
             fg=pnl_fg)
@@ -4523,14 +4631,14 @@ class StockApp(tk.Tk):
             tip = tk.Toplevel(self)
             tip.overrideredirect(True)
             tip.attributes('-topmost', True)
-            tip.configure(bg='#1e1e1e')
-            border = tk.Frame(tip, bg='#3e3e3e', padx=1, pady=1)
+            tip.configure(bg=C_PANEL)
+            border = tk.Frame(tip, bg=C_BORDER, padx=1, pady=1)
             border.pack(fill='both', expand=True)
-            inner = tk.Frame(border, bg='#252526', padx=10, pady=8)
+            inner = tk.Frame(border, bg=C_PANEL, padx=10, pady=8)
             inner.pack(fill='both', expand=True)
             self._an_tip_widgets = {}
             for key in ('title', 'price', 'qty', 'fee', 'tax', 'net', 'avg'):
-                lbl = tk.Label(inner, bg='#252526',
+                lbl = tk.Label(inner, bg=C_PANEL,
                                font=UIF(10), anchor='w')
                 lbl.pack(fill='x')
                 self._an_tip_widgets[key] = lbl
@@ -4546,18 +4654,18 @@ class StockApp(tk.Tk):
         w['title'].config(
             text=f"{data['date']}　{data['side']}　({data['category']})",
             fg=side_color, font=UIF(11, 'bold'))
-        w['price'].config(text=f"成交價：{data['price']:,.2f} 元", fg='#cccccc')
-        w['qty'].config(  text=f"數　量：{data['qty']:,.0f} 股",   fg='#cccccc')
-        w['fee'].config(  text=f"手續費：{data['fee']:,.0f} 元",   fg='#cccccc')
+        w['price'].config(text=f"成交價：{data['price']:,.2f} 元", fg=C_FG)
+        w['qty'].config(  text=f"數　量：{data['qty']:,.0f} 股",   fg=C_FG)
+        w['fee'].config(  text=f"手續費：{data['fee']:,.0f} 元",   fg=C_FG)
         tax_txt = f"交易稅：{data['tax']:,.0f} 元" if data['tax'] else ''
-        w['tax'].config(  text=tax_txt, fg='#cccccc')
+        w['tax'].config(  text=tax_txt, fg=C_FG)
         net_sign = '+' if data['net'] >= 0 else ''
         w['net'].config(  text=f"淨金額：{net_sign}{data['net']:,.0f} 元",
-                          fg='#4ec94e' if data['net'] >= 0 else '#f07070')
+                          fg=C_DN_FG if data['net'] >= 0 else C_UP_FG)
         if not np.isnan(data['avg_cost']):
             w['avg'].config(text=f"當時均價：{data['avg_cost']:,.2f} 元", fg='#8ab4d4')
         else:
-            w['avg'].config(text='', fg='#cccccc')
+            w['avg'].config(text='', fg=C_FG)
 
         self._place_tooltip(self._an_tooltip, sx, sy)
         self._an_tooltip.deiconify()
@@ -4781,6 +4889,7 @@ class StockApp(tk.Tk):
                     roi_y = np.append(roi_y, _today_roi)
 
         # ── 繪圖 ──────────────────────────────────────────────────────────────
+        _fit_fig_to_canvas(self._an_fig, self._an_canvas)
         self._an_fig.clear()
         ax1 = self._an_fig.add_subplot(111, facecolor=C_PANEL)
         ax2 = ax1.twinx()
@@ -5050,7 +5159,7 @@ class StockApp(tk.Tk):
                            ('change',          '主動型ETF分析'),
                            ('active_analysis', '主動型ETF成分股分析')]:
             btn = tk.Label(sub_bar, text=slbl,
-                           bg='#1a1a2e', fg='#9090a0',
+                           bg=C_PANEL2, fg=C_FG2,
                            font=UIF(10, 'bold'),
                            padx=18, pady=7, cursor='hand2')
             btn.pack(side='left')
@@ -5091,8 +5200,8 @@ class StockApp(tk.Tk):
                    'active_analysis': self._etf_sub_active}
         _frames.get(sid, self._etf_sub_analysis).tkraise()
         for k, btn in self._etf_sub_btns.items():
-            btn.config(bg='#2a3f6f' if k == sid else '#1a1a2e',
-                       fg='white'   if k == sid else '#9090a0')
+            btn.config(bg=C_ACCENT_BG if k == sid else '#1a1a2e',
+                       fg='white'   if k == sid else C_FG2)
 
         # ── 脈絡切換：在一般/主動型 ETF 分析 tab 之間切換時交換 UI 狀態 ──────
         if sid == 'analysis' and self._etf_current_mode != 'normal':
@@ -5190,12 +5299,12 @@ class StockApp(tk.Tk):
         row2.pack(fill='x', pady=(2, 0))
 
         def _card(parent, title):
-            fr = tk.Frame(parent, bg='#1a1a2e', padx=14, pady=5)
+            fr = tk.Frame(parent, bg=C_PANEL2, padx=14, pady=5)
             fr.pack(side='left', fill='x', expand=True, padx=3)
-            tk.Label(fr, text=title, bg='#1a1a2e',
-                     fg='#6a8faf', font=UIF(8)).pack(anchor='w')
+            tk.Label(fr, text=title, bg=C_PANEL2,
+                     fg=C_FG2, font=UIF(8)).pack(anchor='w')
             var = tk.StringVar(value='—')
-            lbl = tk.Label(fr, textvariable=var, bg='#1a1a2e',
+            lbl = tk.Label(fr, textvariable=var, bg=C_PANEL2,
                            fg=C_FG, font=UIF(11, 'bold'))
             lbl.pack(anchor='w')
             return var, lbl
@@ -5269,7 +5378,7 @@ class StockApp(tk.Tk):
         self._kline_period = '3M'
         self._kline_period_btns: dict[str, tk.Button] = {}
 
-        tk.Label(kctrl, text='區間:', bg=_CTRL_BG, fg='#8899cc',
+        tk.Label(kctrl, text='區間:', bg=_CTRL_BG, fg=C_FG2,
                  font=UIF(8, 'bold')).pack(side='left', padx=(8, 4))
 
         def _set_period(lbl: str) -> None:
@@ -5294,7 +5403,7 @@ class StockApp(tk.Tk):
             'MACD': True, 'RSI': False, 'KD': False}
         self._kline_ind_btns: dict[str, tk.Button] = {}
 
-        tk.Label(kctrl, text='指標:', bg=_CTRL_BG, fg='#8899cc',
+        tk.Label(kctrl, text='指標:', bg=_CTRL_BG, fg=C_FG2,
                  font=UIF(8, 'bold')).pack(side='left', padx=(0, 4))
 
         def _toggle_ind(lbl: str) -> None:
@@ -5332,7 +5441,7 @@ class StockApp(tk.Tk):
         self._etf_info_fig = plt.Figure(figsize=(9.5, 4.2), dpi=100, facecolor='#1a1a2e')
         self._etf_info_canvas = FigureCanvasTkAgg(self._etf_info_fig, master=self._etf_inner)
         w2 = self._etf_info_canvas.get_tk_widget()
-        w2.configure(bg='#1a1a2e')
+        w2.configure(bg=C_PANEL2)
         if show_history:
             w2.pack(fill='x', padx=8, pady=(2, 8))
             w2.bind('<MouseWheel>', _mw)
@@ -5349,15 +5458,15 @@ class StockApp(tk.Tk):
         if not show_history:
             _DIFF_BG = '#111111'
             _BAR_BG  = '#1c1c28'
-            _BTN_OFF = dict(bg='#2a2a3a', fg='#9090a0', padx=8, pady=3,
+            _BTN_OFF = dict(bg=C_SEP, fg=C_FG2, padx=8, pady=3,
                             font=UIF(8), cursor='hand2',
                             relief='flat', bd=0, activebackground='#3a3a4a')
-            _BTN_ON  = dict(bg='#2a3f6f', fg='#ffffff', padx=8, pady=3,
+            _BTN_ON  = dict(bg=C_ACCENT_BG, fg='#ffffff', padx=8, pady=3,
                             font=UIF(8, 'bold'), cursor='hand2',
                             relief='flat', bd=0, activebackground='#3a5090')
             _VS_OFF  = dict(bg='#1c1c28', fg='#6699ff', padx=8, pady=3,
                             font=UIF(8), cursor='hand2',
-                            relief='flat', bd=0, activebackground='#2a2a3a')
+                            relief='flat', bd=0, activebackground=C_SEP)
             _VS_ON   = dict(bg='#1a3a5a', fg='#99ccff', padx=8, pady=3,
                             font=UIF(8, 'bold'), cursor='hand2',
                             relief='flat', bd=0, activebackground='#2a4a6a')
@@ -5378,7 +5487,7 @@ class StockApp(tk.Tk):
             row1 = tk.Frame(date_bar, bg=_BAR_BG, pady=4)
             row1.pack(fill='x')
             row1.bind('<MouseWheel>', _mw)
-            _lbl_date = tk.Label(row1, text='日期', bg=_BAR_BG, fg='#8899cc',
+            _lbl_date = tk.Label(row1, text='日期', bg=_BAR_BG, fg=C_FG2,
                                  font=UIF(9, 'bold'),
                                  width=_LBL_W, anchor='e')
             _lbl_date.pack(side='left', padx=(10, 6))
@@ -5487,7 +5596,7 @@ class StockApp(tk.Tk):
                                             padx=10, pady=3)
             self._aetf_badge_dec.pack(side='left', padx=4)
             self._aetf_badge_dec.bind('<MouseWheel>', _mw)
-            self._aetf_fetch_lbl = tk.Label(badge_bar, text='', bg=_DIFF_BG, fg='#555577',
+            self._aetf_fetch_lbl = tk.Label(badge_bar, text='', bg=_DIFF_BG, fg=C_FG3,
                                             font=UIF(8))
             self._aetf_fetch_lbl.pack(side='right', padx=8)
             self._aetf_fetch_lbl.bind('<MouseWheel>', _mw)
@@ -5497,13 +5606,13 @@ class StockApp(tk.Tk):
             self._aetf_bt_years_var = tk.IntVar(value=2)
             tk.Spinbox(badge_bar, from_=1, to=5, increment=1, width=2,
                        textvariable=self._aetf_bt_years_var,
-                       bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
+                       bg=C_BTN_BG, fg=C_FG2, insertbackground=C_FG2,
                        buttonbackground='#2a2a3e', relief='flat',
                        font=UIF(8)).pack(side='right', padx=2)
-            tk.Label(badge_bar, text='年', bg=_DIFF_BG, fg='#6677aa',
+            tk.Label(badge_bar, text='年', bg=_DIFF_BG, fg=C_FG3,
                      font=UIF(8)).pack(side='right')
             # 方法選擇
-            _ABT_ON  = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', font=UIF(8, 'bold'), cursor='hand2', padx=5)
+            _ABT_ON  = dict(bg=C_ACCENT_BG, fg='#ffffff', relief='flat', font=UIF(8, 'bold'), cursor='hand2', padx=5)
             _ABT_OFF = dict(bg='#1e2133', fg='#6677aa', relief='flat', font=UIF(8),         cursor='hand2', padx=5)
             self._aetf_bt_method = tk.StringVar(value='linen')
             self._aetf_bt_linen_btn  = tk.Button(badge_bar, text='林恩如', **_ABT_ON)
@@ -5524,19 +5633,19 @@ class StockApp(tk.Tk):
                       ).pack(side='right', padx=(4, 2))
 
             # ── 熱力圖模式切換列 ───────────────────────────────────────────
-            _HM_SEL   = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', bd=0,
+            _HM_SEL   = dict(bg=C_ACCENT_BG, fg='#ffffff', relief='flat', bd=0,
                               font=UIF(8, 'bold'),
                               padx=10, pady=3, cursor='hand2',
                               activebackground='#3a5090')
-            _HM_UNSEL = dict(bg='#1a1a2e', fg='#7a8aaa', relief='flat', bd=0,
+            _HM_UNSEL = dict(bg=C_PANEL2, fg=C_FG2, relief='flat', bd=0,
                               font=UIF(8),
                               padx=10, pady=3, cursor='hand2',
-                              activebackground='#2a2a3e')
+                              activebackground=C_BTN_BG)
 
-            hm_ctrl = tk.Frame(diff_outer, bg='#1a1a2e')
+            hm_ctrl = tk.Frame(diff_outer, bg=C_PANEL2)
             hm_ctrl.pack(fill='x', pady=(2, 0))
             hm_ctrl.bind('<MouseWheel>', _mw)
-            _hm_lbl = tk.Label(hm_ctrl, text='熱力圖', bg='#1a1a2e', fg='#555577',
+            _hm_lbl = tk.Label(hm_ctrl, text='熱力圖', bg=C_PANEL2, fg=C_FG3,
                                 font=UIF(8))
             _hm_lbl.pack(side='left', padx=8)
             _hm_lbl.bind('<MouseWheel>', _mw)
@@ -5610,7 +5719,7 @@ class StockApp(tk.Tk):
             self._aetf_hm_wchg_btn .pack(side='left', padx=2)
             self._aetf_hm_pchg_btn .pack(side='left', padx=2)
             tk.Frame(hm_ctrl, bg='#333355', width=1, height=16).pack(side='left', padx=6)
-            tk.Label(hm_ctrl, text='分組', bg='#1a1a2e', fg='#666680',
+            tk.Label(hm_ctrl, text='分組', bg=C_PANEL2, fg=C_FG2,
                      font=UIF(8)).pack(side='left', padx=(0, 2))
             self._aetf_hm_flat_btn  .pack(side='left', padx=2)
             self._aetf_hm_sector_btn.pack(side='left', padx=2)
@@ -5664,10 +5773,13 @@ class StockApp(tk.Tk):
             self._aetf_tv.configure(yscrollcommand=tv_vsb.set)
             tv_vsb.pack(side='right', fill='y')
             self._aetf_tv.pack(fill='both', expand=True)
-            self._aetf_tv.tag_configure('add', background='#091a09', foreground='#70e070')
-            self._aetf_tv.tag_configure('inc', background='#1a0909', foreground='#ff7070')
-            self._aetf_tv.tag_configure('dec', background='#131313', foreground='#909090')
-            self._aetf_tv.tag_configure('hdr', background='#1a1a2e', foreground='#aaaacc',
+            self._aetf_tv.tag_configure('add', background=CT('#091a09', '#e2f3e3'),
+                                        foreground=CT('#70e070', '#1d7a2c'))
+            self._aetf_tv.tag_configure('inc', background=CT('#1a0909', '#fbe3e1'),
+                                        foreground=CT('#ff7070', '#b3261e'))
+            self._aetf_tv.tag_configure('dec', background=CT('#131313', '#ececec'),
+                                        foreground=CT('#909090', '#666666'))
+            self._aetf_tv.tag_configure('hdr', background=C_PANEL2, foreground=C_FG2,
                                          font=UIF(9, 'bold'))
 
             self._aetf_date_btns   = {}   # YYYYMMDD → tk.Button (base 列)
@@ -5762,7 +5874,7 @@ class StockApp(tk.Tk):
                  font=UIF(8)).pack(side='left', padx=(4, 4), pady=4)
         for p_name, p_etfs in _CMP_PRESETS:
             btn = tk.Label(preset_bar, text=p_name,
-                           bg='#1e2d4e', fg='#aecde8',
+                           bg='#1e2d4e', fg=C_TITLE,
                            font=UIF(8),
                            padx=10, pady=3, cursor='hand2', relief='flat')
             btn.pack(side='left', padx=2, pady=3)
@@ -5781,13 +5893,13 @@ class StockApp(tk.Tk):
         # ── 已選 ETF 標籤列 ───────────────────────────────────────────────────
         tag_frame_outer = tk.Frame(f, bg=C_PNL)
         tag_frame_outer.pack(fill='x', padx=8, pady=(0, 4))
-        tk.Label(tag_frame_outer, text='比較清單：', bg=C_PNL, fg='#6a8faf',
+        tk.Label(tag_frame_outer, text='比較清單：', bg=C_PNL, fg=C_FG2,
                  font=UIF(8)).pack(side='left', padx=(8, 4), pady=4)
         self._cmp_tag_frame = tk.Frame(tag_frame_outer, bg=C_PNL)
         self._cmp_tag_frame.pack(side='left', fill='x', expand=True, pady=4)
         self._cmp_status_var = tk.StringVar(value='請加入 ETF 後點擊「更新比較」')
         tk.Label(tag_frame_outer, textvariable=self._cmp_status_var,
-                 bg=C_PNL, fg='#6a8faf', font=UIF(8)).pack(
+                 bg=C_PNL, fg=C_FG2, font=UIF(8)).pack(
             side='right', padx=8)
 
         # ── 比較表格（可捲動）────────────────────────────────────────────────
@@ -5838,7 +5950,7 @@ class StockApp(tk.Tk):
         for w in self._cmp_inner.winfo_children():
             w.destroy()
         tk.Label(self._cmp_inner, text='請加入至少 2 個 ETF 後點擊「更新比較」',
-                 bg=C_BG, fg='#555577', font=UIF(11)).pack(
+                 bg=C_BG, fg=C_FG3, font=UIF(11)).pack(
             pady=60, padx=40)
 
     # ── ETF 成分股變化子頁面 ──────────────────────────────────────────────────
@@ -5875,7 +5987,7 @@ class StockApp(tk.Tk):
                          cursor='hand2', activebackground='#3a6caf')
         _TIER_INS = dict(bg='#1e2030', fg='#6070a0', relief='flat', bd=0,
                          font=UIF(8), padx=9, pady=3,
-                         cursor='hand2', activebackground='#2a2a3e')
+                         cursor='hand2', activebackground=C_BTN_BG)
         self._chg_tier_btns  = {}
         self._chg_tier_styles = (_TIER_ACT, _TIER_INS)
         for tier_key, tier_lbl in [('all', '全選'), ('high', '500 億以上'),
@@ -5966,14 +6078,14 @@ class StockApp(tk.Tk):
                                              else self._chg_toggle_etf(cd)))
 
         # ── 操作列 ────────────────────────────────────────────────────────────
-        _SEL   = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', bd=0,
+        _SEL   = dict(bg=C_ACCENT_BG, fg='#ffffff', relief='flat', bd=0,
                       font=UIF(9, 'bold'),
                       padx=10, pady=3, cursor='hand2',
                       activebackground='#3a5090')
-        _UNSEL = dict(bg='#1a1a2e', fg='#7a8aaa', relief='flat', bd=0,
+        _UNSEL = dict(bg=C_PANEL2, fg=C_FG2, relief='flat', bd=0,
                       font=UIF(9),
                       padx=10, pady=3, cursor='hand2',
-                      activebackground='#2a2a3e')
+                      activebackground=C_BTN_BG)
 
         ctrl = tk.Frame(f, bg=C_BG)
         ctrl.pack(fill='x', padx=10, pady=(4, 6))
@@ -5996,15 +6108,15 @@ class StockApp(tk.Tk):
 
         # ── 分組按鈕 ──────────────────────────────────────────────────────
         tk.Frame(ctrl, bg='#333355', width=1, height=16).pack(side='left', padx=(10, 4))
-        tk.Label(ctrl, text='分組：', bg=C_BG, fg='#666680',
+        tk.Label(ctrl, text='分組：', bg=C_BG, fg=C_FG2,
                  font=UIF(8)).pack(side='left')
 
-        _HM_SEL   = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', bd=0,
+        _HM_SEL   = dict(bg=C_ACCENT_BG, fg='#ffffff', relief='flat', bd=0,
                          font=UIF(8, 'bold'), padx=8, pady=2,
                          cursor='hand2', activebackground='#3a5090')
-        _HM_UNSEL = dict(bg='#1a1a2e', fg='#7a8aaa', relief='flat', bd=0,
+        _HM_UNSEL = dict(bg=C_PANEL2, fg=C_FG2, relief='flat', bd=0,
                          font=UIF(8), padx=8, pady=2,
-                         cursor='hand2', activebackground='#2a2a3e')
+                         cursor='hand2', activebackground=C_BTN_BG)
 
         self._chg_flat_btn   = tk.Button(ctrl, text='依占比', **_HM_UNSEL)
         self._chg_sector_btn = tk.Button(ctrl, text='依類股', **_HM_SEL)
@@ -6032,7 +6144,7 @@ class StockApp(tk.Tk):
 
         # ── 大小模式按鈕 ─────────────────────────────────────────────
         tk.Frame(ctrl, bg='#333355', width=1, height=16).pack(side='left', padx=(10, 4))
-        tk.Label(ctrl, text='大小：', bg=C_BG, fg='#666680',
+        tk.Label(ctrl, text='大小：', bg=C_BG, fg=C_FG2,
                  font=UIF(8)).pack(side='left')
 
         self._chg_shares_btn = tk.Button(ctrl, text='依異動量', **_HM_SEL)
@@ -6088,7 +6200,7 @@ class StockApp(tk.Tk):
         bot_pane = tk.Frame(content, bg=C_BG)
         bot_pane.grid(row=1, column=0, sticky='nsew')
         tk.Label(bot_pane, text='ETF 成分股異動統計（依活躍程度排序）',
-                 bg='#2a3f6f', fg='white',
+                 bg=C_ACCENT_BG, fg='white',
                  font=UIF(10, 'bold'), pady=4
                  ).pack(fill='x')
         tv_fr = tk.Frame(bot_pane, bg=C_PNL)
@@ -6111,9 +6223,11 @@ class StockApp(tk.Tk):
         self._chg_sum_tv.configure(yscrollcommand=vsb.set)
         vsb.pack(side='right', fill='y')
         self._chg_sum_tv.pack(fill='both', expand=True)
-        self._chg_sum_tv.tag_configure('buy',  background='#0a1e0e', foreground='#80ff80')
-        self._chg_sum_tv.tag_configure('sell', background='#1e0a0a', foreground='#ff8080')
-        self._chg_sum_tv.tag_configure('both', background='#1a1a2e', foreground='#c0c0c0')
+        self._chg_sum_tv.tag_configure('buy',  background=CT('#0a1e0e', '#e2f3e3'),
+                                       foreground=CT('#80ff80', '#1d7a2c'))
+        self._chg_sum_tv.tag_configure('sell', background=CT('#1e0a0a', '#fbe3e1'),
+                                       foreground=CT('#ff8080', '#b3261e'))
+        self._chg_sum_tv.tag_configure('both', background=C_PANEL2, foreground=C_FG)
 
     # ── ETF 成分股變化 helpers ────────────────────────────────────────────────
 
@@ -6919,19 +7033,19 @@ class StockApp(tk.Tk):
         if tip is None or not tip.winfo_exists():
             tip = tk.Toplevel(self)
             tip.overrideredirect(True); tip.attributes('-topmost', True)
-            tip.configure(bg='#1e1e1e')
-            border = tk.Frame(tip, bg='#3e3e3e', padx=1, pady=1)
+            tip.configure(bg=C_PANEL)
+            border = tk.Frame(tip, bg=C_BORDER, padx=1, pady=1)
             border.pack(fill='both', expand=True)
-            inner  = tk.Frame(border, bg='#252526', padx=10, pady=8)
+            inner  = tk.Frame(border, bg=C_PANEL, padx=10, pady=8)
             inner.pack(fill='both', expand=True)
             self._chg_tip_w = {}
             for key in ('title', 'line1', 'line2', 'sep', 'etfs_frame'):
                 if key == 'etfs_frame':
-                    fr = tk.Frame(inner, bg='#252526')
+                    fr = tk.Frame(inner, bg=C_PANEL)
                     fr.pack(fill='x')
                     self._chg_tip_w[key] = fr
                 else:
-                    lbl = tk.Label(inner, bg='#252526',
+                    lbl = tk.Label(inner, bg=C_PANEL,
                                    font=UIF(10), anchor='w')
                     lbl.pack(fill='x')
                     self._chg_tip_w[key] = lbl
@@ -6941,20 +7055,20 @@ class StockApp(tk.Tk):
         net_s = (f"{net/1000:+.1f}張" if abs(net) >= 100 else f"{net:+,}股")
         fg_net = '#f07070' if net >= 0 else '#4ec94e'
         w['title'].config(text=f'{data["name"]}  {data["code"]}',
-                          fg='#8ab4d4', font=UIF(11, 'bold'))
+                          fg=C_TITLE, font=UIF(11, 'bold'))
         w['line1'].config(text=f'活躍度：{data["weight"]:.1f}張（|買|+|賣|）',
-                          fg='#cccccc')
+                          fg=C_FG)
         w['line2'].config(text=f'淨異動：{net_s}', fg=fg_net)
         w['sep'].config(text='─' * 22, fg='#3a3a4a', font=('Consolas', 8))
         fr = w['etfs_frame']
         for child in fr.winfo_children():
             child.destroy()
         for etf, _, s in sorted(data.get('buy_etfs', []), key=lambda x: -x[2])[:4]:
-            tk.Label(fr, bg='#252526', fg='#80e080', anchor='w',
+            tk.Label(fr, bg=C_PANEL, fg='#80e080', anchor='w',
                      font=UIF(9),
                      text=f'  {etf}  買入 {s//1000:.0f}張').pack(fill='x')
         for etf, _, s in sorted(data.get('sell_etfs', []), key=lambda x: -x[2])[:4]:
-            tk.Label(fr, bg='#252526', fg='#e08080', anchor='w',
+            tk.Label(fr, bg=C_PANEL, fg='#e08080', anchor='w',
                      font=UIF(9),
                      text=f'  {etf}  賣出 {s//1000:.0f}張').pack(fill='x')
         self._place_tooltip(tip, sx, sy)
@@ -6968,8 +7082,8 @@ class StockApp(tk.Tk):
         if tip is None or not tip.winfo_exists():
             tip = tk.Toplevel(self)
             tip.overrideredirect(True); tip.attributes('-topmost', True)
-            tip.configure(bg='#1e1e1e')
-            border = tk.Frame(tip, bg='#3e3e3e', padx=1, pady=1)
+            tip.configure(bg=C_PANEL)
+            border = tk.Frame(tip, bg=C_BORDER, padx=1, pady=1)
             border.pack(fill='both', expand=True)
             inner  = tk.Frame(border, bg='#1c1c2c', padx=10, pady=8)
             inner.pack(fill='both', expand=True)
@@ -6989,7 +7103,7 @@ class StockApp(tk.Tk):
         title  = data.get('display_name', data['sector'])
         w['title'].config(text=title,
                           fg='#f0c060', font=UIF(12, 'bold'))
-        w['act'].config(text=f'類股活躍度：{data["total_sw"]:.1f}張', fg='#cccccc')
+        w['act'].config(text=f'類股活躍度：{data["total_sw"]:.1f}張', fg=C_FG)
         w['net'].config(text=f'淨異動：{net_s}', fg=fg_net)
         expand_hint = '點擊展開查看子類股' if data.get('_is_other') else '點擊展開'
         w['count'].config(text=f'成分股：{data["count"]} 檔   ·   {expand_hint}',
@@ -7219,12 +7333,12 @@ class StockApp(tk.Tk):
             w.destroy()
         self._cmp_tags.clear()
         for code, name in self._cmp_etf_list:
-            tag = tk.Frame(self._cmp_tag_frame, bg='#2a3f6f',
+            tag = tk.Frame(self._cmp_tag_frame, bg=C_ACCENT_BG,
                            padx=6, pady=2, relief='flat')
             tag.pack(side='left', padx=3, pady=2)
-            tk.Label(tag, text=f'{code} {name}', bg='#2a3f6f', fg='white',
+            tk.Label(tag, text=f'{code} {name}', bg=C_ACCENT_BG, fg='white',
                      font=UIF(8)).pack(side='left')
-            _x = tk.Label(tag, text=' ×', bg='#2a3f6f', fg='#f07070',
+            _x = tk.Label(tag, text=' ×', bg=C_ACCENT_BG, fg=C_UP_FG,
                           font=UIF(9, 'bold'), cursor='hand2')
             _x.pack(side='left', padx=(2, 0))
             _x.bind('<Button-1>', lambda e, c=code: self._cmp_remove_etf(c))
@@ -7405,7 +7519,7 @@ class StockApp(tk.Tk):
         # ── 期間選擇按鈕 ──────────────────────────────────────────────────────
         import datetime as _datetime
         import pandas as _pd_line
-        _period_frame = tk.Frame(chart_frame, bg='#1a1a2e')
+        _period_frame = tk.Frame(chart_frame, bg=C_PANEL2)
         _period_frame.pack(fill='x', pady=(2, 4))
         _cur_pid = ['1Y']   # mutable container so closure can read current period
 
@@ -7420,7 +7534,7 @@ class StockApp(tk.Tk):
         def _draw_period(pid, btn_ref):
             _cur_pid[0] = pid
             for _b in _period_btns:
-                _b.config(bg='#2a2a4e', fg='#8899cc')
+                _b.config(bg='#2a2a4e', fg=C_FG2)
             btn_ref.config(bg='#4a6fa5', fg='white')
 
             now = _datetime.datetime.now()
@@ -7486,7 +7600,7 @@ class StockApp(tk.Tk):
                               ('1Y','1年'), ('ALL','全部')]:
             _b = tk.Button(_period_frame, text=_plbl,
                            bg='#4a6fa5' if _pid == '1Y' else '#2a2a4e',
-                           fg='white' if _pid == '1Y' else '#8899cc',
+                           fg='white' if _pid == '1Y' else C_FG2,
                            font=UIF(9),
                            relief='flat', padx=10, pady=3, cursor='hand2')
             _b.pack(side='left', padx=3)
@@ -7871,7 +7985,7 @@ class StockApp(tk.Tk):
         cmp_fig_canvas.mpl_connect('figure_leave_event',  _on_cmp_leave)
         cmp_fig_canvas.mpl_connect('button_press_event',  _on_heat_click)
 
-        tk.Frame(self._cmp_inner, bg='#2a2a3e', height=2).pack(fill='x', pady=(4, 0))
+        tk.Frame(self._cmp_inner, bg=C_BTN_BG, height=2).pack(fill='x', pady=(4, 0))
 
         # ── Header row ──────────────────────────────────────────────────────
         COL_W   = 120   # px per ETF column
@@ -7929,10 +8043,10 @@ class StockApp(tk.Tk):
 
             for ci, (d, val, num) in enumerate(zip(ordered, vals, nums)):
                 if is_pct and num is not None:
-                    fg = '#f07070' if num >= 0 else '#4ec94e'
+                    fg = C_UP_FG if num >= 0 else C_DN_FG
                     txt = f'{num:+.2f}%'
                 elif val == '—' or val is None:
-                    fg = '#555577'; txt = '—'
+                    fg = C_FG3; txt = '—'
                 else:
                     fg = C_FG; txt = str(val)
                 if compare and num is not None and num == best:
@@ -7954,9 +8068,9 @@ class StockApp(tk.Tk):
 
         # ── 分組標題 ────────────────────────────────────────────────────────
         def _section(title):
-            s = tk.Frame(self._cmp_inner, bg='#1a1a2e')
+            s = tk.Frame(self._cmp_inner, bg=C_PANEL2)
             s.pack(fill='x')
-            tk.Label(s, text=f'  {title}', bg='#1a1a2e', fg='#6a8faf',
+            tk.Label(s, text=f'  {title}', bg=C_PANEL2, fg=C_FG2,
                      font=UIF(8, 'bold'),
                      anchor='w', pady=3).pack(fill='x')
             tk.Frame(self._cmp_inner, bg='#2a2a4e', height=1).pack(fill='x')
@@ -8145,7 +8259,7 @@ class StockApp(tk.Tk):
             if prem is not None:
                 sign  = '+' if prem >= 0 else ''
                 label = '溢價' if prem >= 0 else '折價'
-                fg    = '#f07070' if prem >= 0 else '#4ec94e'
+                fg    = C_UP_FG if prem >= 0 else C_DN_FG
                 self._etf_sv_alloc.set(f'{sign}{prem:.3f}%（{label}）')
                 self._etf_sl_alloc.config(fg=fg)
             else:
@@ -9052,7 +9166,7 @@ class StockApp(tk.Tk):
                 row=0, column=0, columnspan=4, sticky='w', padx=8, pady=(4, 2))
             for ri, row in enumerate(rows, start=1):
                 for ci, (txt, anchor, width) in enumerate(row):
-                    tk.Label(sf, text=txt, bg=C_TBL, fg='#cccccc',
+                    tk.Label(sf, text=txt, bg=C_TBL, fg=C_FG,
                              font=UIF(9),
                              anchor=anchor, width=width).grid(
                         row=ri, column=ci, sticky='w', padx=(8 if ci == 0 else 4), pady=1)
@@ -9236,10 +9350,13 @@ class StockApp(tk.Tk):
             tv.column(col, width=w, anchor='center' if col != '名稱' else 'w', stretch=False)
         tv.pack(fill='both', expand=True)
         # 顏色標籤
-        tv.tag_configure('good',   background='#0d2010', foreground='#60e060')
-        tv.tag_configure('ok',     background='#1a1a10', foreground='#d0c070')
-        tv.tag_configure('bad',    background='#200808', foreground='#e06060')
-        tv.tag_configure('nodata', background='#1a1a2a', foreground='#555577')
+        tv.tag_configure('good',   background=CT('#0d2010', '#e2f3e3'),
+                         foreground=CT('#60e060', '#1d7a2c'))
+        tv.tag_configure('ok',     background=CT('#1a1a10', '#f7f3da'),
+                         foreground=CT('#d0c070', '#8a7a1e'))
+        tv.tag_configure('bad',    background=CT('#200808', '#fbe3e1'),
+                         foreground=CT('#e06060', '#b3261e'))
+        tv.tag_configure('nodata', background=CT('#1a1a2a', '#eceef5'), foreground=C_FG3)
 
         # 排序功能
         _sort_state = {'col': '期望值', 'rev': True, 'data': []}
@@ -9897,21 +10014,21 @@ class StockApp(tk.Tk):
             tip = tk.Toplevel(self)
             tip.overrideredirect(True)
             tip.attributes('-topmost', True)
-            tip.configure(bg='#1e1e1e')
-            border = tk.Frame(tip, bg='#3e3e3e', padx=1, pady=1)
+            tip.configure(bg=C_PANEL)
+            border = tk.Frame(tip, bg=C_BORDER, padx=1, pady=1)
             border.pack(fill='both', expand=True)
-            inner = tk.Frame(border, bg='#252526', padx=10, pady=8)
+            inner = tk.Frame(border, bg=C_PANEL, padx=10, pady=8)
             inner.pack(fill='both', expand=True)
             self._aetf_hm_tip_widgets = {}
             for key in ('title', 'weight', 'line3', 'line4', 'line5'):
-                lbl = tk.Label(inner, bg='#252526',
+                lbl = tk.Label(inner, bg=C_PANEL,
                                font=UIF(10), anchor='w')
                 lbl.pack(fill='x')
                 self._aetf_hm_tip_widgets[key] = lbl
-            hist_sep   = tk.Label(inner, bg='#252526', fg='#3a3a4a',
+            hist_sep   = tk.Label(inner, bg=C_PANEL, fg='#3a3a4a',
                                   font=('Consolas', 8), anchor='w')
             hist_sep.pack(fill='x')
-            hist_frame = tk.Frame(inner, bg='#252526')
+            hist_frame = tk.Frame(inner, bg=C_PANEL)
             hist_frame.pack(fill='x')
             self._aetf_hm_tip_widgets['hist_sep']   = hist_sep
             self._aetf_hm_tip_widgets['hist_frame'] = hist_frame
@@ -9921,43 +10038,43 @@ class StockApp(tk.Tk):
         mode = data.get('mode', 'wchg')
         w['title'].config(
             text=f'{data["name"]}  {data["code"]}',
-            fg='#8ab4d4', font=UIF(11, 'bold'))
+            fg=C_TITLE, font=UIF(11, 'bold'))
         w['weight'].config(
-            text=f'ETF 占比：{data["weight"]:.4f}%', fg='#cccccc')
+            text=f'ETF 占比：{data["weight"]:.4f}%', fg=C_FG)
 
         earn_pct   = data.get('earn_pct')
         earn_label = data.get('earn_label', '期間漲跌')
 
         if mode == 'today':
             pct  = data.get('change_pct', 0) or 0
-            fg   = '#f07070' if pct >= 0 else '#4ec94e'
+            fg   = C_UP_FG if pct >= 0 else C_DN_FG
             sign = '+' if pct >= 0 else ''
             price_txt = ('—' if data.get('price') is None
                          else f'{data["price"]:,.2f} 元')
-            w['line3'].config(text=f'現價：{price_txt}', fg='#cccccc')
+            w['line3'].config(text=f'現價：{price_txt}', fg=C_FG)
             w['line4'].config(text=f'今日漲跌：{sign}{pct:.2f}%', fg=fg)
-            w['line5'].config(text='', fg='#aaaaaa')
+            w['line5'].config(text='', fg=C_FG2)
         elif mode == 'wchg':
             wchg = data.get('wchg') or 0
-            fg   = '#f07070' if wchg >= 0 else '#4ec94e'
+            fg   = C_UP_FG if wchg >= 0 else C_DN_FG
             sign = '+' if wchg >= 0 else ''
             w['line3'].config(text=f'比重變化：{sign}{wchg:.4f}%', fg=fg)
             w['line4'].config(
                 text=(f'張數：{data["shares"]/1000:,.0f} 張'
-                      if data.get('shares') else ''), fg='#aaaaaa')
+                      if data.get('shares') else ''), fg=C_FG2)
             if earn_pct is not None:
                 efg = '#f07070' if earn_pct >= 0 else '#4ec94e'
                 w['line5'].config(text=f'{earn_label}：{earn_pct:+.2f}%', fg=efg)
             else:
-                w['line5'].config(text='', fg='#aaaaaa')
+                w['line5'].config(text='', fg=C_FG2)
         else:  # pchg
             pchg = data.get('pchg')
             schg = data.get('schg') or 0
             if data.get('is_new'):
                 w['line3'].config(text='新增成分股', fg='#70e070')
-                w['line4'].config(text='', fg='#aaaaaa')
+                w['line4'].config(text='', fg=C_FG2)
             else:
-                fg   = '#f07070' if schg >= 0 else '#4ec94e'
+                fg   = C_UP_FG if schg >= 0 else C_DN_FG
                 sign = '+' if schg >= 0 else ''
                 w['line3'].config(
                     text=f'張數變化：{sign}{schg/1000:,.0f} 張', fg=fg)
@@ -9968,7 +10085,7 @@ class StockApp(tk.Tk):
                 efg = '#f07070' if earn_pct >= 0 else '#4ec94e'
                 w['line5'].config(text=f'{earn_label}：{earn_pct:+.2f}%', fg=efg)
             else:
-                w['line5'].config(text='', fg='#aaaaaa')
+                w['line5'].config(text='', fg=C_FG2)
 
         # 動態歷史異動區塊
         earn_changes = data.get('earn_changes', [])
@@ -9988,7 +10105,7 @@ class StockApp(tk.Tk):
                                 else f'{abs(delta):,}股')
                     line_txt = f'{date_fmt}  {shares_s}  @{price:,.0f}元'
                     fg_h = '#f07070' if delta > 0 else '#4ec94e'
-                    tk.Label(hist_frame, text=line_txt, bg='#252526', fg=fg_h,
+                    tk.Label(hist_frame, text=line_txt, bg=C_PANEL, fg=fg_h,
                              font=UIF(9), anchor='w').pack(fill='x')
             else:
                 hist_sep.config(text='')
@@ -10015,8 +10132,8 @@ class StockApp(tk.Tk):
             tip = tk.Toplevel(self)
             tip.overrideredirect(True)
             tip.attributes('-topmost', True)
-            tip.configure(bg='#1e1e1e')
-            border = tk.Frame(tip, bg='#3e3e3e', padx=1, pady=1)
+            tip.configure(bg=C_PANEL)
+            border = tk.Frame(tip, bg=C_BORDER, padx=1, pady=1)
             border.pack(fill='both', expand=True)
             inner = tk.Frame(border, bg='#1c1c2c', padx=10, pady=8)
             inner.pack(fill='both', expand=True)
@@ -10039,7 +10156,7 @@ class StockApp(tk.Tk):
 
         w['title'].config(text=data['sector'],
                           fg='#f0c060', font=UIF(12, 'bold'))
-        w['weight'].config(text=f'類股比重：{data["total_sw"]:.2f}%', fg='#cccccc')
+        w['weight'].config(text=f'類股比重：{data["total_sw"]:.2f}%', fg=C_FG)
         w['change'].config(text=f'{color_lbl}（加權平均）：{sec_val:+.2f}%', fg=fg_val)
         w['count'].config(
             text=f'成分股：{data["count"]} 檔   ·   點擊展開詳細', fg='#7080a0')
@@ -10081,14 +10198,14 @@ class StockApp(tk.Tk):
             tip = tk.Toplevel(self)
             tip.overrideredirect(True)
             tip.attributes('-topmost', True)
-            tip.configure(bg='#1e1e1e')
-            border = tk.Frame(tip, bg='#3e3e3e', padx=1, pady=1)
+            tip.configure(bg=C_PANEL)
+            border = tk.Frame(tip, bg=C_BORDER, padx=1, pady=1)
             border.pack(fill='both', expand=True)
-            inner = tk.Frame(border, bg='#252526', padx=10, pady=8)
+            inner = tk.Frame(border, bg=C_PANEL, padx=10, pady=8)
             inner.pack(fill='both', expand=True)
             self._etf_tip_widgets = {}
             for key in ('title', 'weight', 'price', 'change'):
-                lbl = tk.Label(inner, bg='#252526',
+                lbl = tk.Label(inner, bg=C_PANEL,
                                font=UIF(10), anchor='w')
                 lbl.pack(fill='x')
                 self._etf_tip_widgets[key] = lbl
@@ -10096,13 +10213,13 @@ class StockApp(tk.Tk):
 
         w    = self._etf_tip_widgets
         pct  = data['change_pct']
-        fg   = '#f07070' if pct >= 0 else '#4ec94e'
+        fg   = C_UP_FG if pct >= 0 else C_DN_FG
         sign = '+' if pct >= 0 else ''
         w['title'].config(text=f'{data["name"]}  {data["code"]}',
-                          fg='#8ab4d4', font=UIF(11, 'bold'))
+                          fg=C_TITLE, font=UIF(11, 'bold'))
         price_txt = '—' if data['price'] is None else f'{data["price"]:,.2f} 元'
-        w['weight'].config(text=f'ETF 占比：{data["weight"]:.4f}%', fg='#cccccc')
-        w['price'].config(text=f'現價：{price_txt}', fg='#cccccc')
+        w['weight'].config(text=f'ETF 占比：{data["weight"]:.4f}%', fg=C_FG)
+        w['price'].config(text=f'現價：{price_txt}', fg=C_FG)
         w['change'].config(text=f'今日漲跌：{sign}{pct:.2f}%', fg=fg)
         self._place_tooltip(self._etf_tooltip, sx, sy)
         self._etf_tooltip.deiconify()
@@ -10165,7 +10282,7 @@ class StockApp(tk.Tk):
         self._mkt_period     = '1D'
         self._mkt_period_btns: dict[str, tk.Label] = {}
         for pid, plbl in [('RT', '即時'), ('1D', '1日'), ('5D', '5日'), ('10D', '10日'), ('1M', '1月')]:
-            btn = tk.Label(period_bar, text=plbl, bg='#1a1a2e', fg=C_FG2,
+            btn = tk.Label(period_bar, text=plbl, bg=C_PANEL2, fg=C_FG2,
                            font=UIF(9), padx=10, pady=3,
                            relief='flat', cursor='hand2')
             btn.pack(side='left', padx=2)
@@ -10178,12 +10295,12 @@ class StockApp(tk.Tk):
         stats_bar.pack(fill='x', padx=8, pady=(0, 4))
 
         def _sc(parent, title):
-            fr = tk.Frame(parent, bg='#1a1a2e', padx=14, pady=6)
+            fr = tk.Frame(parent, bg=C_PANEL2, padx=14, pady=6)
             fr.pack(side='left', padx=3)
-            tk.Label(fr, text=title, bg='#1a1a2e', fg='#6a8faf',
+            tk.Label(fr, text=title, bg=C_PANEL2, fg=C_FG2,
                      font=UIF(8)).pack(anchor='w')
             var = tk.StringVar(value='—')
-            lbl = tk.Label(fr, textvariable=var, bg='#1a1a2e',
+            lbl = tk.Label(fr, textvariable=var, bg=C_PANEL2,
                            fg=C_FG, font=UIF(11, 'bold'))
             lbl.pack(anchor='w')
             return var, lbl
@@ -10195,12 +10312,12 @@ class StockApp(tk.Tk):
         self._mkt_sv_total, self._mkt_sl_total = _sc(stats_bar, '總計')
 
         # ── 強勢類股排行（右側）──────────────────────────────────────────────
-        self._mkt_hot_frame = tk.Frame(stats_bar, bg='#1a1a2e')
+        self._mkt_hot_frame = tk.Frame(stats_bar, bg=C_PANEL2)
         self._mkt_hot_frame.pack(side='left', fill='both', expand=True, padx=(8, 4), pady=3)
-        tk.Label(self._mkt_hot_frame, text='強勢類股', bg='#1a1a2e', fg='#6a8faf',
+        tk.Label(self._mkt_hot_frame, text='強勢類股', bg=C_PANEL2, fg=C_FG2,
                  font=UIF(8)).pack(anchor='nw', padx=8, pady=(4, 0))
         self._mkt_hot_lbl = tk.Label(
-            self._mkt_hot_frame, text='', bg='#1a1a2e', fg='#f07070',
+            self._mkt_hot_frame, text='', bg=C_PANEL2, fg=C_UP_FG,
             font=UIF(11, 'bold'),
             anchor='w', justify='left', padx=8, pady=0)
         self._mkt_hot_lbl.pack(fill='x', expand=True)
@@ -10219,9 +10336,9 @@ class StockApp(tk.Tk):
         self._mkt_tooltip = tk.Toplevel(self)
         self._mkt_tooltip.withdraw()
         self._mkt_tooltip.overrideredirect(True)
-        self._mkt_tooltip.configure(bg='#1a1a2e')
+        self._mkt_tooltip.configure(bg=C_PANEL2)
         self._mkt_tt_lbl = tk.Label(
-            self._mkt_tooltip, bg='#1a1a2e', fg=C_FG,
+            self._mkt_tooltip, bg=C_PANEL2, fg=C_FG,
             font=UIF(9), justify='left', padx=8, pady=6)
         self._mkt_tt_lbl.pack()
 
@@ -10261,7 +10378,7 @@ class StockApp(tk.Tk):
             if pid == self._mkt_period:
                 btn.config(bg='#2a4a6e', fg='white')
             else:
-                btn.config(bg='#1a1a2e', fg=C_FG2)
+                btn.config(bg=C_PANEL2, fg=C_FG2)
 
     # ── 資料抓取 + 繪製（背景執行緒）─────────────────────────────────────────
 
@@ -10743,9 +10860,9 @@ class StockApp(tk.Tk):
             chg_str = f'  {sign}{taiex_chg:.2f}%' if taiex_chg is not None else ''
             self._mkt_sv_taiex.set(f'{taiex_price:,.2f}{chg_str}')
             self._mkt_sl_taiex.config(
-                fg='#f07070' if (taiex_chg or 0) >= 0 else '#4ec94e')
-        self._mkt_sv_up   .set(f'{up} 檔');  self._mkt_sl_up  .config(fg='#f07070')
-        self._mkt_sv_down .set(f'{down} 檔'); self._mkt_sl_down.config(fg='#4ec94e')
+                fg=C_UP_FG if (taiex_chg or 0) >= 0 else C_DN_FG)
+        self._mkt_sv_up   .set(f'{up} 檔');  self._mkt_sl_up  .config(fg=C_UP_FG)
+        self._mkt_sv_down .set(f'{down} 檔'); self._mkt_sl_down.config(fg=C_DN_FG)
         self._mkt_sv_flat .set(f'{flat} 檔'); self._mkt_sl_flat.config(fg=C_FG)
         self._mkt_sv_total.set(f'{up+down+flat} 檔')
 
@@ -10796,6 +10913,9 @@ class StockApp(tk.Tk):
         flat     = self._mkt_flat
 
         fig = self._mkt_fig
+        # 同步 figure 與 widget 像素（device_pixel_ratio 在 <Map> 後改變 dpi
+        # 卻不觸發 <Configure>，若不同步繪圖會被裁切成左上 2/3）
+        _fit_fig_to_canvas(fig, self._mkt_canvas)
         fig.clf()
         ax  = fig.add_axes([0, 0.03, 1, 0.97])
         ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.axis('off')
@@ -10965,6 +11085,7 @@ class StockApp(tk.Tk):
             return
 
         fig = self._mkt_fig
+        _fit_fig_to_canvas(fig, self._mkt_canvas)
         fig.clf()
         # 頂部返回列
         bax = fig.add_axes([0, 0.93, 1, 0.07]); bax.axis('off')
@@ -11067,6 +11188,7 @@ class StockApp(tk.Tk):
         self._update_mkt_hot_sectors(sub_raw_groups)
 
         fig = self._mkt_fig
+        _fit_fig_to_canvas(fig, self._mkt_canvas)
         fig.clf()
         # 頂部返回列
         bax = fig.add_axes([0, 0.93, 1, 0.07]); bax.axis('off')
@@ -11472,7 +11594,7 @@ class StockApp(tk.Tk):
         self._us_mkt_period = '1D'
         self._us_mkt_period_btns: dict[str, tk.Label] = {}
         for pid, plbl in [('1D', '1日'), ('5D', '5日'), ('1M', '1月'), ('3M', '3月')]:
-            btn = tk.Label(period_bar, text=plbl, bg='#1a1a2e', fg=C_FG2,
+            btn = tk.Label(period_bar, text=plbl, bg=C_PANEL2, fg=C_FG2,
                            font=UIF(9), padx=10, pady=3,
                            relief='flat', cursor='hand2')
             btn.pack(side='left', padx=2)
@@ -11485,12 +11607,12 @@ class StockApp(tk.Tk):
         stats_bar.pack(fill='x', padx=8, pady=(0, 4))
 
         def _sc(parent, title):
-            fr = tk.Frame(parent, bg='#1a1a2e', padx=14, pady=6)
+            fr = tk.Frame(parent, bg=C_PANEL2, padx=14, pady=6)
             fr.pack(side='left', padx=3)
-            tk.Label(fr, text=title, bg='#1a1a2e', fg='#6a8faf',
+            tk.Label(fr, text=title, bg=C_PANEL2, fg=C_FG2,
                      font=UIF(8)).pack(anchor='w')
             var = tk.StringVar(value='—')
-            lbl = tk.Label(fr, textvariable=var, bg='#1a1a2e',
+            lbl = tk.Label(fr, textvariable=var, bg=C_PANEL2,
                            fg=C_FG, font=UIF(11, 'bold'))
             lbl.pack(anchor='w')
             return var, lbl
@@ -11503,12 +11625,12 @@ class StockApp(tk.Tk):
         self._us_sv_total,  self._us_sl_total   = _sc(stats_bar, '總計')
 
         # ── 強勢類股排行（右側）──────────────────────────────────────────────
-        self._us_hot_frame = tk.Frame(stats_bar, bg='#1a1a2e')
+        self._us_hot_frame = tk.Frame(stats_bar, bg=C_PANEL2)
         self._us_hot_frame.pack(side='left', fill='both', expand=True, padx=(8, 4), pady=3)
-        tk.Label(self._us_hot_frame, text='強勢類股', bg='#1a1a2e', fg='#6a8faf',
+        tk.Label(self._us_hot_frame, text='強勢類股', bg=C_PANEL2, fg=C_FG2,
                  font=UIF(8)).pack(anchor='nw', padx=8, pady=(4, 0))
         self._us_hot_lbl = tk.Label(
-            self._us_hot_frame, text='', bg='#1a1a2e', fg='#4ec94e',
+            self._us_hot_frame, text='', bg=C_PANEL2, fg=C_DN_FG,
             font=UIF(11, 'bold'),
             anchor='w', justify='left', padx=8, pady=0)
         self._us_hot_lbl.pack(fill='x', expand=True)
@@ -11526,9 +11648,9 @@ class StockApp(tk.Tk):
         self._us_mkt_tooltip = tk.Toplevel(self)
         self._us_mkt_tooltip.withdraw()
         self._us_mkt_tooltip.overrideredirect(True)
-        self._us_mkt_tooltip.configure(bg='#1a1a2e')
+        self._us_mkt_tooltip.configure(bg=C_PANEL2)
         self._us_mkt_tt_lbl = tk.Label(
-            self._us_mkt_tooltip, bg='#1a1a2e', fg=C_FG,
+            self._us_mkt_tooltip, bg=C_PANEL2, fg=C_FG,
             font=UIF(9), justify='left', padx=8, pady=6)
         self._us_mkt_tt_lbl.pack()
 
@@ -11557,7 +11679,7 @@ class StockApp(tk.Tk):
             if pid == self._us_mkt_period:
                 btn.config(bg='#2a4a6e', fg='white')
             else:
-                btn.config(bg='#1a1a2e', fg=C_FG2)
+                btn.config(bg=C_PANEL2, fg=C_FG2)
 
     # ── 資料抓取 + 繪製（背景執行緒）─────────────────────────────────────────
 
@@ -11717,7 +11839,7 @@ class StockApp(tk.Tk):
                 sign = '+' if (chg or 0) >= 0 else ''
                 chg_str = f'  {sign}{chg:.2f}%' if chg is not None else ''
                 var.set(f'{price:,.2f}{chg_str}')
-                lbl.config(fg='#4ec94e' if (chg or 0) >= 0 else '#f07070')
+                lbl.config(fg=C_DN_FG if (chg or 0) >= 0 else C_UP_FG)
             else:
                 var.set('—')
 
@@ -11725,8 +11847,8 @@ class StockApp(tk.Tk):
         _fmt_idx(self._us_sv_nasdaq, self._us_sl_nasdaq, nasdaq_price, nasdaq_chg)
         _fmt_idx(self._us_sv_dow,    self._us_sl_dow,    dow_price,    dow_chg)
 
-        self._us_sv_up   .set(f'{up} 檔');        self._us_sl_up  .config(fg='#4ec94e')
-        self._us_sv_down .set(f'{down} 檔');      self._us_sl_down.config(fg='#f07070')
+        self._us_sv_up   .set(f'{up} 檔');        self._us_sl_up  .config(fg=C_DN_FG)
+        self._us_sv_down .set(f'{down} 檔');      self._us_sl_down.config(fg=C_UP_FG)
         self._us_sv_total.set(f'{up + down} 檔')
 
         # 強勢類股
@@ -11754,6 +11876,7 @@ class StockApp(tk.Tk):
     def _render_us_overview(self):
         groups = self._us_mkt_groups
         fig    = self._us_mkt_fig
+        _fit_fig_to_canvas(fig, self._us_mkt_canvas)
         fig.clf()
         ax  = fig.add_axes([0, 0.03, 1, 0.97])
         ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.axis('off')
@@ -11893,6 +12016,7 @@ class StockApp(tk.Tk):
     def _render_us_drill(self, sec_name: str):
         stocks  = self._us_mkt_groups.get(sec_name, [])
         fig     = self._us_mkt_fig
+        _fit_fig_to_canvas(fig, self._us_mkt_canvas)
         fig.clf()
         ax  = fig.add_axes([0, 0.04, 1, 0.96])
         ax.set_xlim(0, 100); ax.set_ylim(0, 100); ax.axis('off')
@@ -12068,7 +12192,7 @@ class StockApp(tk.Tk):
 
         # ── 快速選股列（ctrl 正下方）────────────────────────────────────
         _CTRL_BG2 = '#1c1c28'
-        _QB = dict(bg='#2a2a3e', fg='#8899cc', font=UIF(8),
+        _QB = dict(bg=C_BTN_BG, fg=C_FG2, font=UIF(8),
                    relief='flat', padx=7, pady=2, cursor='hand2',
                    highlightthickness=0, activebackground='#3a3a5e',
                    activeforeground='#aaaaee')
@@ -12077,7 +12201,7 @@ class StockApp(tk.Tk):
         tk.Label(qpick_bar, text='快速選股：', bg=_CTRL_BG2, fg='#7fb3d3',
                  font=UIF(8, 'bold')).pack(side='left', padx=(8, 6))
 
-        tk.Label(qpick_bar, text='最近：', bg=_CTRL_BG2, fg='#6677aa',
+        tk.Label(qpick_bar, text='最近：', bg=_CTRL_BG2, fg=C_FG3,
                  font=UIF(8)).pack(side='left', padx=(0, 2))
         self._stk_recent_var = tk.StringVar()
         self._stk_recent_cb  = ttk.Combobox(qpick_bar, textvariable=self._stk_recent_var,
@@ -12086,9 +12210,9 @@ class StockApp(tk.Tk):
         self._stk_recent_cb.pack(side='left', padx=(0, 4))
         self._stk_recent_cb.bind('<<ComboboxSelected>>', self._on_stk_recent_select)
 
-        tk.Label(qpick_bar, text='│', bg=_CTRL_BG2, fg='#333355').pack(side='left', padx=4)
+        tk.Label(qpick_bar, text='│', bg=_CTRL_BG2, fg=C_FG3).pack(side='left', padx=4)
 
-        tk.Label(qpick_bar, text='庫存：', bg=_CTRL_BG2, fg='#6677aa',
+        tk.Label(qpick_bar, text='庫存：', bg=_CTRL_BG2, fg=C_FG3,
                  font=UIF(8)).pack(side='left', padx=(0, 2))
         self._stk_holding_var = tk.StringVar()
         self._stk_holding_cb  = ttk.Combobox(qpick_bar, textvariable=self._stk_holding_var,
@@ -12097,9 +12221,9 @@ class StockApp(tk.Tk):
         self._stk_holding_cb.pack(side='left', padx=(0, 4))
         self._stk_holding_cb.bind('<<ComboboxSelected>>', self._on_stk_holding_select)
 
-        tk.Label(qpick_bar, text='│', bg=_CTRL_BG2, fg='#333355').pack(side='left', padx=4)
+        tk.Label(qpick_bar, text='│', bg=_CTRL_BG2, fg=C_FG3).pack(side='left', padx=4)
 
-        tk.Label(qpick_bar, text='群組：', bg=_CTRL_BG2, fg='#6677aa',
+        tk.Label(qpick_bar, text='群組：', bg=_CTRL_BG2, fg=C_FG3,
                  font=UIF(8)).pack(side='left', padx=(0, 2))
         self._stk_group_name_var = tk.StringVar()
         self._stk_group_name_cb  = ttk.Combobox(qpick_bar, textvariable=self._stk_group_name_var,
@@ -12130,7 +12254,7 @@ class StockApp(tk.Tk):
         status_bar = tk.Frame(f, bg=C_BG)
         status_bar.pack(fill='x', padx=14, pady=(0, 2))
         ttk.Label(status_bar, textvariable=self._stk_status,
-                  foreground='#6677aa', font=UIF(9)).pack(anchor='w')
+                  foreground=C_FG3, font=UIF(9)).pack(anchor='w')
 
         # ── 單一捲動區域：K線 + 財報連續顯示 ───────────────────────────────
         _CTRL_BG = '#1c1c28'
@@ -12139,7 +12263,7 @@ class StockApp(tk.Tk):
         kctrl = tk.Frame(f, bg=_CTRL_BG, pady=4)
         kctrl.pack(fill='x', padx=8, pady=(0, 2))
 
-        _BTN_OFF = dict(bg='#2a2a3e', fg='#8899cc',
+        _BTN_OFF = dict(bg=C_BTN_BG, fg=C_FG2,
                         font=UIF(8, 'bold'),
                         relief='flat', bd=0, padx=9, pady=3,
                         cursor='hand2',
@@ -12158,7 +12282,7 @@ class StockApp(tk.Tk):
         # 區間
         self._stk_period = '3M'
         self._stk_period_btns: dict[str, tk.Button] = {}
-        tk.Label(kctrl, text='區間:', bg=_CTRL_BG, fg='#6677aa',
+        tk.Label(kctrl, text='區間:', bg=_CTRL_BG, fg=C_FG3,
                  font=UIF(8)).pack(side='left', padx=(8, 4))
 
         def _set_stk_period(lbl):
@@ -12174,10 +12298,10 @@ class StockApp(tk.Tk):
             self._stk_period_btns[_pl] = _b
         _s6btn(self._stk_period_btns['3M'], True)
 
-        tk.Label(kctrl, text='│', bg=_CTRL_BG, fg='#333355').pack(side='left', padx=6)
+        tk.Label(kctrl, text='│', bg=_CTRL_BG, fg=C_FG3).pack(side='left', padx=6)
 
         # 縮放按鈕
-        tk.Label(kctrl, text='縮放:', bg=_CTRL_BG, fg='#6677aa',
+        tk.Label(kctrl, text='縮放:', bg=_CTRL_BG, fg=C_FG3,
                  font=UIF(8)).pack(side='left', padx=(0, 4))
         tk.Button(kctrl, text='＋', **_BTN_OFF,
                   command=lambda: self._stk_zoom(0.6)).pack(side='left', padx=2)
@@ -12186,14 +12310,14 @@ class StockApp(tk.Tk):
         tk.Button(kctrl, text='全覽', **_BTN_OFF,
                   command=self._stk_zoom_reset).pack(side='left', padx=2)
 
-        tk.Label(kctrl, text='│', bg=_CTRL_BG, fg='#333355').pack(side='left', padx=6)
+        tk.Label(kctrl, text='│', bg=_CTRL_BG, fg=C_FG3).pack(side='left', padx=6)
 
         # 指標
         self._stk_ind_state: dict[str, bool] = {
             'MA': True, 'BB': False, 'VOL': True,
             'MACD': True, 'RSI': False, 'KD': True, 'TL': True, 'GAP': False}
         self._stk_ind_btns: dict[str, tk.Button] = {}
-        tk.Label(kctrl, text='指標:', bg=_CTRL_BG, fg='#6677aa',
+        tk.Label(kctrl, text='指標:', bg=_CTRL_BG, fg=C_FG3,
                  font=UIF(8)).pack(side='left', padx=(0, 4))
 
         def _toggle_stk_ind(lbl):
@@ -12210,7 +12334,7 @@ class StockApp(tk.Tk):
             self._stk_ind_btns[_il] = _b
 
         # WantGoo 快速連結（右側）
-        tk.Label(kctrl, text='│', bg=_CTRL_BG, fg='#333355').pack(side='left', padx=6)
+        tk.Label(kctrl, text='│', bg=_CTRL_BG, fg=C_FG3).pack(side='left', padx=6)
         self._wg_open_btn = tk.Button(
             kctrl, text='🌐 WantGoo', **_BTN_OFF,
             command=self._open_wantgoo_kline)
@@ -12230,7 +12354,7 @@ class StockApp(tk.Tk):
         self._stk_draw_start = None
         self._stk_drawings   = []
         self._stk_draw_btns  = {}
-        _DB_OFF = dict(bg='#2a2a3e', fg='#8899cc', font=UIF(9),
+        _DB_OFF = dict(bg=C_BTN_BG, fg=C_FG2, font=UIF(9),
                        relief='flat', padx=8, pady=2, cursor='hand2',
                        highlightthickness=0, activebackground='#3a3a5e',
                        activeforeground='#aaaaee')
@@ -12312,7 +12436,7 @@ class StockApp(tk.Tk):
         _redk_sb = tk.Spinbox(
             zhujia_bar, from_=0, to=80, increment=5, width=4,
             textvariable=self._stk_zhujia_redk_var,
-            bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
+            bg=C_BTN_BG, fg=C_FG2, insertbackground=C_FG2,
             buttonbackground='#2a2a3e', relief='flat',
             font=UIF(8),
             command=self._redraw_stk_kline)
@@ -12333,7 +12457,7 @@ class StockApp(tk.Tk):
         _vol_sb = tk.Spinbox(
             zhujia_bar, from_=0.5, to=3.0, increment=0.1, width=4,
             textvariable=self._stk_zhujia_vol_var,
-            bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
+            bg=C_BTN_BG, fg=C_FG2, insertbackground=C_FG2,
             buttonbackground='#2a2a3e', relief='flat',
             font=UIF(8),
             command=self._redraw_stk_kline)
@@ -12391,7 +12515,7 @@ class StockApp(tk.Tk):
         _linen_vol_sb = tk.Spinbox(
             zhujia_bar, from_=0.5, to=5.0, increment=0.1, width=4,
             textvariable=self._stk_linen_vol_var,
-            bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
+            bg=C_BTN_BG, fg=C_FG2, insertbackground=C_FG2,
             buttonbackground='#2a2a3e', relief='flat',
             font=UIF(8),
             command=self._redraw_stk_kline)
@@ -12406,14 +12530,14 @@ class StockApp(tk.Tk):
         self._bt_years_var = tk.IntVar(value=2)
         tk.Spinbox(zhujia_bar, from_=1, to=5, increment=1, width=2,
                    textvariable=self._bt_years_var,
-                   bg='#2a2a3e', fg='#8899cc', insertbackground='#8899cc',
+                   bg=C_BTN_BG, fg=C_FG2, insertbackground=C_FG2,
                    buttonbackground='#2a2a3e', relief='flat',
                    font=UIF(8)).pack(side='left', padx=(2, 0))
         tk.Label(zhujia_bar, text='年', bg='#1c1c28', fg='#6677aa',
                  font=UIF(8)).pack(side='left', padx=(1, 4))
         # 方法選擇
-        _BT_ON  = dict(bg='#2a3f6f', fg='#ffffff', relief='flat', font=UIF(8, 'bold'), cursor='hand2', padx=6)
-        _BT_OFF = dict(bg='#2a2a3e', fg='#8899cc', relief='flat', font=UIF(8),         cursor='hand2', padx=6)
+        _BT_ON  = dict(bg=C_ACCENT_BG, fg='#ffffff', relief='flat', font=UIF(8, 'bold'), cursor='hand2', padx=6)
+        _BT_OFF = dict(bg=C_BTN_BG, fg=C_FG2, relief='flat', font=UIF(8),         cursor='hand2', padx=6)
         self._bt_method = tk.StringVar(value='linen')
         self._bt_linen_btn  = tk.Button(zhujia_bar, text='林恩如', **_BT_ON,
                                         command=lambda: self._bt_switch('linen'))
@@ -12629,7 +12753,7 @@ class StockApp(tk.Tk):
         fin_status_bar.pack(fill='x')
         self._fin_status = tk.StringVar(value='財報走勢（查詢後顯示）')
         ttk.Label(fin_status_bar, textvariable=self._fin_status,
-                  foreground='#6a8faf',
+                  foreground=C_FG2,
                   font=UIF(8)).pack(side='left', padx=10)
 
         self._fin_fig = plt.Figure(figsize=(14, 10), dpi=100, facecolor=CHART_BG)
@@ -12899,8 +13023,8 @@ class StockApp(tk.Tk):
     def _bt_switch(self, method):
         """切換回測方法，更新按鈕高亮。"""
         self._bt_method.set(method)
-        _ON  = dict(bg='#2a3f6f', fg='#ffffff', font=UIF(8, 'bold'))
-        _OFF = dict(bg='#2a2a3e', fg='#8899cc', font=UIF(8))
+        _ON  = dict(bg=C_ACCENT_BG, fg='#ffffff', font=UIF(8, 'bold'))
+        _OFF = dict(bg=C_BTN_BG, fg=C_FG2, font=UIF(8))
         self._bt_linen_btn.config( **(_ON  if method == 'linen'  else _OFF))
         self._bt_zhujia_btn.config(**(_ON  if method == 'zhujia' else _OFF))
 
@@ -15694,9 +15818,9 @@ class StockApp(tk.Tk):
             self._fin_tooltip = tk.Toplevel(self)
             self._fin_tooltip.withdraw()
             self._fin_tooltip.overrideredirect(True)
-            self._fin_tooltip.configure(bg='#1a1a2e')
+            self._fin_tooltip.configure(bg=C_PANEL2)
             self._fin_tt_lbl = tk.Label(
-                self._fin_tooltip, bg='#1a1a2e', fg='#e0e0e0',
+                self._fin_tooltip, bg=C_PANEL2, fg='#e0e0e0',
                 font=UIF(9), justify='left', padx=10, pady=7)
             self._fin_tt_lbl.pack()
 
@@ -16522,11 +16646,15 @@ class StockApp(tk.Tk):
                                   anchor=anchor, stretch=False)
 
         # 標籤色彩：依滿足條件數
-        self._scr_tv.tag_configure('hi5',  background='#1a3a1a', foreground='#90ee90')
-        self._scr_tv.tag_configure('hi3',  background='#1a2a1a', foreground='#c8e6c8')
+        self._scr_tv.tag_configure('hi5',  background=CT('#1a3a1a', '#d9f0d9'),
+                                   foreground=CT('#90ee90', '#1d7a2c'))
+        self._scr_tv.tag_configure('hi3',  background=CT('#1a2a1a', '#e8f5e8'),
+                                   foreground=CT('#c8e6c8', '#3a8a4a'))
         self._scr_tv.tag_configure('norm', background=C_BG,      foreground=C_FG)
-        self._scr_tv.tag_configure('wtch', background='#1a1a35', foreground='#aab4ff')
-        self._scr_tv.tag_configure('sel',  background='#2a3f6f', foreground='#ffffff')
+        self._scr_tv.tag_configure('wtch', background=CT('#1a1a35', '#e3e8fb'),
+                                   foreground=CT('#aab4ff', '#3a50b0'))
+        self._scr_tv.tag_configure('sel',  background=C_ACCENT_BG,
+                                   foreground=CT('#ffffff', '#173a67'))
 
         vsb = ttk.Scrollbar(tbl_frame, orient='vertical',   command=self._scr_tv.yview)
         hsb = ttk.Scrollbar(tbl_frame, orient='horizontal',  command=self._scr_tv.xview)

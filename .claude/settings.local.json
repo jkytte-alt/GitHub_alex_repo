@@ -150,7 +150,12 @@
       "Bash(git -C \"d:/python/GitHub_alex_repo\" show bf515ad --name-only --oneline)",
       "Bash(git -C \"d:/python/GitHub_alex_repo\" show bf515ad -- stock_app.py)",
       "PowerShell(python -m py_compile \"d:\\\\python\\\\GitHub_alex_repo\\\\stock_app.py\")",
-      "PowerShell(if \\($?\\) { \"OK\" })"
+      "PowerShell(if \\($?\\) { \"OK\" })",
+      "PowerShell(python -c \"import ctypes; ctypes.windll.shcore.SetProcessDpiAwareness\\(1\\); import tkinter as tk; r = tk.Tk\\(\\); r.withdraw\\(\\); print\\('tk scaling =', r.tk.call\\('tk','scaling'\\)\\); import matplotlib; print\\('mpl', matplotlib.__version__\\); r.destroy\\(\\)\")",
+      "PowerShell(python \"d:\\\\python\\\\GitHub_alex_repo\\\\_theme_sweep.py\")",
+      "PowerShell(if \\($?\\) { \"COMPILE OK\" })",
+      "PowerShell(Remove-Item \"d:\\\\python\\\\GitHub_alex_repo\\\\_theme_sweep.py\" -Confirm:$false)",
+      "PowerShell(cd d:\\\\python\\\\GitHub_alex_repo; $env:STOCK_APP_THEME='light'; python -c \"import stock_app; print\\('LIGHT OK', stock_app.UI_LIGHT, stock_app.C_BG\\)\"; $env:STOCK_APP_THEME='dark'; python -c \"import stock_app; print\\('DARK OK', stock_app.UI_LIGHT, stock_app.C_BG\\)\"; $env:STOCK_APP_THEME='')"
     ]
   }
 }
