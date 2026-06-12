@@ -176,7 +176,8 @@
       "PowerShell($env:STOCK_APP_THEME='dark'; $env:PYTHONUNBUFFERED='1'; py -3 -u \"d:\\\\Python\\\\GitHub_alex_repo\\\\stock_app.py\")",
       "PowerShell(py -3 \"d:\\\\Python\\\\GitHub_alex_repo\\\\_theme_revert_hm.py\")",
       "PowerShell($f = \"d:\\\\Python\\\\GitHub_alex_repo\\\\stock_app.py\"; $c = [IO.File]::ReadAllText\\($f\\); $c = $c.Replace\\(\"_today_fg   = '#f07070' if _today_gain >= 0 else '#4ec94e'\", \"_today_fg   = CT\\('#f07070', '#d93025'\\) if _today_gain >= 0 else CT\\('#4ec94e', '#188038'\\)\"\\); $c = $c.Replace\\(\"pnl_fg        = '#f07070' if pnl_amt >= 0 else '#4ec94e'\", \"pnl_fg        = CT\\('#f07070', '#d93025'\\) if pnl_amt >= 0 else CT\\('#4ec94e', '#188038'\\)\"\\); $c = $c.Replace\\(\"_dd_fg   = '#f07070' if _dd_gain >= 0 else '#4ec94e'\", \"_dd_fg   = CT\\('#f07070', '#d93025'\\) if _dd_gain >= 0 else CT\\('#4ec94e', '#188038'\\)\"\\); $c = $c.Replace\\(\"_d_fg   = '#f07070' if _d_pnl >= 0 else '#4ec94e'\", \"_d_fg   = CT\\('#f07070', '#d93025'\\) if _d_pnl >= 0 else CT\\('#4ec94e', '#188038'\\)\"\\); [IO.File]::WriteAllText\\($f, $c\\); \"done\")",
-      "PowerShell(\"ok\")"
+      "PowerShell(\"ok\")",
+      "PowerShell(py -m py_compile stock_app.py)"
     ]
   }
 }

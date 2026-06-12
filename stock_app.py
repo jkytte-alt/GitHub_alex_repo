@@ -16593,6 +16593,10 @@ class StockApp(tk.Tk):
         self._scr_min_tech_var = tk.StringVar(value='2')
         ttk.Entry(r3, textvariable=self._scr_min_tech_var, width=3).pack(side='left', padx=(2, 2))
         tk.Label(r3, text='項', bg=C_PANEL, fg=C_FG, font=FONT9).pack(side='left')
+        self._scr_chk_sig = tk.BooleanVar(value=True)
+        tk.Checkbutton(r3, text='林恩如/朱家泓/型態 至少滿足 1 項', variable=self._scr_chk_sig,
+                       bg=C_PANEL, fg=C_FG, selectcolor=CT('#2a3f6f', '#cfe0fa'),
+                       activebackground=C_PANEL, font=FONT9).pack(side='left', padx=(12, 0))
 
         # 第四列：法人/大戶條件
         r4 = tk.Frame(sett, bg=C_PANEL); r4.pack(fill='x', pady=1)
@@ -16658,12 +16662,18 @@ class StockApp(tk.Tk):
         tbl_frame.pack(fill='both', expand=True, padx=8, pady=(0, 6))
 
         col_ids = [c[0] for c in self._SCR_COLS]
+        # 專屬樣式：字體加大、列高加高（其餘屬性繼承全域 Treeview）
+        _scr_style = ttk.Style()
+        _scr_style.configure('Scr.Treeview', font=UIF(11),
+                             rowheight=int(30 * UI_SCALE))
+        _scr_style.configure('Scr.Treeview.Heading', font=UIF(10, 'bold'))
         self._scr_tv = ttk.Treeview(tbl_frame, columns=col_ids, show='headings',
-                                    selectmode='none')
+                                    selectmode='browse', style='Scr.Treeview')
         for col_id, header, width, anchor in self._SCR_COLS:
+            w = int(width * 1.15)   # 配合加大字體放寬欄寬
             self._scr_tv.heading(col_id, text=header,
                                   command=lambda c=col_id: self._scr_sort_col(c))
-            self._scr_tv.column(col_id, width=width, minwidth=width,
+            self._scr_tv.column(col_id, width=w, minwidth=w,
                                   anchor=anchor, stretch=False)
 
         # 標籤色彩：依滿足條件數
@@ -16889,6 +16899,7 @@ class StockApp(tk.Tk):
             'vol_surge': self._scr_chk_vol.get(),
         }
         min_tech = max(1, int(self._scr_min_tech_var.get() or 1))
+        chk_sig  = self._scr_chk_sig.get()
 
         chk_tin      = self._scr_chk_tin.get()
         tin_days     = self._scr_tin_days.get()
@@ -16908,7 +16919,7 @@ class StockApp(tk.Tk):
                 return
             r = self._scr_fetch_one(code, ind, sfx, do_fund, min_yoy, min_con, chk, min_tech,
                                     chk_tin, tin_days, chk_large, large_min, chk_large_up,
-                                    chk_vol_min, vol_min)
+                                    chk_vol_min, vol_min, chk_sig)
             with lock:
                 done[0] += 1
                 if r:
@@ -16931,7 +16942,8 @@ class StockApp(tk.Tk):
 
     def _scr_fetch_one(self, code, ind, sfx, do_fund, min_yoy, min_con, chk, min_tech,
                        chk_tin=False, tin_days=3, chk_large=False, large_min=30.0,
-                       chk_large_up=False, chk_vol_min=False, vol_min=1000):
+                       chk_large_up=False, chk_vol_min=False, vol_min=1000,
+                       chk_sig=True):
         """抓一檔股票的基本面+技術面資料，不符合條件回 None。"""
         import numpy as np
         import pandas as pd
@@ -17098,6 +17110,10 @@ class StockApp(tk.Tk):
             except Exception:
                 pass
 
+            # 林恩如/朱家泓/型態 至少需滿足一項
+            if chk_sig and not (linen_sig or zhujia_sig or pattern_sig):
+                return None
+
         except Exception:
             return None
 
@@ -17219,8 +17235,9 @@ class StockApp(tk.Tk):
         row_id = self._scr_tv.identify_row(event.y)
         if not row_id:
             return
-        col = self._scr_tv.identify_column(event.x)
-        # 第一欄（#1）= checkbox toggle；其他欄位 = 也 toggle（方便點選）
+        # 只有點擊第一欄（☑ 選取框）才切換勾選；其他欄位交給 browse 模式 highlight
+        if self._scr_tv.identify_column(event.x) != '#1':
+            return
         code = row_id
         if code in self._scr_selected:
             self._scr_selected.discard(code)
@@ -17231,6 +17248,8 @@ class StockApp(tk.Tk):
         self._scr_refresh_row(code)
 
     def _scr_on_dbl_click(self, event):
+        if self._scr_tv.identify_column(event.x) == '#1':
+            return   # 選取框欄位雙擊不跳轉
         row_id = self._scr_tv.identify_row(event.y)
         if not row_id:
             return
