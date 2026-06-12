@@ -155,7 +155,27 @@
       "PowerShell(python \"d:\\\\python\\\\GitHub_alex_repo\\\\_theme_sweep.py\")",
       "PowerShell(if \\($?\\) { \"COMPILE OK\" })",
       "PowerShell(Remove-Item \"d:\\\\python\\\\GitHub_alex_repo\\\\_theme_sweep.py\" -Confirm:$false)",
-      "PowerShell(cd d:\\\\python\\\\GitHub_alex_repo; $env:STOCK_APP_THEME='light'; python -c \"import stock_app; print\\('LIGHT OK', stock_app.UI_LIGHT, stock_app.C_BG\\)\"; $env:STOCK_APP_THEME='dark'; python -c \"import stock_app; print\\('DARK OK', stock_app.UI_LIGHT, stock_app.C_BG\\)\"; $env:STOCK_APP_THEME='')"
+      "PowerShell(cd d:\\\\python\\\\GitHub_alex_repo; $env:STOCK_APP_THEME='light'; python -c \"import stock_app; print\\('LIGHT OK', stock_app.UI_LIGHT, stock_app.C_BG\\)\"; $env:STOCK_APP_THEME='dark'; python -c \"import stock_app; print\\('DARK OK', stock_app.UI_LIGHT, stock_app.C_BG\\)\"; $env:STOCK_APP_THEME='')",
+      "PowerShell($m = Select-String -Path \"d:\\\\Python\\\\GitHub_alex_repo\\\\stock_app.py\" -Pattern \"#[0-9a-fA-F]{6}\" -AllMatches; $m.Matches.Value | Group-Object | Sort-Object Count -Descending | Select-Object Count, Name -First 70 | Format-Table -AutoSize)",
+      "PowerShell($m = Select-String -Path \"d:\\\\Python\\\\GitHub_alex_repo\\\\stock_app.py\" -Pattern \"#[0-9a-fA-F]{6}\\\\b\" -AllMatches; $g = $m.Matches.Value | ForEach-Object { $_.ToLower\\(\\) } | Group-Object | Sort-Object Count -Descending; \"total unique: $\\($g.Count\\)\"; $g | Select-Object Count, Name | Format-Table -AutoSize | Out-String -Width 40)",
+      "PowerShell(\\(Get-Content \"d:\\\\Python\\\\GitHub_alex_repo\\\\stock_app.py\" | Measure-Object -Line\\).Lines)",
+      "PowerShell($m = Select-String -Path \"d:\\\\Python\\\\GitHub_alex_repo\\\\stock_app.py\" -Pattern \"'#[0-9a-fA-F]{3}'\" -AllMatches; $m | ForEach-Object { \"$\\($_.LineNumber\\): $\\($_.Line.Trim\\(\\)\\)\" })",
+      "PowerShell(python \"d:\\\\Python\\\\GitHub_alex_repo\\\\_theme_light_transform.py\")",
+      "PowerShell(py -3 \"d:\\\\Python\\\\GitHub_alex_repo\\\\_theme_light_transform.py\")",
+      "PowerShell(py -3 -m py_compile \"d:\\\\Python\\\\GitHub_alex_repo\\\\stock_app.py\")",
+      "PowerShell(py -3 \"d:\\\\Python\\\\GitHub_alex_repo\\\\_theme_scan.py\")",
+      "PowerShell(if \\($?\\) { \"compile OK\" })",
+      "PowerShell($env:STOCK_APP_THEME='light'; Start-Process -FilePath \"py\" -ArgumentList \"-3\",\"d:\\\\Python\\\\GitHub_alex_repo\\\\stock_app.py\" -WorkingDirectory \"d:\\\\Python\\\\GitHub_alex_repo\" -PassThru | Select-Object Id | Format-List)",
+      "PowerShell(Start-Sleep -Seconds 12; Add-Type -AssemblyName System.Windows.Forms,System.Drawing; $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height; $g = [System.Drawing.Graphics]::FromImage\\($bmp\\); $g.CopyFromScreen\\($b.Location, [System.Drawing.Point]::Empty, $b.Size\\); $bmp.Save\\(\"d:\\\\Python\\\\GitHub_alex_repo\\\\_theme_check_light.png\"\\); $g.Dispose\\(\\); $bmp.Dispose\\(\\); \"saved\")",
+      "PowerShell(Remove-Item \"d:\\\\Python\\\\GitHub_alex_repo\\\\_theme_check_light.png\" -Force; $p = Get-Process -Id 38888 -ErrorAction SilentlyContinue; if \\($p\\) { \"running; title=[$\\($p.MainWindowTitle\\)]; hwnd=$\\($p.MainWindowHandle\\)\" } else { \"process exited\" })",
+      "PowerShell($env:STOCK_APP_THEME='light'; $p = Start-Process -FilePath \"py\" -ArgumentList \"-3\",\"d:\\\\Python\\\\GitHub_alex_repo\\\\stock_app.py\" -WorkingDirectory \"d:\\\\Python\\\\GitHub_alex_repo\" -RedirectStandardError \"d:\\\\Python\\\\GitHub_alex_repo\\\\_app_err.txt\" -RedirectStandardOutput \"d:\\\\Python\\\\GitHub_alex_repo\\\\_app_out.txt\" -PassThru; Start-Sleep -Seconds 15; if \\($p.HasExited\\) { \"EXITED code=$\\($p.ExitCode\\)\" } else { \"still running pid=$\\($p.Id\\)\" }; Get-Content \"d:\\\\Python\\\\GitHub_alex_repo\\\\_app_err.txt\" -Tail 40)",
+      "PowerShell(Add-Type -AssemblyName System.Drawing; $bmp = [System.Drawing.Bitmap]::FromFile\\(\"d:\\\\Python\\\\GitHub_alex_repo\\\\_theme_check_light.png\"\\); \"size: $\\($bmp.Width\\)x$\\($bmp.Height\\)\"; foreach \\($pt in @\\(@\\(700,210\\), @\\(750,215\\), @\\(900,212\\), @\\(300,202\\), @\\(260,203\\), @\\(700,258\\), @\\(800,230\\)\\)\\) { $c = $bmp.GetPixel\\($pt[0], $pt[1]\\); \"{0},{1} = #{2:x2}{3:x2}{4:x2}\" -f $pt[0], $pt[1], $c.R, $c.G, $c.B }; $bmp.Dispose\\(\\))",
+      "PowerShell(Get-Process py,python -ErrorAction SilentlyContinue)",
+      "PowerShell(\"---err---\")",
+      "PowerShell(\"---out---\")",
+      "PowerShell($env:STOCK_APP_THEME='dark'; $env:PYTHONUNBUFFERED='1'; py -3 -u \"d:\\\\Python\\\\GitHub_alex_repo\\\\stock_app.py\")",
+      "PowerShell(py -3 \"d:\\\\Python\\\\GitHub_alex_repo\\\\_theme_revert_hm.py\")",
+      "PowerShell($f = \"d:\\\\Python\\\\GitHub_alex_repo\\\\stock_app.py\"; $c = [IO.File]::ReadAllText\\($f\\); $c = $c.Replace\\(\"_today_fg   = '#f07070' if _today_gain >= 0 else '#4ec94e'\", \"_today_fg   = CT\\('#f07070', '#d93025'\\) if _today_gain >= 0 else CT\\('#4ec94e', '#188038'\\)\"\\); $c = $c.Replace\\(\"pnl_fg        = '#f07070' if pnl_amt >= 0 else '#4ec94e'\", \"pnl_fg        = CT\\('#f07070', '#d93025'\\) if pnl_amt >= 0 else CT\\('#4ec94e', '#188038'\\)\"\\); $c = $c.Replace\\(\"_dd_fg   = '#f07070' if _dd_gain >= 0 else '#4ec94e'\", \"_dd_fg   = CT\\('#f07070', '#d93025'\\) if _dd_gain >= 0 else CT\\('#4ec94e', '#188038'\\)\"\\); $c = $c.Replace\\(\"_d_fg   = '#f07070' if _d_pnl >= 0 else '#4ec94e'\", \"_d_fg   = CT\\('#f07070', '#d93025'\\) if _d_pnl >= 0 else CT\\('#4ec94e', '#188038'\\)\"\\); [IO.File]::WriteAllText\\($f, $c\\); \"done\")"
     ]
   }
 }
