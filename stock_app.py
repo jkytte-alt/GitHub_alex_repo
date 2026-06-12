@@ -12254,11 +12254,10 @@ class StockApp(tk.Tk):
         self.after(100, self._stk_refresh_holding_cb)
         self.after(100, self._stk_refresh_group_cbs)
 
+        # 狀態文字（即時報價時間/提示）放標題列右側，不另佔一列
         self._stk_status = tk.StringVar(value='請輸入股票代號後點擊查詢')
-        status_bar = tk.Frame(f, bg=C_BG)
-        status_bar.pack(fill='x', padx=14, pady=(0, 2))
-        ttk.Label(status_bar, textvariable=self._stk_status,
-                  foreground=C_FG3, font=UIF(9)).pack(anchor='w')
+        ttk.Label(ctrl, textvariable=self._stk_status,
+                  foreground=C_FG3, font=UIF(9)).pack(side='right', padx=(0, 12))
 
         # ── 單一捲動區域：K線 + 財報連續顯示 ───────────────────────────────
         _CTRL_BG = CT('#1c1c28', '#e7eaf2')
@@ -12344,14 +12343,33 @@ class StockApp(tk.Tk):
             command=self._open_wantgoo_kline)
         self._wg_open_btn.pack(side='left', padx=2)
 
+        # 進階工具收合切換（繪線/型態/朱家泓/林恩如/回測），預設收合以放大K線
+        self._stk_adv_visible = False
+
+        def _toggle_adv():
+            self._stk_adv_visible = not self._stk_adv_visible
+            if self._stk_adv_visible:
+                adv_box.pack(fill='x', padx=8, pady=0, before=info_bar)
+                self._stk_adv_btn.config(text='🛠 進階工具 ▴', **_BTN_ON)
+            else:
+                adv_box.pack_forget()
+                self._stk_adv_btn.config(text='🛠 進階工具 ▾', **_BTN_OFF)
+
+        self._stk_adv_btn = tk.Button(kctrl, text='🛠 進階工具 ▾', **_BTN_OFF,
+                                      command=_toggle_adv)
+        self._stk_adv_btn.pack(side='right', padx=(2, 8))
+
         _FI  = UIF(9)
         _FIP = UIF(20, 'bold')
         self._stk_rt_job  = None
         self._stk_rt_code = None
 
-        # ── 繪線工具列 ───────────────────────────────────────────────────
-        draw_bar = tk.Frame(f, bg=CT('#1c1c28', '#e7eaf2'), pady=3)
-        draw_bar.pack(fill='x', padx=8, pady=(2, 0))
+        # ── 進階工具收合容器（列1：繪線+型態；列2：朱家泓+林恩如+回測）──
+        adv_box = tk.Frame(f, bg=C_BG)   # 預設收合，不 pack；由 進階工具 鈕切換
+
+        # ── 繪線工具列（與型態分析同列）──────────────────────────────────
+        draw_bar = tk.Frame(adv_box, bg=CT('#1c1c28', '#e7eaf2'), pady=3)
+        draw_bar.pack(fill='x', pady=(2, 0))
         tk.Label(draw_bar, text='繪線：', bg=CT('#1c1c28', '#e7eaf2'), fg=CT('#6677aa', '#566390'),
                  font=UIF(8)).pack(side='left', padx=(8, 4))
         self._stk_draw_mode  = 'none'
@@ -12401,8 +12419,8 @@ class StockApp(tk.Tk):
         self._set_draw_color(CT('#f0c060', '#b07a20'))   # 初始選中黃色
 
         # ── 朱家泓老師技術分析工具列 ─────────────────────────────────────
-        zhujia_bar = tk.Frame(f, bg=CT('#1c1c28', '#e7eaf2'), pady=3)
-        zhujia_bar.pack(fill='x', padx=8, pady=(2, 0))
+        zhujia_bar = tk.Frame(adv_box, bg=CT('#1c1c28', '#e7eaf2'), pady=3)
+        zhujia_bar.pack(fill='x', pady=(2, 0))
         tk.Label(zhujia_bar, text='朱家泓老師技術分析：', bg=CT('#1c1c28', '#e7eaf2'), fg=CT('#d4af37', '#9a7b1e'),
                  font=UIF(8, 'bold')).pack(side='left', padx=(8, 6))
 
@@ -12556,11 +12574,12 @@ class StockApp(tk.Tk):
                   cursor='hand2',
                   command=self._run_backtest).pack(side='left', padx=2)
 
-        # ── 型態分析工具列 ───────────────────────────────────────────────
-        pat_bar = tk.Frame(f, bg=CT('#1c1c28', '#e7eaf2'), pady=3)
-        pat_bar.pack(fill='x', padx=8, pady=(2, 0))
+        # ── 型態分析（接在繪線列右側，共用同一列）────────────────────────
+        pat_bar = draw_bar
+        tk.Label(pat_bar, text='│', bg=CT('#1c1c28', '#e7eaf2'),
+                 fg=CT('#333355', '#d5dae8')).pack(side='left', padx=6)
         tk.Label(pat_bar, text='型態分析：', bg=CT('#1c1c28', '#e7eaf2'), fg=CT('#b8a0e8', '#6a3fb5'),
-                 font=UIF(8, 'bold')).pack(side='left', padx=(8, 6))
+                 font=UIF(8, 'bold')).pack(side='left', padx=(0, 6))
 
         self._stk_pattern_on    = True   # 預設開啟偵測（按鈕高亮），但個別型態預設不顯示
         self._stk_pattern_state = {
@@ -16482,9 +16501,7 @@ class StockApp(tk.Tk):
         ('vol_surge',  '爆量',      45, 'center'),
         ('tech_count', '滿足',      38, 'center'),
         ('price',      '現價',      62, 'e'),
-        ('ma5',        'MA5',       60, 'e'),
-        ('ma20',       'MA20',      60, 'e'),
-        ('ma60',       'MA60',      60, 'e'),
+        # MA5/MA20/MA60 數值欄已隱藏（資料仍計算）：MA 排列以「MA排列」✓/✗ 判讀即可
         ('kd_k',       'KD-K',      48, 'e'),
         ('rsi',        'RSI',       48, 'e'),
         ('tin_net',    '投信(張)',  60, 'e'),
@@ -17149,7 +17166,7 @@ class StockApp(tk.Tk):
                 return f'{v:.1f}%'
             if col_id == 'rev_consec':
                 return f'{int(v)}季'
-            if col_id in ('rev_latest', 'price', 'ma5', 'ma20', 'ma60'):
+            if col_id in ('rev_latest', 'price'):
                 return f'{v:.2f}' if v >= 10 else f'{v:.3f}'
             if col_id in ('kd_k', 'rsi', 'large_pct'):
                 return f'{v:.1f}'
